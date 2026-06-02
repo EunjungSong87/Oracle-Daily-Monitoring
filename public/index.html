@@ -1,0 +1,200 @@
+<!-- index.html -->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!-- 페이지의 메타 정보를 설정합니다. -->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- 페이지의 스타일을 지정하는 CSS 코드입니다. -->
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f8f9fa;
+        }
+
+        h1 {
+            background-color: #343a40;
+            color: #ffffff;
+            padding: 20px;
+            margin: 0;
+        }
+
+        nav ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            background-color: #343a40;
+            overflow: hidden;
+        }
+
+        nav ul li {
+            float: left;
+            display: inline;
+            padding: 10px;
+        }
+
+        nav ul li a {
+            text-decoration: none;
+            color: #ffffff;
+            font-weight: bold;
+            display: inline-block;
+            padding: 10px 20px;
+            background-color: #343a40;
+            transition: background-color 0.3s ease;
+        }
+
+        nav ul li a:hover {
+            background-color: #495057;
+        }
+
+        #dbmses-list {
+
+            list-style: none;
+            padding: 0;
+            margin: 20px;
+        }
+
+        #dbmses-list li {
+            background-color: #ffffff;
+            border: 2px solid #ced4da;
+            padding: 15px;
+            margin-bottom: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            font-size : 15px; 
+            font-family: 'Inter', sans-serif;
+            font-weight: 400;
+        }
+
+        #dbmses-list li a {
+            text-decoration: none;
+            color: #520ed1;
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+
+        }
+
+        #dbmses-list li a:hover {
+            color: #007bff;
+        }
+    </style>
+</head>
+<body>
+    <!-- 페이지의 제목을 설정합니다. -->
+    <title>DBMS Daily Monitoring</title>
+    <!-- 페이지 상단에 표시되는 제목입니다. -->
+    <h1>DBMS Daily Monitoring</h1>
+    
+    <!-- 네비게이션 링크 -->
+    <nav>
+        <ul>
+            <!-- DBMS 추가 페이지 링크 -->
+            <li><a href="addDbms.html">Add DBMS </a></li>
+            <!-- 일일점검 수행 링크 -->
+            <li><a href="dailyMonitoring.html">Daily Monitoring </a></li>
+            <!-- 일일점검 스크립트 목록 링크 -->
+            <li><a href="monitoringScript.html">Monitoring Scripts </a></li>
+        </ul>
+    </nav>
+
+    <!-- DBMS 목록을 표시하는 부분입니다. -->
+    <ul id="dbmses-list"></ul>
+
+    <!-- JavaScript 코드입니다. -->
+    <script>
+            async function fetchDbmses() {
+                try {
+                    const response = await fetch('/main/dbmslist');
+                    const { columns, rows } = await response.json();
+
+                    const headerRow = document.getElementById('headerRow');
+                    const tableBody = document.getElementById('tableBody');
+                    const dbmsesList =  document.getElementById('dbmses-list');
+
+                    
+                    // 데이터 추가
+                    rows.forEach( row => {
+                    const listItem =     document.createElement('li');
+                    const modifyButton = document.createElement('button');
+                    const deleteButton = document.createElement('button');
+                    
+                    modifyButton.textContent = 'Modify';
+                    deleteButton.textContent = 'Delete';
+
+                    const dbConfig = {
+                                id       : row.ID, 
+                                dbname   : row.DBNAME,
+                                username : row.USERNAME,
+                                password : row.PASSWORD, 
+                                sid      : row.SID,
+                                ip       : row.IP,
+                                port     : row.PORT,  
+                                memo     : row.MEMO
+                    };
+                    
+                    //console.log( dbConfig);
+                    
+                    const dbmsId = row.ID
+                    modifyButton.onclick = () => modifyDBMS(event, dbConfig);
+                    deleteButton.onclick = () => deleteDBMS(event, dbmsId);
+
+                    columns.forEach(column => {
+                        const p =  document.createElement('p');
+
+                        p.innerHTML = `
+                                        <strong style="white-space: pre;"> ${column}:</strong> ${row[column]} <br>`
+                        listItem.appendChild(p);
+
+                      });
+                      
+                      listItem.appendChild(modifyButton);
+                      listItem.appendChild(deleteButton);
+                      dbmsesList.appendChild(listItem);
+                    });
+                } catch (error) {
+                    //console.error('Error fetching users:', error);
+                }
+            }
+
+
+
+            // dbms 정보 수정 함수
+            async function modifyDBMS(event, dbConfig) {
+                console.log(dbConfig);
+                localStorage.setItem("editData", JSON.stringify(dbConfig));
+                window.location.href = 'modifyDbms.html?';
+            }
+          
+
+            // dbms 삭제 함수 
+            async function deleteDBMS(event, dbmsId) {
+                console.log( 'DBMSID!!!!!!!', dbmsId );
+                try {
+                const response = await fetch( '/api/deleteDbms', {
+                                                                method : 'POST',
+                                                                headers: {
+                                                                            'Content-Type': 'application/json',
+                                                                },
+                                                                body: JSON.stringify({dbmsId}), // JSON 데이터 전송
+                });
+
+                    if (response.ok) {
+                        alert('DBMS 삭제 완료.');
+                        window.location.reload();
+                    } else {
+                        alert(`Request failed: ${response.status}`);
+                    }
+                } catch (error) {
+                    console.error('Error:', error.message);
+                    alert('An error occurred while sending the POST request.');
+                }
+            }
+
+            fetchDbmses();
+
+    </script>
+</body>
+</html>

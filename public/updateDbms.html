@@ -1,0 +1,133 @@
+<!-- addDbms.html -->
+
+<style>
+    /* addDbms.html에 해당하는 CSS 스타일 */
+
+    body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 0;
+        background-color: #f4f4f4;
+    }
+
+    form {
+        max-width: 600px;
+        margin: 20px auto;
+        padding: 20px;
+        background-color: #fff;
+        border: 1px solid #ddd;
+    }
+
+    label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+    }
+
+    input[type="text"],
+    textarea {
+        width: 100%;
+        padding: 8px;
+        margin-bottom: 10px;
+        box-sizing: border-box;
+    }
+
+    button {
+        background-color: #333;
+        color: #fff;
+        padding: 10px;
+        border: none;
+        cursor: pointer;
+        border-radius: 5px;
+        margin-right: 10px; /* 추가된 부분: 뒤로가기 버튼과의 간격을 조절합니다. */
+    }
+
+    button:hover {
+        background-color: #555;
+    }
+
+</style>
+
+<!-- 페이지 상단에 표시되는 제목입니다. -->
+<h1>Add DBMS</h1>
+
+<!-- DBMS 추가 폼입니다. -->
+<form id="add-dbms" onsubmit="updateDbms(event)">
+    <label for="DBMS">DBMS:</label>
+    <input type="text" id="DBMS" name="DBMS" required><br>
+
+    <label for="USERNAME">USERNAME:</label>
+    <input type="text" id="USERNAME" name="USERNAME" required><br>
+
+    <label for="PASSWORD">PASSWORD:</label>
+    <input type="text" id="PASSWORD" name="PASSWORD" required><br>
+
+    <label for="SID">SID:</label>
+    <input type="text" id="SID" name="SID" required><br>
+
+    <label for="IP">IP:</label>
+    <input type="text" id="IP" name="IP" required><br>
+
+    <label for="PORT">PORT:</label>
+    <input type="text" id="PORT" name="PORT" required><br>
+
+    <label for="MEMO">MEMO:</label>
+    <textarea id="MEMO" name="MEMO" ></textarea><br>
+
+    <!-- 게시글 작성 버튼 -->
+    <button type="submit">DBMS 추가</button>
+
+    <!-- 뒤로가기 버튼 -->
+    <button onclick="goBack()">뒤로 가기</button>
+</form>
+
+<!-- 게시글 작성 스크립트 파일을 로드합니다. -->
+<script>
+    async function addDbms(evnet) {
+        event.preventDefault();
+        const dbName   =  document.getElementById('DBMS');
+        const userName =  document.getElementById('USERNAME');
+        const passWord =  document.getElementById('PASSWORD');
+        const sid      =  document.getElementById('SID');
+        const ip       =  document.getElementById('IP');
+        const port     =  document.getElementById('PORT');
+        const memo     =  document.getElementById('MEMO');
+
+        
+        if (!dbName.value || !userName.value || !passWord.value || !sid.value || !ip.value || !port.value) {
+            alert('Please input DBMS INFO.');
+            return;
+        }
+
+        const dbConfig = {
+            dbname: dbName.value,
+            username: userName.value,
+            password: passWord.value,
+            sid: sid.value,
+            ip: ip.value,
+            port: port.value,
+            memo: memo.value
+        };
+
+        try {
+            const response = await fetch('/api/updateDbms', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(dbConfig)
+            });
+
+            if (response.ok) {
+                alert('DBMS 추가 완료.');
+            } else {
+                alert(`Request failed: ${response.status}`);
+            }
+        } catch (error) {
+            console.error('Error:', error.message);
+            alert('An error occurred while sending the POST request.');
+        }
+    }
+
+    function goBack() {
+        window.history.back();
+    }
+</script>

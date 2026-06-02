@@ -20,6 +20,9 @@
   },
   "homepage": "https://github.com/EunjungSong87/nodejs#readme",
   "dependencies": {
-    "express": "^4.21.1"
+    "body-parser": "^1.20.3",
+    "cors": "^2.8.5",
+    "express": "^4.21.1",
+    "oracledb": "^6.7.0"
   }
 }

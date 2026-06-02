@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!-- 페이지의 메타 정보를 설정합니다. -->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<!-- 페이지의 스타일을 지정하는 CSS 코드입니다. -->
+        <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f8f9fa;
+        }
+
+        h1 {
+            background-color: #343a40;
+            color: #ffffff;
+            padding: 20px;
+            margin: 0;
+        }
+
+        nav ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            background-color: #343a40;
+            overflow: hidden;
+        }
+
+        nav ul li {
+            float: left;
+            display: inline;
+            padding: 10px;
+        }
+
+        nav ul li a {
+            text-decoration: none;
+            color: #ffffff;
+            font-weight: bold;
+            display: inline-block;
+            padding: 10px 20px;
+            background-color: #343a40;
+            transition: background-color 0.3s ease;
+        }
+
+        nav ul li a:hover {
+            background-color: #495057;
+        }
+    
+
+    #script-list {
+        list-style: none;
+        padding: 0;
+        margin: 20px;
+    }
+
+    #script-list li {
+        background-color: #ffffff;
+        border: 2px solid #ced4da;
+        padding: 15px;
+        margin-bottom: 10px;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        font-size : 15px; 
+        font-family: 'Inter', sans-serif;
+        font-weight: 450;
+
+    }
+
+    #script-list li a {
+        text-decoration: none;
+        color: #520ed1;
+        font-weight : bold;
+        font-family: 'Inter', sans-serif;
+        font-weight: 450;
+    }
+
+    #script-list li a:hover {
+        color: #007bff;
+}
+</style>
+</head>
+
+<body>
+<!-- 페이지의 제목을 설정합니다. -->
+<title> Monitoring Script</title>
+<!-- 페이지 상단에 표시되는 제목입니다. -->
+<a href="index.html">
+<h1> Monitoring Script </h1>
+</a> 
+
+<!-- 네비게이션 링크 -->
+<nav>
+    <ul>
+        <!-- Script 추가 페이지 링크 -->
+        <li><a href="addScript.html">Add Script </a></li>
+    </ul>
+</nav>
+
+
+<!-- DBMS 목록을 표시하는 부분입니다. -->
+<ul id="script-list"></ul>
+
+<!-- JavaScript 코드입니다. -->
+<script>
+    async function fetchScripts() {
+        try {
+
+            const response = await fetch('/api/scriptlist');
+            const { columns, rows } = await response.json();
+
+            const headerRow = document.getElementById('headerRow');
+            const tableBody = document.getElementById('tableBody');
+            const scriptList =  document.getElementById('script-list');
+            
+            // 데이터 추가
+            rows.forEach( row => {
+            const listItem =     document.createElement('li');
+            const modifyButton = document.createElement('button');
+            const deleteButton = document.createElement('button');
+            
+            modifyButton.textContent = 'Modify';
+            deleteButton.textContent = 'Delete';
+
+            const scriptConfig = {
+                        id            : row.ID, 
+                        name          : row.NAME,
+                        category      : row.CATEGORY,
+                        description   : row.DESCRIPTION, 
+                        schedule      : row.SCHEDULE,
+                        is_active     : row.IS_ACTIVE,  
+                        created_at    : row.CREATED_AT,
+                        updated_at    : row.UPDATED_AT
+
+            };
+            
+            //console.log( dbConfig);
+            
+            const scriptId = row.ID
+            modifyButton.onclick = () => modifyScript(event, scriptConfig);
+            deleteButton.onclick = () => deletScript(event, scriptId);
+
+            columns.forEach(column => {
+                const p =  document.createElement('p');
+
+                p.innerHTML = `
+                                <strong style="white-space: pre;"> ${column}:</strong> ${row[column]} <br>`
+                listItem.appendChild(p);
+
+              });
+              
+              listItem.appendChild(modifyButton);
+              listItem.appendChild(deleteButton);
+              scriptList.appendChild(listItem);
+            });
+        } catch (error) {
+            console.error('Error fetching users:', error);
+        }
+    }
+
+    // script 정보 수정 함수
+    async function modifyScript(event, scriptConfig) {
+        console.log(scriptConfig);
+        localStorage.setItem("editData", JSON.stringify(scriptConfig));
+        window.location.href = 'modifyScript.html?';
+    }
+  
+
+    // script 삭제 함수 
+    async function deletScript(event, scriptId) {
+        console.log( 'DBMSID!!!!!!!', scriptId );
+        try {
+        const response = await fetch( '/api/deleteScript', {
+                                                        method : 'POST',
+                                                        headers: {
+                                                                    'Content-Type': 'application/json',
+                                                        },
+                                                        body: JSON.stringify({scriptId}), // JSON 데이터 전송
+        });
+
+            if (response.ok) {
+                alert('스크립트 삭제 완료.');
+                window.location.reload();
+            } else {
+                alert(`Request failed: ${response.status}`);
+            }
+        } catch (error) {
+            console.error('Error:', error.message);
+            alert('An error occurred while sending the POST request.');
+        }
+    }
+
+    fetchScripts();
+
+</script>
+</body>
+</html>

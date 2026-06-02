@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!-- 페이지의 메타 정보를 설정합니다. -->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <style>
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #ffffff;
+        }
+
+        h1 {
+            font-family: 'Inter', sans-serif;
+            background-color: #343a40;
+            color: #ffffff;
+            padding: 20px;
+            margin: 0;
+        }
+
+        .tab {
+            overflow: hidden;
+            border-bottom: 1px solid #ccc;
+            background-color: #f4f4f4;
+        }
+
+        .tab button {
+            background-color: inherit;
+            border: none;
+            outline: none;
+            cursor: pointer;
+            padding: 14px 16px;
+            transition: 0.3s;
+            font-size: 16px;
+        }
+
+        .tab button:hover {
+        background-color: #ddd;
+        }
+
+        .tab button.active {
+        background-color: #aaa6e4;
+        }
+
+        .tab-content {
+        display: none;
+        padding: 20px;
+        border-top: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        #Run-button {
+            background-color: #ae80e2;
+        }
+        .table {
+            width: 80%;
+            border-collapse: collapse;
+            margin: 20px auto;
+            table-layout: auto; 
+        }
+        .table td, th {
+            font-family:  sans-serif;
+            font-weight: 450;
+            border:1px solid gray;
+            padding: 10px;
+            white-space: pre-wrap;
+        }
+        .table th {
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            color: #ffffff;
+            background-color: #071b5e;
+            font-weight: 600;
+
+        }
+        #monInfo {
+            color: black;
+            font-size: 25px;
+        }
+        #NoResult {
+            color: rgba(10, 194, 86, 0.938);
+            text-align: center;
+            font-size: 25px;
+        }
+    </style>
+</head>
+<body>
+    <!-- 페이지의 제목을 설정합니다. -->
+    <title>Oracle DBMS Daily Monitoring</title>
+    <!-- 페이지 상단에 표시되는 제목입니다. -->
+    <a href="index.html">
+    <h1>Daily Monitoring</h1>
+    </a> 
+
+    <div id="tab-list" class="tab">
+        <button class="tab-link active" onclick="openTab(this, 'tab1')" >DBMS LIST</button>
+    </div>
+    
+
+    <div id="tab1" class="tab-content active">
+            <!-- 상단 버튼 -->
+            <button onclick="checkAllDbms()">Check ALL</button>
+            <button onclick="getCheckedRows('runButton')">RUN</button>
+            <button onclick="getCheckedRows('downloadButton')">Download Report</button>
+            
+            <table id="dbmses-list" class="table">
+                <thead>
+                    <tr id="headerRow">
+                    <!-- Headers will be inserted here -->
+                    </tr>
+                </thead>
+                <tbody id="tableBody">
+                    <!-- Data will be inserted here -->
+                </tbody>
+            </table>
+    </div>
+    
+     <!-- JavaScript 코드입니다. -->
+     <script>
+        function openTab(element, tabId) {
+
+            //document란?
+            //document 객체는 웹 브라우저에서 제공하는 **DOM (Document Object Model)**의 일부입니다.
+            //HTML 문서를 JavaScript로 조작할 때 사용됩니다.
+            //브라우저 환경에서만 접근 가능하며, Node.js와 같은 서버 환경에는 존재하지 않습니다.
+
+            // 모든 탭 컨텐츠를 숨기기
+            var tabContents = document.querySelectorAll('.tab-content');
+                tabContents.forEach(function(content) {
+                content.classList.remove('active');
+            });
+
+            // 모든 탭 버튼에서 active 클래스 제거
+            var tabLinks = document.querySelectorAll('.tab-link');
+                tabLinks.forEach(function(link) {
+                link.classList.remove('active');
+            });
+
+
+            element.classList.add('active');
+            // 클릭한 탭만 보이게 설정
+            document.getElementById(tabId).classList.add('active');
+            //evt.currentTarget.classList.add('active');
+        }
+
+             // DBMS 목록을 가져오는 함수
+             // fetch 함수는 XMLHttpRequest 객체보다 최근에 나온, HTTP 요청 전송 기능을 제공하는 Web API다.
+             // fetch 함수로 HTTP 요청하기
+             // fetch 함수에는 HTTP 요청을 전송할 URL, HTTP 요청 메서드, HTTP 요청 헤더, 페이로드 등을 설정한 객체를 전달한다.
+
+       async function createTable(url) {
+        try {
+            
+            const response = await fetch(url);
+
+            const { columns, rows } = await response.json();
+            console.log('dbmses 배열 값 : ', columns); 
+            const resultDiv =  document.getElementById('tab1');
+            const tab =  document.getElementById('dbmses-list');
+            const headerRow = document.getElementById('headerRow');
+            const tableBody = document.getElementById('tableBody');
+           
+
+
+            const checkth = document.createElement('th');
+            checkth.textContent = 'CHECK';
+            headerRow.appendChild(checkth);
+
+            // 컬럼명 추가
+            columns.forEach(column => {
+                const th = document.createElement('th');
+                th.textContent = column;
+                headerRow.appendChild(th);
+            });
+
+            // 데이터 추가
+            rows.forEach(row => {
+                const tr = document.createElement('tr');
+                const checkcell = document.createElement('td');
+                const checkbox = document.createElement('input');
+                checkbox.type ='checkbox';
+                checkbox.className='row-check';
+                checkcell.appendChild(checkbox);
+                tr.appendChild(checkcell);
+                
+                columns.forEach(column => {
+                    const td = document.createElement('td');
+                    td.textContent = row[column];
+                    tr.appendChild(td);
+                });
+                tableBody.appendChild(tr);
+           });
+           tab.appendChild(tableBody);
+           resultDiv.appendChild(tab);
+
+           //document.body.appendChild(tab);
+       } catch (error) {
+         console.log('Error fetching users:', error);
+      }}
+       
+       // dbms list 표 생성 
+       createTable('/api/dbmslist');
+
+       function checkAllDbms() {
+        try {
+            const checkboxes = document.querySelectorAll('.row-check');
+            checkboxes.forEach((checkbox, index) => {
+                checkbox.checked = true; 
+            })
+        } catch (error) {
+        console.log('Error fetching :', error);
+        }
+       };
+
+        function getCheckedRows(buttonName) {
+            //모든 체크박스 요소 가져오기
+            //정의: querySelectorAll() 메서드는 주어진 CSS 선택자와 일치하는 모든 요소를 NodeList 객체로 반환합니다.
+            //반환값: NodeList (유사 배열 객체, 실제 배열은 아님)
+            //**NodeList**는 forEach 같은 반복문을 사용할 수 있지만, 배열 메서드(map, filter 등)는 직접 사용 불가.
+            const checkboxes = document.querySelectorAll('.row-check');
+
+            
+            checkboxes.forEach((checkbox, index) => {
+                if (checkbox.checked) {  // 체크된 체크박스 확인
+                    const row = checkbox.closest('tr');  // 현재 체크박스의 부모 행(tr) 가져오기
+                    const cells = row.getElementsByTagName('td');  // 해당 행의 모든 셀(td) 가져오기
+                    
+                    const dbmsid = cells[1].innerText;
+
+                    const dbConfig = {
+                        id     : cells[1].innerText,
+                        dbname : cells[2].innerText,
+                        sid    : cells[4].innerText,
+                        ip     : cells[5].innerText,
+                        memo   : cells[7].innerText  
+                    };
+
+                    getMonResult(dbConfig, dbmsid, buttonName);
+                    console.log(dbmsid);
+
+                }
+            });
+                
+            // 결과를 콘솔에 출력
+            //console.log(selectedRows);
+            //alert(JSON.stringify(selectedRows, null, 2));  // 팝업으로 출력
+        }
+
+
+        //<!--  DB에서 Monitoring Script 실행 후 결과 값을 가져온다.-->
+        async function getMonResult(dbConfig, dbmsid, buttonName) {
+
+            const response = await fetch('/api/dbmslist/monResult', {
+                                                        method : 'POST',
+                                                        headers: {
+                                                                    'Content-Type': 'application/json',
+                                                        },
+                                                        body: JSON.stringify({dbmsid}), // JSON 데이터 전송
+            });
+
+            const  results = await response.json();
+            //console.log('값!!! 가져오기 성공 ', results);
+            
+            console.log('results task_name' , results);
+
+            addResultTab(dbConfig, results);
+
+            const now = new Date(); 
+            const y = now.getFullYear(); 
+            const m = String(now.getMonth()+1); 
+            const d = now.getDate();
+            const resultFileName = dbConfig.dbname + "_" + y + "_" + m + "_" + d + ".html";
+
+            // report 다운로드 
+            if ( buttonName === 'downloadButton') {
+                const tab = document.getElementById(dbConfig.dbname); 
+                openTab(tab, dbConfig.dbname);
+                //const html = document.getElementById(dbname).innerHTML;
+                const html = document.documentElement.outerHTML;
+                downloadHtml(html, resultFileName ); 
+            }
+            //alert(JSON.stringify(result, null, 2));  // 팝업으로 출력
+        }
+
+        //<!--  실행 결과 탭 화면 생성 -->
+        async function addResultTab( dbConfig, results) {
+            const dbname = dbConfig.dbname; 
+            console.log('addResultTab columns' , results);
+            console.log('results task_name' , results[0].task_name);
+        
+            
+            const tabList =  document.getElementById('tab-list');
+            //<button class="tab-link" onclick="openTab(event, 'tab3')">탭 3</button>
+            const button =  document.createElement('button');
+            // 탭 버튼에 클래스 추가
+            button.className = 'tab-link active';
+            // 탭 버튼에 텍스트 추가
+            button.textContent = dbname;
+            // 탭 버튼에 이벤트 추가 
+            button.onclick = function() { 
+                openTab(this, dbname);
+            }
+            
+            // tabList에 tab추가 
+            tabList.appendChild(button);
+            // <div id="tab2" class="tab-content">
+            //     <h3>탭 2 내용</h3>
+            //     <p>여기에 탭 2의 내용을 넣으세요.</p>
+            // </div>
+
+            const resultDiv =  document.createElement('div');
+            resultDiv.id = dbname;
+            resultDiv.className = 'tab-content'; 
+            resultDiv.innerHTML = `<h3>${dbname}</h3>`;
+
+
+            Object.entries(results).forEach( ([checkName, result], index ) => {
+                const monInfo = document.createElement('h3');
+                monInfo.textContent = results[index].task_name; 
+                monInfo.id = "monInfo";
+                resultDiv.appendChild(monInfo);
+                
+                // table 생성 
+                const tab =  document.createElement('table');
+                
+                // table에 클래스 추가 
+                tab.className = 'table'; 
+                const headerRow = document.createElement('thead');
+                const tableBody = document.createElement('tbody');
+                 
+
+                if ( result.rows.length === 0 ) { 
+                    const noResult = document.createElement('h3');
+                    noResult.id = 'NoResult';
+                    noResult.textContent = "No results found.";
+                    resultDiv.appendChild(noResult);
+                }
+                else {
+                    // 컬럼명 추가
+                    result.columns.forEach(column => {
+                            const th = document.createElement('th');
+                            th.textContent = column;
+                            headerRow.appendChild(th);
+                    });
+
+                    // 데이터 추가
+                    result.rows.forEach(row => {
+                        const tr = document.createElement('tr');
+                                
+                        result.columns.forEach(column => {
+                                const td = document.createElement('td');
+                                td.textContent = row[column];
+                                tr.appendChild(td);
+                        });
+
+                        tableBody.appendChild(tr);
+                        tab.appendChild(headerRow);
+                        tab.appendChild(tableBody);
+                        resultDiv.appendChild(tab);
+                        document.body.appendChild(resultDiv);
+                    });
+                }
+        });
+    
+        }
+
+        // html파일 다운로드 함수 
+        async function downloadHtml(htmlString, filename = 'download.html') {
+            const blob = new Blob([htmlString], { type: 'text/html;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+     </script>
+ </body>
+ </html>
