@@ -1,0 +1,20 @@
+services:
+  oracle-test:
+    image: gvenzl/oracle-free:latest
+    container_name: oracle-daily-monitoring-test
+    environment:
+      ORACLE_PASSWORD: ${ORACLE_PASSWORD:-OraTest_2026!}
+    ports:
+      - "1521:1521"
+    volumes:
+      - oracle_test_data:/opt/oracle/oradata
+      - ./docker/initdb:/container-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+volumes:
+  oracle_test_data:

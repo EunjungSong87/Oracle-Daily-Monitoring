@@ -20,8 +20,8 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 
 // 서버를 위한 포트를 설정합니다.
-const host = '172.28.117.30';
-const port = 3000;
+const host = process.env.APP_HOST || '172.28.117.30';
+const port = process.env.APP_PORT || 3000;
 // 모든 라우트에 대해 CORS를 활성화하여 교차 출처 문제를 방지합니다.
 app.use(cors());
 
