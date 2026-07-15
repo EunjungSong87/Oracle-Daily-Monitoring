@@ -69,8 +69,8 @@
     <label for="USERNAME">USERNAME:</label>
     <input type="text" id="USERNAME" name="USERNAME" required><br>
 
-    <label for="PASSWORD">PASSWORD:</label>
-    <input type="text" id="PASSWORD" name="PASSWORD" required><br>
+    <label for="PASSWORD">PASSWORD (변경하지 않으려면 비워두세요):</label>
+    <input type="text" id="PASSWORD" name="PASSWORD" placeholder="변경하지 않으려면 비워두세요"><br>
 
     <label for="SID">SID:</label>
     <input type="text" id="SID" name="SID" required><br>
@@ -99,7 +99,7 @@
         document.getElementById('ID').value = data.id;
         document.getElementById('DBMS').value = data.dbname;
         document.getElementById('USERNAME').value = data.username;
-        document.getElementById('PASSWORD').value = data.password;
+        // 목록 조회에는 비밀번호가 포함되지 않으므로 빈 값으로 둡니다 (비워두면 기존 값 유지).
         document.getElementById('SID').value = data.sid;
         document.getElementById('IP').value = data.ip;
         document.getElementById('PORT').value = data.port;
@@ -121,7 +121,7 @@
         const memo   =    document.getElementById('MEMO');
 
         
-        if (!id.value || !dbName.value || !userName.value || !passWord.value || !sid.value || !ip.value || !port.value) {
+        if (!id.value || !dbName.value || !userName.value || !sid.value || !ip.value || !port.value) {
             alert('Please input DBMS INFO.');
             return;
         }

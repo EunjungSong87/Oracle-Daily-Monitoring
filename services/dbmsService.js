@@ -63,67 +63,50 @@ async function listTasks() {
 
 
 async function getMonResult(dbmsid) {
-  const results = []; // 객체 키:값
-  //console.log( queries ); 
+  const results = [];
+  let dbconfig;
+  let tasks;
   try {
-    const dbconfig = await getDbmsInfo(dbmsid);
-    console.log('listTasks');
-    const tasks  = await listTasks(); 
-    //console.log(tasks.rows);
-    for ( const row of tasks.rows ) {
-      const id = row[0]; 
-      const checkName = row[1]; 
-    //  console.log('SQL id :   ',row[0]);
-    //  console.log('SQL name :   ',row[1]);
-    //  console.log('SQL sql_text :   ',row[2]);
-        
-      const sql = row[2];
-
-      console.log('SQL :   ', sql);
-      if ( sql.includes('ogg_discard_log') ) { 
-        if ( dbconfig[5].includes('VAN') ) {
-          console.log('ogg_discard_log and van dbms : ', sql.includes('ogg_discard_log') );
-          continue;
-        }
-        
-        const result = await dbmsList.getMonResult(dbmsid, id, sql);
-        const columns = result.metaData.map(col => col.name);
-        const rows = result.rows;
-        
-        //results.push(result); // rows만 저장
-        results.push({
-          task_id: id,
-          task_name: checkName,
-          columns,
-          rows,
-          success: true
-        });
-
-      } 
-      else {
-          const result = await dbmsList.getMonResult(dbmsid, id, sql);
-          //console.log('result :   ', result);
-          const columns = result.columns; 
-          //console.log('columns :   ', result.columns);
-          const rows = result.rows;
-          //console.log('dbmsService getMonResult result: ' , result ) ; 
-          //results.push(result); // rows만 저장
-          //results[checkName] = result;
-          results.push({
-            task_id: id,
-            task_name: checkName,
-            columns,
-            rows,
-            success: true
-          });
-      }
-
-    }
-    return results;
+    dbconfig = await getDbmsInfo(dbmsid);
+    tasks = await listTasks();
   } catch (error) {
     console.error('Service : Monitoring Result 가져오기 실패:', error);
     throw new Error('Monitoring Result 가져오기 실패', { cause: error });
   }
+
+  for ( const row of tasks.rows ) {
+    const id = row[0];
+    const checkName = row[1];
+    const sql = row[2];
+
+    // ogg_discard_log 체크는 VAN 계열 DBMS엔 대상 테이블이 없어 스킵합니다.
+    if ( sql.includes('ogg_discard_log') && dbconfig[5].includes('VAN') ) {
+      continue;
+    }
+
+    try {
+      const result = await dbmsList.getMonResult(dbmsid, id, sql);
+      results.push({
+        task_id: id,
+        task_name: checkName,
+        columns: result.columns,
+        rows: result.rows,
+        success: true
+      });
+    } catch (error) {
+      console.error(`Service : 태스크(${id}:${checkName}) 실행 실패:`, error);
+      results.push({
+        task_id: id,
+        task_name: checkName,
+        columns: [],
+        rows: [],
+        success: false,
+        error: error.message
+      });
+    }
+  }
+
+  return results;
 }
 
 async function addDbms(dbmsInfo) {

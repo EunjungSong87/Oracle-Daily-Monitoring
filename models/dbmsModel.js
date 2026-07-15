@@ -130,10 +130,11 @@ async function getSqlText(scriptid) {
       console.log('scriptid 값', id); 
       const query = 'select id, name, sql_text from system.MONITORING_TASKS where id = :id ';
       const result = await connection.execute(query, {id}, { fetchInfo: {"SQL_TEXT": { type : oracledb.STRING }}}
-      ) ; 
-     
-      // 결과 반환
-      console.log ( 'getSqlText Model 함수 결과값', result.rows[0][2]) ; 
+      ) ;
+
+      // 결과 반환 (결과가 없으면 null 반환)
+      if (result.rows.length === 0) return null;
+      console.log ( 'getSqlText Model 함수 결과값', result.rows[0][2]) ;
       return result.rows[0][2];
 
   } catch (err) {
@@ -246,18 +247,30 @@ async function addDbms(dbmsInfo) {
 
 async function modifyDbms(dbmsInfo) {
   let pool;
-  let connection; 
+  let connection;
   try {
       // 1. 커넥션 풀에서 연결 가져오기
       //connection = await pool.getConnection();
       pool = await initializeDB();
       connection = await pool.getConnection();
-      const sql = `update system.monitoring_dbms_list 
-                      set DBNAME = :dbname, username = :username, password = :password, sid = :sid,  
-                          ip = :ip, port = :port, memo = :memo, updatetime = sysdate 
-                          where id = :id ` ;
+
+      // 비밀번호를 비워두고 수정하면 기존 저장된 비밀번호를 유지합니다.
+      const hasNewPassword = dbmsInfo.password != null && dbmsInfo.password !== '';
+      const sql = hasNewPassword
+        ? `update system.monitoring_dbms_list
+             set DBNAME = :dbname, username = :username, password = :password, sid = :sid,
+                 ip = :ip, port = :port, memo = :memo, updatetime = sysdate
+             where id = :id `
+        : `update system.monitoring_dbms_list
+             set DBNAME = :dbname, username = :username, sid = :sid,
+                 ip = :ip, port = :port, memo = :memo, updatetime = sysdate
+             where id = :id `;
+
       console.log('MODEL : dbmsInfo:', { ...dbmsInfo, password: '***' });
-      const bindParams = { ...dbmsInfo, password: encrypt(dbmsInfo.password) };
+      const { password, ...withoutPassword } = dbmsInfo;
+      const bindParams = hasNewPassword
+        ? { ...dbmsInfo, password: encrypt(dbmsInfo.password) }
+        : withoutPassword;
 
       const result = await connection.execute(sql, bindParams, {autoCommit : true });  // bind 묶음 넣기
 
