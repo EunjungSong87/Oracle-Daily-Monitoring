@@ -10,7 +10,8 @@ async function getAllDbmses() {
     //console.log(dbmses);
     return dbmses;
   } catch (error) {
-    throw new Error('사용자 목록 조회 실패');
+    console.error('Service : 사용자 목록 조회 실패:', error);
+    throw new Error('사용자 목록 조회 실패', { cause: error });
   }
 }
 
@@ -22,7 +23,8 @@ async function getScripts() {
     //console.log(dbmses);
     return scripts;
   } catch (error) {
-    throw new Error('사용자 목록 조회 실패');
+    console.error('Service : 스크립트 목록 조회 실패:', error);
+    throw new Error('스크립트 목록 조회 실패', { cause: error });
   }
 }
 
@@ -32,7 +34,8 @@ async function getDbmsInfo(dbmsid) {
     const  dbconfig = await dbmsList.getDbmsInfo(dbmsid);
     return dbconfig;
   } catch (error) {
-    throw new Error('DBMS 정보 가져오기 실패');
+    console.error('Service : DBMS 정보 가져오기 실패:', error);
+    throw new Error('DBMS 정보 가져오기 실패', { cause: error });
   }
 }
 
@@ -42,7 +45,8 @@ async function getSqlText(scriptid) {
     console.log('Get SQL TEXT', sql );
     return sql;
   } catch (error) {
-    throw new Error('script 정보 가져오기 실패');
+    console.error('Service : script 정보 가져오기 실패:', error);
+    throw new Error('script 정보 가져오기 실패', { cause: error });
   }
 }
 
@@ -52,7 +56,8 @@ async function listTasks() {
     const  results = await dbmsList.listTasks();
     return results;
   } catch (error) {
-    throw new Error('Tasks 가져오기 실패 ');
+    console.error('Service : Tasks 가져오기 실패:', error);
+    throw new Error('Tasks 가져오기 실패', { cause: error });
   }
 }
 
@@ -116,61 +121,68 @@ async function getMonResult(dbmsid) {
     }
     return results;
   } catch (error) {
-    throw new Error('Monitoring Result 가져오기 실패', error);
+    console.error('Service : Monitoring Result 가져오기 실패:', error);
+    throw new Error('Monitoring Result 가져오기 실패', { cause: error });
   }
 }
 
 async function addDbms(dbmsInfo) {
   try {
     const result = await dbmsList.addDbms(dbmsInfo);
-    return result; 
+    return result;
   } catch (error) {
-    throw new Error('Service : DBMS 등록 실패');
+    console.error('Service : DBMS 등록 실패:', error);
+    throw new Error('Service : DBMS 등록 실패', { cause: error });
   }
 }
 
 async function modifyDbms(dbmsInfo) {
   try {
     const result = await dbmsList.modifyDbms(dbmsInfo);
-    return result; 
+    return result;
   } catch (error) {
-    throw new Error('Service : DBMS 등록 실패');
+    console.error('Service : DBMS 수정 실패:', error);
+    throw new Error('Service : DBMS 수정 실패', { cause: error });
   }
 }
 
 async function modifyScript(scriptInfo) {
   try {
     const result = await dbmsList.modifyScript(scriptInfo);
-    return result; 
+    return result;
   } catch (error) {
-    throw new Error('Service : DBMS 등록 실패');
+    console.error('Service : 스크립트 수정 실패:', error);
+    throw new Error('Service : 스크립트 수정 실패', { cause: error });
   }
 }
 
 async function deleteDbms(dbmsId) {
   try {
     const result = await dbmsList.deleteDbms(dbmsId);
-    return result; 
+    return result;
   } catch (error) {
-    throw new Error('Service : DBMS 삭제 실패');
+    console.error('Service : DBMS 삭제 실패:', error);
+    throw new Error('Service : DBMS 삭제 실패', { cause: error });
   }
 }
 
 async function addScript(scriptInfo) {
   try {
     const result = await dbmsList.addScript(scriptInfo);
-    return result; 
+    return result;
   } catch (error) {
-    throw new Error('Service : 스크립트 등록 실패');
+    console.error('Service : 스크립트 등록 실패:', error);
+    throw new Error('Service : 스크립트 등록 실패', { cause: error });
   }
 }
 
 async function deleteScript(scriptId) {
   try {
     const result = await dbmsList.deleteScript(scriptId);
-    return result; 
+    return result;
   } catch (error) {
-    throw new Error('Service : 스크립트 삭제 실패');
+    console.error('Service : 스크립트 삭제 실패:', error);
+    throw new Error('Service : 스크립트 삭제 실패', { cause: error });
   }
 }
 

@@ -1,5 +1,8 @@
 // server.js
 
+// .env 파일의 환경변수를 process.env로 로드합니다 (다른 require보다 먼저 실행되어야 함).
+require('dotenv').config();
+
 // 필요한 모듈을 가져옵니다.
 const express = require('express');
 // Express 애플리케이션을 생성합니다.
@@ -52,7 +55,7 @@ app.use(urlencodedParser);
 async function startServer() {
   //await initPool(); // 커넥션 풀 초기화
   app.listen(port, host, () => {
-    console.log(`Server is running on http://172.28.117.30:${port}`);
+    console.log(`Server is running on http://${host}:${port}`);
   });
 }
   

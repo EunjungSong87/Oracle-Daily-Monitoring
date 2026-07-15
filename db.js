@@ -13,7 +13,7 @@ try {
 const dbConfig = require('./config/database.js');
 
 async function connectDB(config) {
-    console.log('db.js connectDB : ', config );
+    console.log('db.js connectDB : ', { ...config, password: config.password ? '***' : config.password });
     try {
       const connection = await oracle.getConnection({
         user: config.user,

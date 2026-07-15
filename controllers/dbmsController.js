@@ -6,17 +6,19 @@ async function getAllDbmses(req, res) {
       const dbmses = await dbmsService.getAllDbmses();  // 서비스 호출
       res.status(200).json(dbmses);  // JSON 형식으로 응답
     } catch (error) {
+      console.error('Controller : DBMS 목록 조회 오류:', error);
       res.status(500).json({ error: error.message });
     }
   }
 
-  // <--! 모니터링 스크립트 가져오기 --> 
+  // <--! 모니터링 스크립트 가져오기 -->
   async function getScripts(req, res) {
     try {
       console.log( 'getScripts Controller !!!!!')
       const scripts = await dbmsService.getScripts();  // 서비스 호출
       res.status(200).json(scripts);  // JSON 형식으로 응답
     } catch (error) {
+      console.error('Controller : 스크립트 목록 조회 오류:', error);
       res.status(500).json({ error: error.message });
     }
   }
@@ -75,7 +77,7 @@ async function getDbmsInfo(req, res) {
       const { dbname, username, password, sid, ip, port, memo } = req.body;
 
       const dbmsInfo = {  dbname, username, password, sid, ip, port, memo }; // JSON 변수로 서비스에 전달
-      console.error('Controller :dbmsInfo:', dbmsInfo );
+      console.log('Controller :dbmsInfo:', { ...dbmsInfo, password: '***' });
       const queryResults = await dbmsService.addDbms(dbmsInfo);
       console.log('Controller : result  ', queryResults);
      
@@ -93,9 +95,9 @@ async function getDbmsInfo(req, res) {
     try {
 
       const { id, dbname, username, password, sid, ip, port, memo }   = req.body;
-      const dbmsInfo = {  id, dbname, username, password, sid, ip, port, memo }; 
+      const dbmsInfo = {  id, dbname, username, password, sid, ip, port, memo };
       //const dbmsId = { dbmsId } = req.body; ; // JSON 변수로 서비스에 전달
-      console.error('Controller :dbmsInfo:', dbmsInfo );
+      console.log('Controller :dbmsInfo:', { ...dbmsInfo, password: '***' });
       const queryResults = await dbmsService.modifyDbms(dbmsInfo);
       console.log('Controller : result  ', queryResults);
      
@@ -130,16 +132,17 @@ async function getDbmsInfo(req, res) {
   async function modifyScript(req, res) {
     try {
 
-      const scriptInfo = {  id, name, category, description, sql_text, schedule, is_active } = req.body;
-      
-      console.error('Controller : ScriptInfo:', scriptInfo );
+      const { id, name, category, description, sql_text, schedule, is_active } = req.body;
+      const scriptInfo = {  id, name, category, description, sql_text, schedule, is_active };
+
+      console.log('Controller : ScriptInfo:', scriptInfo );
       const queryResults = await dbmsService.modifyScript(scriptInfo);
       console.log('Controller : Script result  ', queryResults);
-     
+
       return res.json(queryResults);
-      
+
     } catch (error) {
-      console.error('Controller : DB등록 오류:', error);
+      console.error('Controller : 스크립트 수정 오류:', error);
       res.status(500).json({ message: 'Controller : 서버 오류 발생' });
     }
 

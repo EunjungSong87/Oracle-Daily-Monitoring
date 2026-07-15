@@ -3,6 +3,7 @@ const { initializeDB } = require('../db');  // DB 연결 함수 가져오기
 const { connectDB } = require('../db'); 
 const { connectString } = require('../config/database');
 const { readClobAsString } = require('./clobUtils');
+const { encrypt, decrypt } = require('./cryptoUtils');
 
 async function executeQuery(connection, query, params = []) {
     //let connection;
@@ -92,16 +93,19 @@ async function getDbmsInfo(dbmsid) {
         connection = await pool.getConnection();
 
         const { dbmsid:id } = dbmsid;
-        console.log('dbmsid 값', id); 
+        console.log('dbmsid 값', id);
         const query = 'select username, password, ip, port, sid, memo from system.monitoring_dbms_list where id = :id ';
-        const result = await connection.execute( query, 
+        const result = await connection.execute( query,
                                                  {id}
                                                );
-       
+
         // 4. 결과 반환
-        console.log('getDbmsInfo 수행', result.rows);
-        // 조회 결과 반환 (결과가 없으면 undefined 반환)
-        return result.rows.length > 0 ? result.rows[0] : null;
+        console.log('getDbmsInfo 수행', result.rows.length, '건');
+        // 조회 결과 반환 (결과가 없으면 undefined 반환), 비밀번호는 복호화해서 반환
+        if (result.rows.length === 0) return null;
+        const row = result.rows[0];
+        row[1] = decrypt(row[1]);
+        return row;
 
     } catch (err) {
         console.error('DB 조회 오류:', err);
@@ -181,10 +185,8 @@ async function getMonResult(dbmsid, id, sql) {
     
     //const dbconfig = await getDbmsInfo(queryData);
     const  dbconfig = await getDbmsInfo(dbmsid);
-    console.error('Model 함수 안 dbconfig:', dbconfig);
-    
+    console.log('Model 함수 안 dbconfig:', dbconfig[0], dbconfig[2] + ':' + dbconfig[3] + '/' + dbconfig[4]);
 
-    console.log('dbconfig 내용', dbconfig[0] +',' + dbconfig[1] + ',' +  dbconfig[2] + ":" +  dbconfig[3] +  "/" +  dbconfig[4]);
     try {
         // 1. 커넥션 풀에서 연결 가져오기
         const config = {
@@ -192,9 +194,6 @@ async function getMonResult(dbmsid, id, sql) {
             password : dbconfig[1],
             connectString     :  dbconfig[2] + ":" +  dbconfig[3] +  "/" +  dbconfig[4]
         };
-       
-     console.log(dbconfig[2] + ":" +  dbconfig[3] +  "/" +  dbconfig[4]);
-
 
       connection   = await connectDB(config);
       //console.log('dbmsModel sql : ', sql);
@@ -226,13 +225,11 @@ async function addDbms(dbmsInfo) {
       pool = await initializeDB();
       connection = await pool.getConnection();
       const sql = 'INSERT INTO system.monitoring_dbms_list (id, dbname, username, password, sid, ip, port, memo, createtime, updatetime) VALUES (seq_monitoring_dbms_list.nextval, :dbname, :username, :password, :sid, :ip, :port, :memo, sysdate, sysdate) ';
-      console.log('MODEL : dbmsInfo:', dbmsInfo);
-      const binds = Object.values(dbmsInfo);
+      console.log('MODEL : dbmsInfo:', { ...dbmsInfo, password: '***' });
+      const bindParams = { ...dbmsInfo, password: encrypt(dbmsInfo.password) };
 
-      console.log('sql:', sql);
-      console.log('Binds:', dbmsInfo);
-      const result = await connection.execute(sql, dbmsInfo, {autoCommit : true });
-      
+      const result = await connection.execute(sql, bindParams, {autoCommit : true });
+
       console.log('Insert Success:', result.rowsAffected);
       return result.rowsAffected;
 
@@ -258,12 +255,12 @@ async function modifyDbms(dbmsInfo) {
       const sql = `update system.monitoring_dbms_list 
                       set DBNAME = :dbname, username = :username, password = :password, sid = :sid,  
                           ip = :ip, port = :port, memo = :memo, updatetime = sysdate 
-                          where id = :id ` ; 
-      console.log('MODEL : dbmsInfo:', dbmsInfo);
-      const binds = Object.values(dbmsInfo);
+                          where id = :id ` ;
+      console.log('MODEL : dbmsInfo:', { ...dbmsInfo, password: '***' });
+      const bindParams = { ...dbmsInfo, password: encrypt(dbmsInfo.password) };
 
-      const result = await connection.execute(sql, dbmsInfo, {autoCommit : true });  // bind 묶음 넣기 
-      
+      const result = await connection.execute(sql, bindParams, {autoCommit : true });  // bind 묶음 넣기
+
       console.log('Update Success:', result.rowsAffected);
       return result.rowsAffected;
 
@@ -274,7 +271,7 @@ async function modifyDbms(dbmsInfo) {
       // 5. 연결 반환
       if (connection) {
           await connection.close();
-      } 
+      }
   }
 }
 
