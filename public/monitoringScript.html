@@ -29,8 +29,13 @@
 </nav>
 
 
-<!-- DBMS 목록을 표시하는 부분입니다. -->
-<ul id="script-list"></ul>
+<!-- 스크립트 목록을 표시하는 부분입니다. -->
+<table id="script-list" class="table">
+    <thead>
+        <tr id="scriptHeaderRow"></tr>
+    </thead>
+    <tbody id="scriptTableBody"></tbody>
+</table>
 
 <!-- JavaScript 코드입니다. -->
 <script>
@@ -40,51 +45,58 @@
             const response = await fetch('/api/scriptlist');
             const { columns, rows } = await response.json();
 
-            const headerRow = document.getElementById('headerRow');
-            const tableBody = document.getElementById('tableBody');
-            const scriptList =  document.getElementById('script-list');
-            
+            const headerRow = document.getElementById('scriptHeaderRow');
+            const tableBody = document.getElementById('scriptTableBody');
+
+            columns.forEach(column => {
+                const th = document.createElement('th');
+                th.textContent = column;
+                headerRow.appendChild(th);
+            });
+            const actionsTh = document.createElement('th');
+            actionsTh.textContent = 'ACTIONS';
+            headerRow.appendChild(actionsTh);
+
             // 데이터 추가
             rows.forEach( row => {
-            const listItem =     document.createElement('li');
+            const tr = document.createElement('tr');
+
+            columns.forEach(column => {
+                const td = document.createElement('td');
+                td.textContent = row[column];
+                tr.appendChild(td);
+            });
+
+            const actionsTd = document.createElement('td');
             const modifyButton = document.createElement('button');
             const deleteButton = document.createElement('button');
-            
+
             modifyButton.textContent = 'Modify';
             modifyButton.className = 'btn-secondary';
             deleteButton.textContent = 'Delete';
             deleteButton.className = 'btn-danger';
 
             const scriptConfig = {
-                        id            : row.ID, 
+                        id            : row.ID,
                         name          : row.NAME,
                         category      : row.CATEGORY,
-                        description   : row.DESCRIPTION, 
+                        description   : row.DESCRIPTION,
                         schedule      : row.SCHEDULE,
-                        is_active     : row.IS_ACTIVE,  
+                        is_active     : row.IS_ACTIVE,
                         created_at    : row.CREATED_AT,
                         updated_at    : row.UPDATED_AT
 
             };
-            
-            //console.log( dbConfig);
-            
+
             const scriptId = row.ID
             modifyButton.onclick = () => modifyScript(event, scriptConfig);
-            deleteButton.onclick = () => deletScript(event, scriptId, listItem);
+            deleteButton.onclick = () => deletScript(event, scriptId, tr);
 
-            columns.forEach(column => {
-                const p =  document.createElement('p');
+            actionsTd.appendChild(modifyButton);
+            actionsTd.appendChild(deleteButton);
+            tr.appendChild(actionsTd);
 
-                p.innerHTML = `
-                                <strong style="white-space: pre;"> ${column}:</strong> ${row[column]} <br>`
-                listItem.appendChild(p);
-
-              });
-              
-              listItem.appendChild(modifyButton);
-              listItem.appendChild(deleteButton);
-              scriptList.appendChild(listItem);
+            tableBody.appendChild(tr);
             });
         } catch (error) {
             console.error('Error fetching users:', error);

@@ -24,17 +24,40 @@
     </ul>
 </nav>
 
-<ul id="threshold-list"></ul>
+<table id="threshold-list" class="table">
+    <thead>
+        <tr id="thresholdHeaderRow"></tr>
+    </thead>
+    <tbody id="thresholdTableBody"></tbody>
+</table>
 
 <script>
     async function fetchThresholds() {
         try {
             const response = await fetch('/api/thresholdlist');
             const { columns, rows } = await response.json();
-            const list = document.getElementById('threshold-list');
+            const headerRow = document.getElementById('thresholdHeaderRow');
+            const tableBody = document.getElementById('thresholdTableBody');
+
+            columns.forEach(column => {
+                const th = document.createElement('th');
+                th.textContent = column;
+                headerRow.appendChild(th);
+            });
+            const actionsTh = document.createElement('th');
+            actionsTh.textContent = 'ACTIONS';
+            headerRow.appendChild(actionsTh);
 
             rows.forEach(row => {
-                const listItem = document.createElement('li');
+                const tr = document.createElement('tr');
+
+                columns.forEach(column => {
+                    const td = document.createElement('td');
+                    td.textContent = row[column];
+                    tr.appendChild(td);
+                });
+
+                const actionsTd = document.createElement('td');
                 const modifyButton = document.createElement('button');
                 const deleteButton = document.createElement('button');
 
@@ -58,17 +81,13 @@
 
                 const thresholdId = row.ID;
                 modifyButton.onclick = () => modifyThreshold(event, thresholdConfig);
-                deleteButton.onclick = () => deleteThreshold(event, thresholdId, listItem);
+                deleteButton.onclick = () => deleteThreshold(event, thresholdId, tr);
 
-                columns.forEach(column => {
-                    const p = document.createElement('p');
-                    p.innerHTML = `<strong style="white-space: pre;"> ${column}:</strong> ${row[column]} <br>`;
-                    listItem.appendChild(p);
-                });
+                actionsTd.appendChild(modifyButton);
+                actionsTd.appendChild(deleteButton);
+                tr.appendChild(actionsTd);
 
-                listItem.appendChild(modifyButton);
-                listItem.appendChild(deleteButton);
-                list.appendChild(listItem);
+                tableBody.appendChild(tr);
             });
         } catch (error) {
             console.error('Error fetching thresholds:', error);

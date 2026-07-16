@@ -196,51 +196,6 @@ button.btn-danger:hover {
     background-color: var(--danger-hover);
 }
 
-/* 목록 화면 (index.html #dbmses-list, monitoringScript.html #script-list) */
-#dbmses-list,
-#script-list {
-    list-style: none;
-    padding: 0;
-    margin: 24px auto;
-    max-width: 900px;
-}
-
-#dbmses-list li,
-#script-list li {
-    background-color: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 18px 20px;
-    margin-bottom: 12px;
-    box-shadow: var(--shadow);
-    font-size: 14px;
-}
-
-#dbmses-list li p,
-#script-list li p {
-    margin: 4px 0;
-}
-
-#dbmses-list li strong,
-#script-list li strong {
-    color: var(--text-muted);
-    font-weight: 600;
-    display: inline-block;
-    min-width: 110px;
-}
-
-#dbmses-list li a,
-#script-list li a {
-    text-decoration: none;
-    color: var(--primary);
-    font-weight: 600;
-}
-
-#dbmses-list li a:hover,
-#script-list li a:hover {
-    color: var(--primary-hover);
-}
-
 /* 테이블 */
 table.table {
     width: 92%;

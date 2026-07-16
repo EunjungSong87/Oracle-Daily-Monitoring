@@ -33,7 +33,12 @@
     </nav>
 
     <!-- DBMS 목록을 표시하는 부분입니다. -->
-    <ul id="dbmses-list"></ul>
+    <table id="dbmses-list" class="table">
+        <thead>
+            <tr id="dbmsHeaderRow"></tr>
+        </thead>
+        <tbody id="dbmsTableBody"></tbody>
+    </table>
 
     <!-- JavaScript 코드입니다. -->
     <script>
@@ -42,51 +47,58 @@
                     const response = await fetch('/main/dbmslist');
                     const { columns, rows } = await response.json();
 
-                    const headerRow = document.getElementById('headerRow');
-                    const tableBody = document.getElementById('tableBody');
-                    const dbmsesList =  document.getElementById('dbmses-list');
+                    const headerRow = document.getElementById('dbmsHeaderRow');
+                    const tableBody = document.getElementById('dbmsTableBody');
 
-                    
+                    // 헤더 추가
+                    columns.forEach(column => {
+                        const th = document.createElement('th');
+                        th.textContent = column;
+                        headerRow.appendChild(th);
+                    });
+                    const actionsTh = document.createElement('th');
+                    actionsTh.textContent = 'ACTIONS';
+                    headerRow.appendChild(actionsTh);
+
                     // 데이터 추가
                     rows.forEach( row => {
-                    const listItem =     document.createElement('li');
+                    const tr = document.createElement('tr');
+
+                    columns.forEach(column => {
+                        const td = document.createElement('td');
+                        td.textContent = row[column];
+                        tr.appendChild(td);
+                    });
+
+                    const actionsTd = document.createElement('td');
                     const modifyButton = document.createElement('button');
                     const deleteButton = document.createElement('button');
-                    
+
                     modifyButton.textContent = 'Modify';
                     modifyButton.className = 'btn-secondary';
                     deleteButton.textContent = 'Delete';
                     deleteButton.className = 'btn-danger';
 
                     const dbConfig = {
-                                id       : row.ID, 
+                                id       : row.ID,
                                 dbname   : row.DBNAME,
                                 username : row.USERNAME,
-                                password : row.PASSWORD, 
+                                password : row.PASSWORD,
                                 sid      : row.SID,
                                 ip       : row.IP,
-                                port     : row.PORT,  
+                                port     : row.PORT,
                                 memo     : row.MEMO
                     };
-                    
-                    //console.log( dbConfig);
-                    
+
                     const dbmsId = row.ID
                     modifyButton.onclick = () => modifyDBMS(event, dbConfig);
-                    deleteButton.onclick = () => deleteDBMS(event, dbmsId, listItem);
+                    deleteButton.onclick = () => deleteDBMS(event, dbmsId, tr);
 
-                    columns.forEach(column => {
-                        const p =  document.createElement('p');
+                    actionsTd.appendChild(modifyButton);
+                    actionsTd.appendChild(deleteButton);
+                    tr.appendChild(actionsTd);
 
-                        p.innerHTML = `
-                                        <strong style="white-space: pre;"> ${column}:</strong> ${row[column]} <br>`
-                        listItem.appendChild(p);
-
-                      });
-                      
-                      listItem.appendChild(modifyButton);
-                      listItem.appendChild(deleteButton);
-                      dbmsesList.appendChild(listItem);
+                    tableBody.appendChild(tr);
                     });
                 } catch (error) {
                     //console.error('Error fetching users:', error);
