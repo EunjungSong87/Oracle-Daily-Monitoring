@@ -1,6 +1,5 @@
 import type { Request, Response } from 'express';
-
-const dbmsService = require('../services/dbmsService');
+import * as dbmsService from '../services/dbmsService';
 
 function errMsg(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -26,29 +25,6 @@ async function getScripts(req: Request, res: Response): Promise<void> {
   } catch (error) {
     console.error('Controller : 스크립트 목록 조회 오류:', error);
     res.status(500).json({ error: errMsg(error) });
-  }
-}
-
-async function getDbmsInfo(req: Request, res: Response): Promise<Response | void> {
-  try {
-    const { dbname, sid, ip } = req.body;
-    console.log(dbname);
-    // 필수 데이터 유효성 검사
-    if (!dbname || !sid || !ip) {
-      return res.status(400).json({ message: 'DBMS 정보가 필요합니다.' });
-    }
-    // JSON 형태로 서비스 호출
-    const queryData = { dbname, sid, ip }; // JSON 변수로 서비스에 전달
-    const dbconfig = await dbmsService.getDbmsInfo(queryData);
-    // 사용자 정보가 없을 경우
-    if (!dbconfig) {
-      return res.status(404).json({ message: 'DBMS 찾을 수 없습니다.' });
-    }
-    // 조회된 사용자 정보를 클라이언트로 응답
-    res.status(200).json({ message: 'DBMS 조회 성공', dbconfig });
-  } catch (error) {
-    console.error('DBMS 조회 중 오류:', error);
-    res.status(500).json({ message: '서버 오류 발생' });
   }
 }
 
@@ -234,9 +210,8 @@ async function deleteThreshold(req: Request, res: Response): Promise<Response | 
   }
 }
 
-module.exports = {
+export {
   getAllDbmses,
-  getDbmsInfo,
   getMonResult,
   addDbms,
   modifyDbms,

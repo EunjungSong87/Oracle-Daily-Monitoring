@@ -36,4 +36,4 @@ function decrypt(cipherTextB64: string): string {
   return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString('utf8');
 }
 
-module.exports = { encrypt, decrypt };
+export { encrypt, decrypt };

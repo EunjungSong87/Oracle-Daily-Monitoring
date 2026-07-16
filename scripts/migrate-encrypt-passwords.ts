@@ -15,15 +15,14 @@
 import dotenv from 'dotenv';
 dotenv.config();
 import oracledb from 'oracledb';
+import dbConfig from '../config/database';
+import { encrypt, decrypt } from '../models/cryptoUtils';
 
 try {
   oracledb.initOracleClient({ libDir: './instantclient_19_25' });
-} catch (e) {
+} catch {
   // already initialized
 }
-
-const dbConfig = require('../config/database');
-const { encrypt, decrypt } = require('../models/cryptoUtils');
 
 (async () => {
   const connection = await oracledb.getConnection(dbConfig);
@@ -40,7 +39,7 @@ const { encrypt, decrypt } = require('../models/cryptoUtils');
         console.log(`id=${id}: 이미 암호화되어 있어 건너뜀`);
         skipped++;
         continue;
-      } catch (e) {
+      } catch {
         // 복호화 실패 = 평문으로 간주하고 암호화 진행
       }
 

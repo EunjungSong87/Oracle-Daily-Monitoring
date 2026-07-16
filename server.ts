@@ -1,8 +1,10 @@
 // server.ts
 
-// .env 파일의 환경변수를 process.env로 로드합니다 (다른 require보다 먼저 실행되어야 함).
-import dotenv from 'dotenv';
-dotenv.config();
+// .env 파일의 환경변수를 process.env로 로드합니다 (다른 import보다 먼저 실행되어야 함).
+// tsx/esbuild는 import 문을 파일 상단으로 끌어올리므로, `dotenv.config()`를 별도 문장으로 쓰면
+// 뒤에 오는 import(예: dbmsRouters -> config/database.ts)가 먼저 로드되어 .env 값이 반영되지 않을 수 있다.
+// side-effect import는 다른 import들과의 상대 순서가 보장되므로 반드시 첫 줄에 위치해야 한다.
+import 'dotenv/config';
 
 // 필요한 모듈을 가져옵니다.
 import express from 'express';
@@ -10,6 +12,8 @@ import path from 'path';
 import cors from 'cors';
 import bodyParser from 'body-parser';
 import oracle from 'oracledb';
+import dbmsRouters from './routers/dbmsRouters'; // 라우터 가져오기
+import tableSpecRouters from './routers/tableSpecRouters';
 
 // Express 애플리케이션을 생성합니다.
 const app = express();
@@ -59,9 +63,6 @@ async function startServer(): Promise<void> {
 startServer();
 
 // 라우트 설정
-const dbmsRouters = require('./routers/dbmsRouters'); // 라우터 가져오기
 app.use('/main', dbmsRouters);
 app.use('/api', dbmsRouters);
-
-const tableSpecRouters = require('./routers/tableSpecRouters');
 app.use('/api', tableSpecRouters);

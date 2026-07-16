@@ -1,5 +1,5 @@
 import ExcelJS from 'exceljs';
-const tableSpecModel = require('../models/tableSpecModel');
+import * as tableSpecModel from '../models/tableSpecModel';
 import type { TableSpec } from '../models/tableSpecModel';
 import type { DbmsIdParam } from '../models/dbmsModel';
 
@@ -230,4 +230,4 @@ async function buildTableSpecWorkbook(
   }
 }
 
-module.exports = { getSchemas, getTables, buildTableSpecWorkbook };
+export { getSchemas, getTables, buildTableSpecWorkbook, sanitizeSheetName };

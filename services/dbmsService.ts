@@ -1,4 +1,4 @@
-const dbmsList = require('../models/dbmsModel'); // 데이터 모델 가져오기
+import * as dbmsList from '../models/dbmsModel'; // 데이터 모델 가져오기
 import type { DbmsIdParam, DbmsInfo, ScriptInfo, ThresholdInfo, QueryResult } from '../models/dbmsModel';
 
 function errMsg(error: unknown): string {
@@ -72,7 +72,7 @@ function evaluateThreshold(
   if (rawValue === null || rawValue === undefined) return false;
 
   if (conditionType === 'NUMERIC') {
-    const value = parseFloat(String(rawValue).replace(/[^0-9.\-]/g, ''));
+    const value = parseFloat(String(rawValue).replace(/[^0-9.-]/g, ''));
     const limit = parseFloat(thresholdValue);
     if (Number.isNaN(value) || Number.isNaN(limit)) return false;
     switch (operator) {
@@ -142,6 +142,10 @@ async function getMonResult(dbmsid: DbmsIdParam): Promise<Record<string, any>[]>
     throw new Error('Monitoring Result 가져오기 실패', { cause: error });
   }
 
+  if (!dbconfig) {
+    throw new Error('DBMS 정보를 찾을 수 없습니다.');
+  }
+
   const thresholdsByTask: Record<string, Record<string, any>[]> = {};
   for (const th of thresholds) {
     const key = th.TASK_ID;
@@ -149,36 +153,49 @@ async function getMonResult(dbmsid: DbmsIdParam): Promise<Record<string, any>[]>
     thresholdsByTask[key].push(th);
   }
 
-  for (const row of tasks.rows) {
-    const id = row[0];
-    const checkName = row[1];
-    const sql = row[2];
+  // 태스크마다 새로 연결하지 않고, 대상 DB 커넥션 하나를 열어서 모든 체크에 재사용합니다.
+  let targetConnection;
+  try {
+    targetConnection = await dbmsList.connectToTarget(dbconfig);
+  } catch (error) {
+    console.error('Service : 대상 DB 접속 실패:', error);
+    throw new Error('대상 DB 접속 실패', { cause: error });
+  }
 
-    // ogg_discard_log 체크는 VAN 계열 DBMS엔 대상 테이블이 없어 스킵합니다.
-    if (sql.includes('ogg_discard_log') && dbconfig![5].includes('VAN')) {
-      continue;
-    }
+  try {
+    for (const row of tasks.rows) {
+      const id = row[0];
+      const checkName = row[1];
+      const sql = row[2];
 
-    try {
-      const result = await dbmsList.getMonResult(dbmsid, id, sql);
-      results.push({
-        task_id: id,
-        task_name: checkName,
-        columns: result.columns,
-        rows: applyThresholds(result.rows, thresholdsByTask[id]),
-        success: true,
-      });
-    } catch (error) {
-      console.error(`Service : 태스크(${id}:${checkName}) 실행 실패:`, error);
-      results.push({
-        task_id: id,
-        task_name: checkName,
-        columns: [],
-        rows: [],
-        success: false,
-        error: errMsg(error),
-      });
+      // ogg_discard_log 체크는 VAN 계열 DBMS엔 대상 테이블이 없어 스킵합니다.
+      if (sql.includes('ogg_discard_log') && dbconfig[5].includes('VAN')) {
+        continue;
+      }
+
+      try {
+        const result = await dbmsList.executeQuery(targetConnection, sql);
+        results.push({
+          task_id: id,
+          task_name: checkName,
+          columns: result.columns,
+          rows: applyThresholds(result.rows, thresholdsByTask[id]),
+          success: true,
+        });
+      } catch (error) {
+        console.error(`Service : 태스크(${id}:${checkName}) 실행 실패:`, error);
+        results.push({
+          task_id: id,
+          task_name: checkName,
+          columns: [],
+          rows: [],
+          success: false,
+          error: errMsg(error),
+        });
+      }
     }
+  } finally {
+    await targetConnection.close();
   }
 
   return results;
@@ -274,7 +291,7 @@ async function deleteThreshold(thresholdId: Record<string, any>): Promise<number
   }
 }
 
-module.exports = {
+export {
   getAllDbmses,
   getDbmsInfo,
   getMonResult,
@@ -291,4 +308,7 @@ module.exports = {
   addThreshold,
   modifyThreshold,
   deleteThreshold,
+  // 순수 함수라 단위 테스트에서 직접 검증합니다.
+  evaluateThreshold,
+  applyThresholds,
 };

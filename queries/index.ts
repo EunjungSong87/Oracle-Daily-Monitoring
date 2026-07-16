@@ -1,7 +1,5 @@
-const dailyChecks = require('./dailyChecks');
+import dailyChecks from './dailyChecks';
 
-module.exports = {
+export default {
   ...dailyChecks,
 };
-
-export {};

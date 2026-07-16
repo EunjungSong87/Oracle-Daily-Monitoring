@@ -1,6 +1,5 @@
 import type { Request, Response } from 'express';
-
-const tableSpecService = require('../services/tableSpecService');
+import * as tableSpecService from '../services/tableSpecService';
 
 async function getSchemas(req: Request, res: Response): Promise<Response | void> {
   try {
@@ -50,4 +49,4 @@ async function downloadTableSpec(req: Request, res: Response): Promise<Response 
   }
 }
 
-module.exports = { getSchemas, getTables, downloadTableSpec };
+export { getSchemas, getTables, downloadTableSpec };

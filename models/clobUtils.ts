@@ -13,4 +13,4 @@ function readClobAsString(clob: Lob | null): Promise<string | null> {
   });
 }
 
-module.exports = { readClobAsString };
+export { readClobAsString };

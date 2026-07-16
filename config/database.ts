@@ -14,4 +14,4 @@ const dbConfig: DbConfig = {
   externalAuth: process.env.NODE_ORACLEDB_EXTERNALAUTH ? true : false,
 };
 
-module.exports = dbConfig;
+export default dbConfig;

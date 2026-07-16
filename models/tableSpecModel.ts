@@ -1,7 +1,6 @@
 import oracledb from 'oracledb';
-import db = require('../db');
-
-const dbmsModel = require('./dbmsModel');
+import * as db from '../db';
+import * as dbmsModel from './dbmsModel';
 import type { DbmsIdParam } from './dbmsModel';
 
 export interface TableSpec {
@@ -16,6 +15,9 @@ export interface TableSpec {
 // 대상 DBMS에 접속합니다 (모니터링 대상 접속과 동일한 방식).
 async function connectTarget(dbmsid: DbmsIdParam): Promise<oracledb.Connection> {
   const dbconfig = await dbmsModel.getDbmsInfo(dbmsid);
+  if (!dbconfig) {
+    throw new Error('DBMS 정보를 찾을 수 없습니다.');
+  }
   const config = {
     user: dbconfig[0],
     password: dbconfig[1],
@@ -180,4 +182,4 @@ async function getTableSpec(dbmsid: DbmsIdParam, owner: string, tableNames: stri
   }
 }
 
-module.exports = { getSchemas, getTables, getTableSpec };
+export { getSchemas, getTables, getTableSpec };

@@ -1,4 +1,5 @@
 import oracle from 'oracledb';
+import dbConfig from './config/database';
 
 // Database 연결 Thick mode 활성화
 try {
@@ -8,9 +9,6 @@ try {
 } catch (err) {
   console.error('Error initializing Oracle client:', err);
 }
-
-// 외부 파일에서 데이터베이스 구성을 가져옵니다.
-const dbConfig: oracle.PoolAttributes = require('./config/database');
 
 interface TargetDbConfig {
   user: string;
@@ -84,4 +82,4 @@ async function closeDB(): Promise<void> {
   });
 }
 
-export = { connectDB, initializeDB, closeDB };
+export { connectDB, initializeDB, closeDB };

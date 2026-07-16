@@ -1,6 +1,7 @@
 import express from 'express';
+import * as dbmsController from '../controllers/dbmsController'; // 컨트롤러 가져오기
+
 const router = express.Router();
-const dbmsController = require('../controllers/dbmsController'); // 컨트롤러 가져오기
 
 // 모든 DBMS 조회 (GET 요청)
 router.get('/dbmslist', dbmsController.getAllDbmses); // api/dbmslist 엔드포인드 생성
@@ -17,4 +18,4 @@ router.get('/thresholdlist', dbmsController.getThresholds);
 router.post('/addThreshold', dbmsController.addThreshold);
 router.post('/modifyThreshold', dbmsController.modifyThreshold);
 router.post('/deleteThreshold', dbmsController.deleteThreshold);
-module.exports = router; // 라우터 내보내기
+export default router; // 라우터 내보내기

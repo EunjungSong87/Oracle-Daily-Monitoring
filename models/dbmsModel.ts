@@ -1,9 +1,8 @@
 import oracledb from 'oracledb';
 import { Duplex } from 'stream';
-import db = require('../db'); // DB 연결 함수 가져오기
-
-const { readClobAsString } = require('./clobUtils');
-const { encrypt, decrypt } = require('./cryptoUtils');
+import * as db from '../db'; // DB 연결 함수 가져오기
+import { readClobAsString } from './clobUtils';
+import { encrypt, decrypt } from './cryptoUtils';
 
 export interface QueryResult {
   columns: string[];
@@ -62,7 +61,8 @@ async function executeQuery(
         const val = row[key];
         // row data가 LOB 데이턴지 확인
         if (val instanceof Duplex) {
-          row[key] = await readClobAsString(val);
+          // Lob은 실제로 Duplex를 상속하지만 구조적으로는 다른 인터페이스라 명시적으로 캐스팅합니다.
+          row[key] = await readClobAsString(val as unknown as oracledb.Lob);
         }
       }
     }
@@ -189,33 +189,16 @@ async function listTasks(): Promise<oracledb.Result<any[]> | []> {
   }
 }
 
-async function getMonResult(dbmsid: DbmsIdParam, id: number | string, sql: string): Promise<QueryResult | []> {
-  let connection: oracledb.Connection | undefined;
-
-  const dbconfig = await getDbmsInfo(dbmsid);
-  if (!dbconfig) {
-    throw new Error('DBMS 정보를 찾을 수 없습니다.');
-  }
+// 대상 DBMS에 접속합니다. 체크를 여러 개 돌릴 때는 태스크마다 새로 열지 말고
+// 이 커넥션 하나를 재사용한 뒤 호출한 쪽에서 한 번만 닫아야 합니다.
+async function connectToTarget(dbconfig: any[]): Promise<oracledb.Connection> {
   console.log('Model 함수 안 dbconfig:', dbconfig[0], dbconfig[2] + ':' + dbconfig[3] + '/' + dbconfig[4]);
-
-  try {
-    const config = {
-      user: dbconfig[0],
-      password: dbconfig[1],
-      connectString: dbconfig[2] + ':' + dbconfig[3] + '/' + dbconfig[4],
-    };
-
-    connection = await db.connectDB(config);
-    const result = await executeQuery(connection as oracledb.Connection, sql);
-    return result || [];
-  } catch (err) {
-    console.error('DB 조회 오류:', err);
-    throw err;
-  } finally {
-    if (connection) {
-      await connection.close();
-    }
-  }
+  const config = {
+    user: dbconfig[0],
+    password: dbconfig[1],
+    connectString: dbconfig[2] + ':' + dbconfig[3] + '/' + dbconfig[4],
+  };
+  return db.connectDB(config);
 }
 
 async function addDbms(dbmsInfo: DbmsInfo): Promise<number> {
@@ -487,10 +470,10 @@ async function deleteThreshold(thresholdId: Record<string, any>): Promise<number
   }
 }
 
-module.exports = {
+export {
   getAllDbmses,
   getDbmsInfo,
-  getMonResult,
+  connectToTarget,
   executeQuery,
   addDbms,
   modifyDbms,

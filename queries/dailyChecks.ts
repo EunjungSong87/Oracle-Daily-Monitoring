@@ -309,6 +309,4 @@ const dailyChecks: Record<string, string> = {
   `,
 };
 
-module.exports = dailyChecks;
-
-export {};
+export default dailyChecks;

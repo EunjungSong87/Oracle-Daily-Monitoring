@@ -1,9 +1,10 @@
 import express from 'express';
+import * as tableSpecController from '../controllers/tableSpecController';
+
 const router = express.Router();
-const tableSpecController = require('../controllers/tableSpecController');
 
 router.post('/tableSpec/schemas', tableSpecController.getSchemas);
 router.post('/tableSpec/tables', tableSpecController.getTables);
 router.post('/tableSpec/download', tableSpecController.downloadTableSpec);
 
-module.exports = router;
+export default router;
