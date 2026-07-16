@@ -43,7 +43,6 @@ async function getAllDbmses() {
         pool = await initializeDB();
         connection = await pool.getConnection();
         const query = 'select ID, DBNAME, USERNAME, SID, IP, PORT, MEMO, CREATETIME, UPDATETIME from system.monitoring_dbms_list order by ID';
-        connection = await pool.getConnection();
         const result = await executeQuery(connection, query);
         //console.log(result.columns);
         return result;
@@ -68,7 +67,6 @@ async function getScripts() {
       pool = await initializeDB();
       connection = await pool.getConnection();
       const query = 'select id, name, category, description, schedule, is_active, CREATED_AT, UPDATED_AT from SYSTEM.MONITORING_TASKS';
-      connection = await pool.getConnection();
       const result = await executeQuery(connection, query);
       //console.log(result.columns);
       return result;
