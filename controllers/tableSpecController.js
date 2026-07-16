@@ -30,11 +30,11 @@ async function getTables(req, res) {
 
 async function downloadTableSpec(req, res) {
   try {
-    const { dbmsid, owner, tables } = req.body;
+    const { dbmsid, owner, tables, tablesPerSheet } = req.body;
     if (!dbmsid || !owner || !tables) {
       return res.status(400).json({ message: 'dbmsid, owner, tables 정보가 필요합니다.' });
     }
-    const workbook = await tableSpecService.buildTableSpecWorkbook({ dbmsid }, owner, tables);
+    const workbook = await tableSpecService.buildTableSpecWorkbook({ dbmsid }, owner, tables, tablesPerSheet);
 
     const filename = `${owner}_table_spec_${new Date().toISOString().slice(0, 10)}.xlsx`;
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');

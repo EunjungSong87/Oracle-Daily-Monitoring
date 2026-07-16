@@ -19,8 +19,10 @@ async function getTables(dbmsid, owner) {
   }
 }
 
-// 시트 하나가 너무 커지지 않도록, 이 행 수를 넘기면 같은 스키마라도 다음 시트로 넘어갑니다.
-const MAX_ROWS_PER_SHEET = 1000;
+const DEFAULT_TABLES_PER_SHEET = 20;
+// 엑셀 시트 한 장의 실제 한도(1,048,576행)에 걸리지 않도록 두는 안전장치.
+// 사용자가 시트당 테이블 수를 아무리 크게 잡아도 이 행 수를 넘기면 강제로 다음 시트로 넘어갑니다.
+const MAX_ROWS_PER_SHEET = 660000;
 const TITLE_FILL = 'FF1F2937';
 const SECTION_FILL = 'FFE5E7EB';
 const CONSTRAINT_TYPE_LABEL = { P: 'PRIMARY KEY', R: 'FOREIGN KEY', U: 'UNIQUE', C: 'CHECK' };
@@ -30,12 +32,15 @@ function sanitizeSheetName(name) {
 }
 
 // 스키마(owner) 하나에 대해 테이블들을 세로로 계속 이어붙이고,
-// 행 수가 임계치를 넘으면 자동으로 새 시트(OWNER_2, OWNER_3 ...)를 엽니다.
+// 시트당 테이블 수가 tablesPerSheet를 넘거나 행 수가 안전 한도를 넘으면
+// 자동으로 새 시트(OWNER_2, OWNER_3 ...)를 엽니다.
 class SchemaSheetWriter {
-  constructor(workbook, owner) {
+  constructor(workbook, owner, tablesPerSheet) {
     this.workbook = workbook;
     this.owner = owner;
+    this.tablesPerSheet = tablesPerSheet;
     this.part = 1;
+    this.tableCount = 0;
     this.rowCount = 0;
     this.sheet = null;
     this._newSheet();
@@ -48,20 +53,21 @@ class SchemaSheetWriter {
       { width: 26 }, { width: 20 }, { width: 14 }, { width: 12 },
       { width: 12 }, { width: 12 }, { width: 32 }, { width: 32 },
     ];
+    this.tableCount = 0;
     this.rowCount = 0;
     this.part += 1;
   }
 
   startTableBlock() {
-    if (this.rowCount >= MAX_ROWS_PER_SHEET) {
+    if (this.tableCount >= this.tablesPerSheet || this.rowCount >= MAX_ROWS_PER_SHEET) {
       this._newSheet();
     }
+    this.tableCount += 1;
   }
 
   addRow(values) {
-    const row = this.sheet.addRow(values);
     this.rowCount += 1;
-    return row;
+    return this.sheet.addRow(values);
   }
 
   blankRow() {
@@ -153,7 +159,7 @@ function groupByTable(rows) {
   return map;
 }
 
-function buildWorkbook(owner, spec) {
+function buildWorkbook(owner, spec, tablesPerSheet) {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'Oracle Daily Monitoring';
   workbook.created = new Date();
@@ -164,7 +170,7 @@ function buildWorkbook(owner, spec) {
   const grantsByTable = groupByTable(spec.grants);
   const synonymsByTable = groupByTable(spec.synonyms);
 
-  const writer = new SchemaSheetWriter(workbook, owner);
+  const writer = new SchemaSheetWriter(workbook, owner, tablesPerSheet);
 
   spec.tables.forEach((table) => {
     writeTableBlock(
@@ -181,14 +187,15 @@ function buildWorkbook(owner, spec) {
   return workbook;
 }
 
-async function buildTableSpecWorkbook(dbmsid, owner, tables) {
+async function buildTableSpecWorkbook(dbmsid, owner, tables, tablesPerSheet) {
   try {
     const tableNames = tables === 'ALL' ? await tableSpecModel.getTables(dbmsid, owner) : tables;
     if (!tableNames || tableNames.length === 0) {
       throw new Error('선택된 테이블이 없습니다.');
     }
+    const perSheet = Number(tablesPerSheet) > 0 ? Number(tablesPerSheet) : DEFAULT_TABLES_PER_SHEET;
     const spec = await tableSpecModel.getTableSpec(dbmsid, owner, tableNames);
-    return buildWorkbook(owner, spec);
+    return buildWorkbook(owner, spec, perSheet);
   } catch (error) {
     console.error('Service : 테이블 명세서 생성 실패:', error);
     throw new Error('테이블 명세서 생성 실패', { cause: error });

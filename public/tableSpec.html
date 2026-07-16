@@ -51,7 +51,12 @@
         <div id="table-checkbox-list" style="max-height: 320px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; padding: 12px; background: var(--surface); margin-bottom: 16px;"></div>
     </div>
 
-    <button type="button" id="download-button" onclick="downloadSpec()">엑셀 다운로드</button>
+    <label for="TABLES_PER_SHEET">시트당 테이블 수:</label>
+    <input type="number" id="TABLES_PER_SHEET" name="TABLES_PER_SHEET" value="20" min="1" style="max-width: 120px;">
+
+    <div style="margin-top: 16px;">
+        <button type="button" id="download-button" onclick="downloadSpec()">엑셀 다운로드</button>
+    </div>
 </form>
 
 <script>
@@ -193,6 +198,8 @@
             }
         }
 
+        const tablesPerSheet = Number(document.getElementById('TABLES_PER_SHEET').value) || 20;
+
         const button = document.getElementById('download-button');
         button.disabled = true;
         showToast('엑셀 생성 중...');
@@ -201,7 +208,7 @@
             const response = await fetch('/api/tableSpec/download', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ dbmsid, owner, tables })
+                body: JSON.stringify({ dbmsid, owner, tables, tablesPerSheet })
             });
 
             if (!response.ok) {
