@@ -1,0 +1,107 @@
+<!-- monitoringThresholds.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="style.css">
+    <script src="common.js"></script>
+    <title>Monitoring Thresholds</title>
+</head>
+<body>
+
+<a href="index.html">
+<h1>Monitoring Thresholds</h1>
+</a>
+
+<nav>
+    <ul>
+        <li><a href="index.html">DBMS List</a></li>
+        <li><a href="dailyMonitoring.html">Daily Monitoring</a></li>
+        <li><a href="monitoringScript.html">Monitoring Scripts</a></li>
+        <li><a href="addThreshold.html">Add Threshold</a></li>
+        <li><a href="tableSpec.html">Table Spec</a></li>
+    </ul>
+</nav>
+
+<ul id="threshold-list"></ul>
+
+<script>
+    async function fetchThresholds() {
+        try {
+            const response = await fetch('/api/thresholdlist');
+            const { columns, rows } = await response.json();
+            const list = document.getElementById('threshold-list');
+
+            rows.forEach(row => {
+                const listItem = document.createElement('li');
+                const modifyButton = document.createElement('button');
+                const deleteButton = document.createElement('button');
+
+                modifyButton.textContent = 'Modify';
+                modifyButton.className = 'btn-secondary';
+                deleteButton.textContent = 'Delete';
+                deleteButton.className = 'btn-danger';
+
+                const thresholdConfig = {
+                    id: row.ID,
+                    task_id: row.TASK_ID,
+                    task_name: row.TASK_NAME,
+                    column_name: row.COLUMN_NAME,
+                    condition_type: row.CONDITION_TYPE,
+                    operator: row.OPERATOR,
+                    threshold: row.THRESHOLD,
+                    clevel: row.CLEVEL,
+                    message: row.MESSAGE,
+                    is_active: row.IS_ACTIVE
+                };
+
+                const thresholdId = row.ID;
+                modifyButton.onclick = () => modifyThreshold(event, thresholdConfig);
+                deleteButton.onclick = () => deleteThreshold(event, thresholdId, listItem);
+
+                columns.forEach(column => {
+                    const p = document.createElement('p');
+                    p.innerHTML = `<strong style="white-space: pre;"> ${column}:</strong> ${row[column]} <br>`;
+                    listItem.appendChild(p);
+                });
+
+                listItem.appendChild(modifyButton);
+                listItem.appendChild(deleteButton);
+                list.appendChild(listItem);
+            });
+        } catch (error) {
+            console.error('Error fetching thresholds:', error);
+        }
+    }
+
+    async function modifyThreshold(event, thresholdConfig) {
+        localStorage.setItem("editThresholdData", JSON.stringify(thresholdConfig));
+        window.location.href = 'modifyThreshold.html';
+    }
+
+    async function deleteThreshold(event, thresholdId, listItem) {
+        try {
+            const response = await fetch('/api/deleteThreshold', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ thresholdId })
+            });
+
+            if (response.ok) {
+                showToast('임계치 삭제 완료.');
+                listItem.remove();
+            } else {
+                showToast(`요청 실패: ${response.status}`, 'error');
+            }
+        } catch (error) {
+            console.error('Error:', error.message);
+            showToast('요청 처리 중 오류가 발생했습니다.', 'error');
+        }
+    }
+
+    showFlashMessageIfAny();
+    fetchThresholds();
+</script>
+</body>
+</html>

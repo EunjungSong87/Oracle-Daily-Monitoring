@@ -62,16 +62,76 @@ async function listTasks() {
 }
 
 
+// 값 하나가 임계치 규칙을 위반하는지 판단합니다.
+function evaluateThreshold(rawValue, conditionType, operator, thresholdValue) {
+  if (rawValue === null || rawValue === undefined) return false;
+
+  if (conditionType === 'NUMERIC') {
+    const value = parseFloat(String(rawValue).replace(/[^0-9.\-]/g, ''));
+    const limit = parseFloat(thresholdValue);
+    if (Number.isNaN(value) || Number.isNaN(limit)) return false;
+    switch (operator) {
+      case '>': return value > limit;
+      case '>=': return value >= limit;
+      case '<': return value < limit;
+      case '<=': return value <= limit;
+      case '=': return value === limit;
+      case '!=': return value !== limit;
+      default: return false;
+    }
+  }
+
+  const strValue = String(rawValue);
+  const strLimit = String(thresholdValue);
+
+  if (conditionType === 'STRING') {
+    if (operator === '=') return strValue === strLimit;
+    if (operator === '!=') return strValue !== strLimit;
+    return false;
+  }
+
+  if (conditionType === 'PATTERN') {
+    return strValue.includes(strLimit);
+  }
+
+  return false;
+}
+
+// task에 걸린 임계치 규칙들을 각 row에 적용해 위반한 컬럼에 _alerts를 붙입니다.
+function applyThresholds(rows, thresholdsForTask) {
+  if (!thresholdsForTask || thresholdsForTask.length === 0) return rows;
+
+  return rows.map((row) => {
+    const alerts = {};
+    for (const th of thresholdsForTask) {
+      const column = th.COLUMN_NAME;
+      if (evaluateThreshold(row[column], th.CONDITION_TYPE, th.OPERATOR, th.THRESHOLD)) {
+        alerts[column] = { level: th.CLEVEL, message: th.MESSAGE };
+      }
+    }
+    return Object.keys(alerts).length > 0 ? { ...row, _alerts: alerts } : row;
+  });
+}
+
 async function getMonResult(dbmsid) {
   const results = [];
   let dbconfig;
   let tasks;
+  let thresholds;
   try {
     dbconfig = await getDbmsInfo(dbmsid);
     tasks = await listTasks();
+    thresholds = await dbmsList.getActiveThresholds();
   } catch (error) {
     console.error('Service : Monitoring Result 가져오기 실패:', error);
     throw new Error('Monitoring Result 가져오기 실패', { cause: error });
+  }
+
+  const thresholdsByTask = {};
+  for (const th of thresholds) {
+    const key = th.TASK_ID;
+    if (!thresholdsByTask[key]) thresholdsByTask[key] = [];
+    thresholdsByTask[key].push(th);
   }
 
   for ( const row of tasks.rows ) {
@@ -90,7 +150,7 @@ async function getMonResult(dbmsid) {
         task_id: id,
         task_name: checkName,
         columns: result.columns,
-        rows: result.rows,
+        rows: applyThresholds(result.rows, thresholdsByTask[id]),
         success: true
       });
     } catch (error) {
@@ -169,6 +229,47 @@ async function deleteScript(scriptId) {
   }
 }
 
+async function getThresholds() {
+  try {
+    const thresholds = await dbmsList.getThresholds();
+    return thresholds;
+  } catch (error) {
+    console.error('Service : 임계치 목록 조회 실패:', error);
+    throw new Error('임계치 목록 조회 실패', { cause: error });
+  }
+}
+
+async function addThreshold(thresholdInfo) {
+  try {
+    const result = await dbmsList.addThreshold(thresholdInfo);
+    return result;
+  } catch (error) {
+    console.error('Service : 임계치 등록 실패:', error);
+    throw new Error('Service : 임계치 등록 실패', { cause: error });
+  }
+}
+
+async function modifyThreshold(thresholdInfo) {
+  try {
+    const result = await dbmsList.modifyThreshold(thresholdInfo);
+    return result;
+  } catch (error) {
+    console.error('Service : 임계치 수정 실패:', error);
+    throw new Error('Service : 임계치 수정 실패', { cause: error });
+  }
+}
+
+async function deleteThreshold(thresholdId) {
+  try {
+    const result = await dbmsList.deleteThreshold(thresholdId);
+    return result;
+  } catch (error) {
+    console.error('Service : 임계치 삭제 실패:', error);
+    throw new Error('Service : 임계치 삭제 실패', { cause: error });
+  }
+}
+
 module.exports = {
     getAllDbmses, getDbmsInfo, getMonResult, addDbms, modifyDbms, deleteDbms, listTasks, getScripts, getSqlText, modifyScript, addScript, deleteScript
+    , getThresholds, addThreshold, modifyThreshold, deleteThreshold
 };

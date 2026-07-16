@@ -5,91 +5,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <style>
-        
-        body {
-            font-family: 'Inter', sans-serif;
-            margin: 0;
-            padding: 0;
-            background-color: #ffffff;
-        }
-
-        h1 {
-            font-family: 'Inter', sans-serif;
-            background-color: #343a40;
-            color: #ffffff;
-            padding: 20px;
-            margin: 0;
-        }
-
-        .tab {
-            overflow: hidden;
-            border-bottom: 1px solid #ccc;
-            background-color: #f4f4f4;
-        }
-
-        .tab button {
-            background-color: inherit;
-            border: none;
-            outline: none;
-            cursor: pointer;
-            padding: 14px 16px;
-            transition: 0.3s;
-            font-size: 16px;
-        }
-
-        .tab button:hover {
-        background-color: #ddd;
-        }
-
-        .tab button.active {
-        background-color: #aaa6e4;
-        }
-
-        .tab-content {
-        display: none;
-        padding: 20px;
-        border-top: none;
-        }
-
-        .tab-content.active {
-            display: block;
-        }
-
-        #Run-button {
-            background-color: #ae80e2;
-        }
-        .table {
-            width: 80%;
-            border-collapse: collapse;
-            margin: 20px auto;
-            table-layout: auto; 
-        }
-        .table td, th {
-            font-family:  sans-serif;
-            font-weight: 450;
-            border:1px solid gray;
-            padding: 10px;
-            white-space: pre-wrap;
-        }
-        .table th {
-            font-family: 'Inter', sans-serif;
-            font-weight: 600;
-            color: #ffffff;
-            background-color: #071b5e;
-            font-weight: 600;
-
-        }
-        #monInfo {
-            color: black;
-            font-size: 25px;
-        }
-        #NoResult {
-            color: rgba(10, 194, 86, 0.938);
-            text-align: center;
-            font-size: 25px;
-        }
-    </style>
+    <link rel="stylesheet" href="style.css">
+    <script src="common.js"></script>
 </head>
 <body>
     <!-- 페이지의 제목을 설정합니다. -->
@@ -97,7 +14,16 @@
     <!-- 페이지 상단에 표시되는 제목입니다. -->
     <a href="index.html">
     <h1>Daily Monitoring</h1>
-    </a> 
+    </a>
+
+    <nav>
+        <ul>
+            <li><a href="index.html">DBMS List</a></li>
+            <li><a href="monitoringScript.html">Monitoring Scripts</a></li>
+            <li><a href="monitoringThresholds.html">Thresholds</a></li>
+            <li><a href="tableSpec.html">Table Spec</a></li>
+        </ul>
+    </nav>
 
     <div id="tab-list" class="tab">
         <button class="tab-link active" onclick="openTab(this, 'tab1')" >DBMS LIST</button>
@@ -106,9 +32,9 @@
 
     <div id="tab1" class="tab-content active">
             <!-- 상단 버튼 -->
-            <button onclick="checkAllDbms()">Check ALL</button>
-            <button onclick="getCheckedRows('runButton')">RUN</button>
-            <button onclick="getCheckedRows('downloadButton')">Download Report</button>
+            <button type="button" class="btn-secondary" onclick="checkAllDbms()">Check ALL</button>
+            <button type="button" id="Run-button" onclick="getCheckedRows('runButton')">RUN</button>
+            <button type="button" class="btn-secondary" onclick="getCheckedRows('downloadButton')">Download Report</button>
             
             <table id="dbmses-list" class="table">
                 <thead>
@@ -257,6 +183,8 @@
         //<!--  DB에서 Monitoring Script 실행 후 결과 값을 가져온다.-->
         async function getMonResult(dbConfig, dbmsid, buttonName) {
 
+            showToast(`${dbConfig.dbname} 점검 실행 중...`);
+
             const response = await fetch('/api/dbmslist/monResult', {
                                                         method : 'POST',
                                                         headers: {
@@ -265,10 +193,22 @@
                                                         body: JSON.stringify({dbmsid}), // JSON 데이터 전송
             });
 
+            if (!response.ok) {
+                showToast(`${dbConfig.dbname} 점검 실행 실패: ${response.status}`, 'error');
+                return;
+            }
+
             const  results = await response.json();
             //console.log('값!!! 가져오기 성공 ', results);
-            
+
             console.log('results task_name' , results);
+
+            const failedCount = results.filter(r => !r.success).length;
+            if (failedCount > 0) {
+                showToast(`${dbConfig.dbname} 점검 완료 (${failedCount}건 실패)`, 'error');
+            } else {
+                showToast(`${dbConfig.dbname} 점검 완료`);
+            }
 
             addResultTab(dbConfig, results);
 
@@ -353,10 +293,15 @@
                     // 데이터 추가
                     result.rows.forEach(row => {
                         const tr = document.createElement('tr');
-                                
+                        const alerts = row._alerts || {};
+
                         result.columns.forEach(column => {
                                 const td = document.createElement('td');
                                 td.textContent = row[column];
+                                if (alerts[column]) {
+                                    td.classList.add('cell-' + alerts[column].level.toLowerCase());
+                                    td.title = alerts[column].message || '';
+                                }
                                 tr.appendChild(td);
                         });
 

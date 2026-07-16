@@ -415,7 +415,136 @@ async function deleteScript(scriptId) {
   }
 }
 
+async function getThresholds() {
+  let pool;
+  let connection;
+  try {
+      pool = await initializeDB();
+      connection = await pool.getConnection();
+      const query = `select t.id, t.task_id, m.name task_name, t.column_name, t.condition_type,
+                            t.operator, t.threshold, t.clevel, t.message, t.is_active
+                       from system.monitoring_thresholds t
+                       join system.monitoring_tasks m on m.id = t.task_id
+                      order by t.id`;
+      const result = await executeQuery(connection, query);
+      return result;
+
+  } catch (err) {
+      console.error('Error:', err);
+    throw err;
+  } finally {
+      if (connection) {
+          await connection.close();
+      }
+  }
+}
+
+// 활성화된 임계치 규칙만 평가용으로 가져옵니다 (task_id별로 매칭).
+async function getActiveThresholds() {
+  let pool;
+  let connection;
+  try {
+      pool = await initializeDB();
+      connection = await pool.getConnection();
+      const query = `select task_id, column_name, condition_type, operator, threshold, clevel, message
+                       from system.monitoring_thresholds
+                      where is_active = 'Y'`;
+      const result = await executeQuery(connection, query);
+      return result.rows;
+
+  } catch (err) {
+      console.error('Error:', err);
+    throw err;
+  } finally {
+      if (connection) {
+          await connection.close();
+      }
+  }
+}
+
+async function addThreshold(thresholdInfo) {
+  let pool;
+  let connection;
+  try {
+      pool = await initializeDB();
+      connection = await pool.getConnection();
+      const maxRes = await connection.execute('select nvl(max(id),0)+1 as nextid from system.monitoring_thresholds');
+      const nextId = maxRes.rows[0][0];
+      const sql = `insert into system.monitoring_thresholds
+                      (id, task_id, column_name, condition_type, operator, threshold, clevel, message, is_active, created_at)
+                   values (:id, :task_id, :column_name, :condition_type, :operator, :threshold, :clevel, :message, :is_active, sysdate)`;
+      console.log('MODEL : thresholdInfo:', thresholdInfo);
+      const bindParams = { id: nextId, ...thresholdInfo };
+
+      const result = await connection.execute(sql, bindParams, {autoCommit : true });
+
+      console.log('Threshold Insert Success:', result.rowsAffected);
+      return result.rowsAffected;
+
+  } catch (err) {
+      console.error('Error:', err);
+    throw err;
+  } finally {
+      if (connection) {
+          await connection.close();
+      }
+  }
+}
+
+async function modifyThreshold(thresholdInfo) {
+  let pool;
+  let connection;
+  try {
+      pool = await initializeDB();
+      connection = await pool.getConnection();
+      const sql = `update system.monitoring_thresholds
+                      set task_id = :task_id, column_name = :column_name, condition_type = :condition_type,
+                          operator = :operator, threshold = :threshold, clevel = :clevel,
+                          message = :message, is_active = :is_active
+                    where id = :id`;
+      console.log('MODEL : thresholdInfo:', thresholdInfo);
+
+      const result = await connection.execute(sql, thresholdInfo, {autoCommit : true });
+
+      console.log('Threshold Update Success:', result.rowsAffected);
+      return result.rowsAffected;
+
+  } catch (err) {
+      console.error('Error:', err);
+    throw err;
+  } finally {
+      if (connection) {
+          await connection.close();
+      }
+  }
+}
+
+async function deleteThreshold(thresholdId) {
+  let pool;
+  let connection;
+  try {
+      pool = await initializeDB();
+      connection = await pool.getConnection();
+      const sql = 'delete from system.monitoring_thresholds where id = :thresholdId';
+      console.log('MODEL : thresholdId:', thresholdId);
+
+      const result = await connection.execute(sql, thresholdId, {autoCommit : true });
+
+      console.log('Threshold Delete Success:', result.rowsAffected);
+      return result.rowsAffected;
+
+  } catch (err) {
+      console.error('Error:', err);
+    throw err;
+  } finally {
+      if (connection) {
+          await connection.close();
+      }
+  }
+}
+
 module.exports = { getAllDbmses, getDbmsInfo, getMonResult, executeQuery, addDbms, modifyDbms
                  , deleteDbms, listTasks, getScripts, getDbmsInfo, getSqlText, modifyScript
-                 , addScript, deleteScript                  
+                 , addScript, deleteScript
+                 , getThresholds, getActiveThresholds, addThreshold, modifyThreshold, deleteThreshold
                  };

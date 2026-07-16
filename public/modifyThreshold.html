@@ -1,0 +1,150 @@
+<!-- modifyThreshold.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="style.css">
+    <script src="common.js"></script>
+    <title>Modify Threshold</title>
+</head>
+<body>
+
+<a href="monitoringThresholds.html">
+<h1>Modify Threshold</h1>
+</a>
+
+<nav>
+    <ul>
+        <li><a href="index.html">DBMS List</a></li>
+        <li><a href="dailyMonitoring.html">Daily Monitoring</a></li>
+        <li><a href="monitoringScript.html">Monitoring Scripts</a></li>
+        <li><a href="monitoringThresholds.html">Thresholds</a></li>
+        <li><a href="tableSpec.html">Table Spec</a></li>
+    </ul>
+</nav>
+
+<form id="modify-threshold" onsubmit="modifyThreshold(event)">
+    <label for="ID">ID:</label>
+    <input type="number" id="ID" name="ID" readonly>
+
+    <label for="TASK_ID">점검 항목 (TASK):</label>
+    <select id="TASK_ID" name="TASK_ID" required></select>
+
+    <label for="COLUMN_NAME">컬럼명 (결과 테이블의 컬럼명과 정확히 일치해야 함):</label>
+    <input type="text" id="COLUMN_NAME" name="COLUMN_NAME" required>
+
+    <label for="CONDITION_TYPE">조건 유형:</label>
+    <select id="CONDITION_TYPE" name="CONDITION_TYPE" required>
+        <option value="NUMERIC">NUMERIC (숫자 비교)</option>
+        <option value="STRING">STRING (문자열 일치)</option>
+        <option value="PATTERN">PATTERN (문자열 포함)</option>
+    </select>
+
+    <label for="OPERATOR">연산자:</label>
+    <select id="OPERATOR" name="OPERATOR" required>
+        <option value=">">&gt;</option>
+        <option value=">=">&gt;=</option>
+        <option value="<">&lt;</option>
+        <option value="<=">&lt;=</option>
+        <option value="=">=</option>
+        <option value="!=">!=</option>
+        <option value="LIKE">LIKE (포함)</option>
+    </select>
+
+    <label for="THRESHOLD">기준값:</label>
+    <input type="text" id="THRESHOLD" name="THRESHOLD" required>
+
+    <label for="CLEVEL">알림 레벨:</label>
+    <select id="CLEVEL" name="CLEVEL" required>
+        <option value="WARN">WARN</option>
+        <option value="ERROR">ERROR</option>
+        <option value="INFO">INFO</option>
+    </select>
+
+    <label for="MESSAGE">메시지:</label>
+    <input type="text" id="MESSAGE" name="MESSAGE">
+
+    <label for="IS_ACTIVE">활성화 여부:</label>
+    <select id="IS_ACTIVE" name="IS_ACTIVE" required>
+        <option value="Y">Y</option>
+        <option value="N">N</option>
+    </select>
+
+    <button type="submit">수정 완료</button>
+    <button type="button" class="btn-secondary" onclick="goBack()">뒤로 가기</button>
+</form>
+
+<script>
+    async function loadTasks(selectedTaskId) {
+        try {
+            const response = await fetch('/api/scriptlist');
+            const { rows } = await response.json();
+            const select = document.getElementById('TASK_ID');
+            rows.forEach(row => {
+                const option = document.createElement('option');
+                option.value = row.ID;
+                option.textContent = `${row.ID} - ${row.NAME}`;
+                if (String(row.ID) === String(selectedTaskId)) option.selected = true;
+                select.appendChild(option);
+            });
+        } catch (error) {
+            console.error('Error loading tasks:', error.message);
+        }
+    }
+
+    window.onload = async function () {
+        const data = JSON.parse(localStorage.getItem("editThresholdData"));
+
+        document.getElementById('ID').value = data.id;
+        document.getElementById('COLUMN_NAME').value = data.column_name;
+        document.getElementById('CONDITION_TYPE').value = data.condition_type;
+        document.getElementById('OPERATOR').value = data.operator;
+        document.getElementById('THRESHOLD').value = data.threshold;
+        document.getElementById('CLEVEL').value = data.clevel;
+        document.getElementById('MESSAGE').value = data.message;
+        document.getElementById('IS_ACTIVE').value = data.is_active;
+
+        await loadTasks(data.task_id);
+    };
+
+    async function modifyThreshold(event) {
+        event.preventDefault();
+
+        const thresholdInfo = {
+            id: document.getElementById('ID').value,
+            task_id: document.getElementById('TASK_ID').value,
+            column_name: document.getElementById('COLUMN_NAME').value,
+            condition_type: document.getElementById('CONDITION_TYPE').value,
+            operator: document.getElementById('OPERATOR').value,
+            threshold: document.getElementById('THRESHOLD').value,
+            clevel: document.getElementById('CLEVEL').value,
+            message: document.getElementById('MESSAGE').value,
+            is_active: document.getElementById('IS_ACTIVE').value
+        };
+
+        try {
+            const response = await fetch('/api/modifyThreshold', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(thresholdInfo)
+            });
+
+            if (response.ok) {
+                setFlashMessage('임계치 수정 완료.');
+                window.location.href = 'monitoringThresholds.html';
+            } else {
+                showToast(`요청 실패: ${response.status}`, 'error');
+            }
+        } catch (error) {
+            console.error('Error:', error.message);
+            showToast('요청 처리 중 오류가 발생했습니다.', 'error');
+        }
+    }
+
+    function goBack() {
+        window.history.back();
+    }
+</script>
+</body>
+</html>

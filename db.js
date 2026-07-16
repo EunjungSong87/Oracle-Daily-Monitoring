@@ -29,17 +29,36 @@ async function connectDB(config) {
   }
 
 
-// 커넥션 풀 생성,DB 연결 함수 
-async function initializeDB() {
-    let pool;
-    try {
-      pool = await oracle.createPool(dbConfig);
-      console.log('Oracle connection pool created');
-      return pool; // 연결 객체 반환
-    } catch (err) {
-      console.error('Error creating connection pool:', err);
-      throw err;
+// 커넥션 풀 생성, DB 연결 함수
+// 풀은 프로세스당 한 번만 생성해서 재사용합니다 (매 호출마다 새 풀을 만들면
+// 커넥션이 누적되어 결국 DB 쪽에서 연결이 지연/타임아웃되는 문제가 있었습니다).
+// 첫 생성 시도가 응답 없이 멈추는 경우를 대비해 타임아웃을 둬서, 이후 요청들이
+// 영원히 대기하지 않고 다음 호출에서 재시도할 수 있게 합니다.
+const POOL_CREATE_TIMEOUT_MS = 15000;
+let poolPromise;
+
+function initializeDB() {
+    if (!poolPromise) {
+      poolPromise = Promise.race([
+        oracle.createPool(dbConfig),
+        new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new Error(`커넥션 풀 생성이 ${POOL_CREATE_TIMEOUT_MS}ms 내에 완료되지 않았습니다.`)),
+            POOL_CREATE_TIMEOUT_MS
+          )
+        ),
+      ])
+        .then((pool) => {
+          console.log('Oracle connection pool created');
+          return pool;
+        })
+        .catch((err) => {
+          console.error('Error creating connection pool:', err);
+          poolPromise = null; // 다음 호출에서 재시도 가능하도록 초기화
+          throw err;
+        });
     }
+    return poolPromise;
   }
 
 
@@ -48,7 +67,10 @@ async function closeDB() {
     process.on('SIGINT', async () => {
         try {
           console.log('\nClosing Oracle connection pool...');
-          await pool.close(10); // 최대 10초 대기 후 연결 닫기
+          if (poolPromise) {
+            const pool = await poolPromise;
+            await pool.close(10); // 최대 10초 대기 후 연결 닫기
+          }
           console.log('Oracle connection pool closed');
           process.exit(0);
         } catch (err) {

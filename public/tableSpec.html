@@ -1,0 +1,246 @@
+<!-- tableSpec.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="style.css">
+    <script src="common.js"></script>
+    <title>Table Spec</title>
+</head>
+<body>
+
+<a href="index.html">
+<h1>Table Spec (테이블 명세서)</h1>
+</a>
+
+<nav>
+    <ul>
+        <li><a href="index.html">DBMS List</a></li>
+        <li><a href="dailyMonitoring.html">Daily Monitoring</a></li>
+        <li><a href="monitoringScript.html">Monitoring Scripts</a></li>
+        <li><a href="monitoringThresholds.html">Thresholds</a></li>
+    </ul>
+</nav>
+
+<form id="table-spec-form" onsubmit="event.preventDefault()">
+    <label for="DBMS_ID">DBMS:</label>
+    <select id="DBMS_ID" name="DBMS_ID" required></select>
+
+    <label for="OWNER">스키마 (SCHEMA):</label>
+    <select id="OWNER" name="OWNER" required disabled>
+        <option value="">DBMS를 먼저 선택하세요</option>
+    </select>
+
+    <label>추출 범위:</label>
+    <div style="margin-bottom: 16px;">
+        <label style="display:inline-block; text-transform:none; font-weight:normal; margin-right:20px;">
+            <input type="radio" name="SCOPE" value="ALL" checked onchange="onScopeChange()"> 스키마 전체
+        </label>
+        <label style="display:inline-block; text-transform:none; font-weight:normal;">
+            <input type="radio" name="SCOPE" value="SELECT" onchange="onScopeChange()"> 개별 테이블 선택
+        </label>
+    </div>
+
+    <div id="table-picker" style="display:none;">
+        <label>테이블 선택:</label>
+        <div style="margin-bottom:10px;">
+            <button type="button" class="btn-secondary" onclick="toggleAllTables(true)">전체 선택</button>
+            <button type="button" class="btn-secondary" onclick="toggleAllTables(false)">전체 해제</button>
+        </div>
+        <div id="table-checkbox-list" style="max-height: 320px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; padding: 12px; background: var(--surface); margin-bottom: 16px;"></div>
+    </div>
+
+    <button type="button" id="download-button" onclick="downloadSpec()">엑셀 다운로드</button>
+</form>
+
+<script>
+    let currentTables = [];
+
+    async function loadDbmsList() {
+        try {
+            const response = await fetch('/api/dbmslist');
+            const { rows } = await response.json();
+            const select = document.getElementById('DBMS_ID');
+            rows.forEach(row => {
+                const option = document.createElement('option');
+                option.value = row.ID;
+                option.textContent = `${row.ID} - ${row.DBNAME}`;
+                select.appendChild(option);
+            });
+            if (rows.length > 0) {
+                await loadSchemas();
+            }
+        } catch (error) {
+            console.error('Error loading dbms list:', error.message);
+            showToast('DBMS 목록 조회 실패', 'error');
+        }
+    }
+
+    async function loadSchemas() {
+        const ownerSelect = document.getElementById('OWNER');
+        ownerSelect.innerHTML = '<option value="">불러오는 중...</option>';
+        ownerSelect.disabled = true;
+
+        try {
+            const dbmsid = document.getElementById('DBMS_ID').value;
+            const response = await fetch('/api/tableSpec/schemas', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dbmsid })
+            });
+
+            if (!response.ok) {
+                showToast('스키마 목록 조회 실패', 'error');
+                ownerSelect.innerHTML = '<option value="">조회 실패</option>';
+                return;
+            }
+
+            const schemas = await response.json();
+            ownerSelect.innerHTML = '';
+            schemas.forEach(owner => {
+                const option = document.createElement('option');
+                option.value = owner;
+                option.textContent = owner;
+                ownerSelect.appendChild(option);
+            });
+            ownerSelect.disabled = false;
+
+            if (schemas.length > 0 && document.querySelector('input[name="SCOPE"]:checked').value === 'SELECT') {
+                await loadTables();
+            }
+        } catch (error) {
+            console.error('Error loading schemas:', error.message);
+            showToast('스키마 목록 조회 중 오류가 발생했습니다.', 'error');
+        }
+    }
+
+    async function loadTables() {
+        const listDiv = document.getElementById('table-checkbox-list');
+        listDiv.textContent = '불러오는 중...';
+
+        try {
+            const dbmsid = document.getElementById('DBMS_ID').value;
+            const owner = document.getElementById('OWNER').value;
+            const response = await fetch('/api/tableSpec/tables', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dbmsid, owner })
+            });
+
+            if (!response.ok) {
+                showToast('테이블 목록 조회 실패', 'error');
+                listDiv.textContent = '조회 실패';
+                return;
+            }
+
+            currentTables = await response.json();
+            listDiv.innerHTML = '';
+            currentTables.forEach(tableName => {
+                const label = document.createElement('label');
+                label.style.display = 'block';
+                label.style.fontWeight = 'normal';
+                label.style.textTransform = 'none';
+                label.style.marginBottom = '4px';
+
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.value = tableName;
+                checkbox.className = 'table-checkbox';
+                checkbox.style.marginRight = '8px';
+
+                label.appendChild(checkbox);
+                label.appendChild(document.createTextNode(tableName));
+                listDiv.appendChild(label);
+            });
+        } catch (error) {
+            console.error('Error loading tables:', error.message);
+            showToast('테이블 목록 조회 중 오류가 발생했습니다.', 'error');
+        }
+    }
+
+    function toggleAllTables(checked) {
+        document.querySelectorAll('.table-checkbox').forEach(cb => { cb.checked = checked; });
+    }
+
+    function onScopeChange() {
+        const scope = document.querySelector('input[name="SCOPE"]:checked').value;
+        const picker = document.getElementById('table-picker');
+        if (scope === 'SELECT') {
+            picker.style.display = 'block';
+            if (currentTables.length === 0) loadTables();
+        } else {
+            picker.style.display = 'none';
+        }
+    }
+
+    async function downloadSpec() {
+        const dbmsid = document.getElementById('DBMS_ID').value;
+        const owner = document.getElementById('OWNER').value;
+        const scope = document.querySelector('input[name="SCOPE"]:checked').value;
+
+        if (!dbmsid || !owner) {
+            showToast('DBMS와 스키마를 선택해주세요.', 'error');
+            return;
+        }
+
+        let tables = 'ALL';
+        if (scope === 'SELECT') {
+            tables = Array.from(document.querySelectorAll('.table-checkbox:checked')).map(cb => cb.value);
+            if (tables.length === 0) {
+                showToast('테이블을 하나 이상 선택해주세요.', 'error');
+                return;
+            }
+        }
+
+        const button = document.getElementById('download-button');
+        button.disabled = true;
+        showToast('엑셀 생성 중...');
+
+        try {
+            const response = await fetch('/api/tableSpec/download', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dbmsid, owner, tables })
+            });
+
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                showToast(err.message || `요청 실패: ${response.status}`, 'error');
+                return;
+            }
+
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${owner}_table_spec.xlsx`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            showToast('엑셀 다운로드 완료.');
+        } catch (error) {
+            console.error('Error:', error.message);
+            showToast('다운로드 중 오류가 발생했습니다.', 'error');
+        } finally {
+            button.disabled = false;
+        }
+    }
+
+    document.getElementById('DBMS_ID').addEventListener('change', () => {
+        currentTables = [];
+        loadSchemas();
+    });
+    document.getElementById('OWNER').addEventListener('change', () => {
+        currentTables = [];
+        if (document.querySelector('input[name="SCOPE"]:checked').value === 'SELECT') {
+            loadTables();
+        }
+    });
+
+    loadDbmsList();
+</script>
+</body>
+</html>

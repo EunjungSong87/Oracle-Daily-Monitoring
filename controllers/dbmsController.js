@@ -210,6 +210,55 @@ async function getDbmsInfo(req, res) {
     }
   }
 
+  async function getThresholds(req, res) {
+    try {
+      const thresholds = await dbmsService.getThresholds();
+      res.status(200).json(thresholds);
+    } catch (error) {
+      console.error('Controller : 임계치 목록 조회 오류:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  async function addThreshold(req, res) {
+    try {
+      const { task_id, column_name, condition_type, operator, threshold, clevel, message, is_active } = req.body;
+      const thresholdInfo = { task_id, column_name, condition_type, operator, threshold, clevel, message, is_active };
+      console.log('Controller : thresholdInfo:', thresholdInfo);
+      const queryResults = await dbmsService.addThreshold(thresholdInfo);
+      return res.json(queryResults);
+    } catch (error) {
+      console.error('Controller : 임계치 등록 오류:', error);
+      res.status(500).json({ message: 'Controller : 서버 오류 발생' });
+    }
+  }
+
+  async function modifyThreshold(req, res) {
+    try {
+      const { id, task_id, column_name, condition_type, operator, threshold, clevel, message, is_active } = req.body;
+      const thresholdInfo = { id, task_id, column_name, condition_type, operator, threshold, clevel, message, is_active };
+      console.log('Controller : thresholdInfo:', thresholdInfo);
+      const queryResults = await dbmsService.modifyThreshold(thresholdInfo);
+      return res.json(queryResults);
+    } catch (error) {
+      console.error('Controller : 임계치 수정 오류:', error);
+      res.status(500).json({ message: 'Controller : 서버 오류 발생' });
+    }
+  }
+
+  async function deleteThreshold(req, res) {
+    try {
+      const thresholdId = req.body;
+      console.log('Controller : thresholdId:', thresholdId);
+      const queryResults = await dbmsService.deleteThreshold(thresholdId);
+      return res.json(queryResults);
+    } catch (error) {
+      console.error('Controller : 임계치 삭제 오류:', error);
+      res.status(500).json({ message: 'Controller : 서버 오류 발생' });
+    }
+  }
+
   module.exports = {
     getAllDbmses, getDbmsInfo, getMonResult, addDbms, modifyDbms, deleteDbms, getScripts, modifyScript, getSqlText, addScript, deleteScript
+    , getThresholds, addThreshold, modifyThreshold, deleteThreshold
   };

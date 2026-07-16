@@ -13,4 +13,8 @@ router.post('/getSqlText', dbmsController.getSqlText);
 router.post('/modifyScript', dbmsController.modifyScript);
 router.post('/addScript', dbmsController.addScript);
 router.post('/deleteScript', dbmsController.deleteScript);
+router.get( '/thresholdlist', dbmsController.getThresholds);
+router.post('/addThreshold', dbmsController.addThreshold);
+router.post('/modifyThreshold', dbmsController.modifyThreshold);
+router.post('/deleteThreshold', dbmsController.deleteThreshold);
 module.exports = router; // 라우터 내보내기

@@ -1,64 +1,29 @@
-<!-- addDbms.html -->
+<!-- addScript.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="style.css">
+    <script src="common.js"></script>
+    <title>Add Script</title>
+</head>
+<body>
 
-<style>
-    /* addDbms.html에 해당하는 CSS 스타일 */
-
-    body {
-        font-family: Arial, sans-serif;
-        margin: 0;
-        padding: 0;
-        background-color: #f4f4f4;
-    }
-
-    h1 {
-            background-color: #343a40;
-            color: #ffffff;
-            padding: 20px;
-            margin: 0;
-    }
-
-    form {
-        max-width: 600px;
-        margin: 20px auto;
-        padding: 20px;
-        background-color: #fff;
-        border: 1px solid #ddd;
-    }
-
-    label {
-        display: block;
-        margin-bottom: 5px;
-        font-weight: bold;
-    }
-
-    input[type="text"],
-    textarea {
-        width: 100%;
-        padding: 8px;
-        margin-bottom: 10px;
-        box-sizing: border-box;
-    }
-
-    button {
-        background-color: #333;
-        color: #fff;
-        padding: 10px;
-        border: none;
-        cursor: pointer;
-        border-radius: 5px;
-        margin-right: 10px; /* 추가된 부분: 뒤로가기 버튼과의 간격을 조절합니다. */
-    }
-
-    button:hover {
-        background-color: #555;
-    }
-
-</style>
-
-<!-- 페이지 상단에 표시되는 제목입니다. -->
-<a href="monitoringScript.html"> 
+<a href="monitoringScript.html">
 <h1>Add Script</h1>
 </a>
+
+<nav>
+    <ul>
+        <li><a href="index.html">DBMS List</a></li>
+        <li><a href="dailyMonitoring.html">Daily Monitoring</a></li>
+        <li><a href="monitoringScript.html">Monitoring Scripts</a></li>
+        <li><a href="monitoringThresholds.html">Thresholds</a></li>
+        <li><a href="tableSpec.html">Table Spec</a></li>
+    </ul>
+</nav>
+
 <!-- Script 추가 폼입니다. -->
 <form id="add-script" onsubmit="addScript(event)">
     <label for="ID">ID:</label>
@@ -86,7 +51,7 @@
     <button type="submit">Sript 추가</button>
 
     <!-- 뒤로가기 버튼 -->
-    <button onclick="goBack()">뒤로 가기</button>
+    <button type="button" class="btn-secondary" onclick="goBack()">뒤로 가기</button>
 </form>
 
 <!-- 게시글 작성 스크립트 파일을 로드합니다. -->
@@ -101,9 +66,9 @@
         const schedule   =    document.getElementById('SCHEDULE');
         const is_active   =    document.getElementById('IS_ACTIVE');
 
-        
+
         if (!id.value || !name.value || !category.value || !schedule.value || !sql_text.value || !is_active.value) {
-            alert('Please input Script INFO.');
+            showToast('필수 항목을 입력해주세요.', 'error');
             return;
         }
 
@@ -125,14 +90,14 @@
             });
 
             if (response.ok) {
-                alert('Sript 추가 완료.');
+                setFlashMessage('Script 추가 완료.');
                 window.location.href = 'monitoringScript.html'
             } else {
-                alert(`Request failed: ${response.status}`);
+                showToast(`요청 실패: ${response.status}`, 'error');
             }
         } catch (error) {
             console.error('Error:', error.message);
-            alert('An error occurred while sending the POST request.');
+            showToast('요청 처리 중 오류가 발생했습니다.', 'error');
         }
     }
 
@@ -140,3 +105,5 @@
         window.history.back();
     }
 </script>
+</body>
+</html>

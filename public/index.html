@@ -7,80 +7,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <!-- 페이지의 스타일을 지정하는 CSS 코드입니다. -->
-    <style>
-        body {
-            font-family: 'Inter', sans-serif;
-            margin: 0;
-            padding: 0;
-            background-color: #f8f9fa;
-        }
-
-        h1 {
-            background-color: #343a40;
-            color: #ffffff;
-            padding: 20px;
-            margin: 0;
-        }
-
-        nav ul {
-            list-style: none;
-            padding: 0;
-            margin: 0;
-            background-color: #343a40;
-            overflow: hidden;
-        }
-
-        nav ul li {
-            float: left;
-            display: inline;
-            padding: 10px;
-        }
-
-        nav ul li a {
-            text-decoration: none;
-            color: #ffffff;
-            font-weight: bold;
-            display: inline-block;
-            padding: 10px 20px;
-            background-color: #343a40;
-            transition: background-color 0.3s ease;
-        }
-
-        nav ul li a:hover {
-            background-color: #495057;
-        }
-
-        #dbmses-list {
-
-            list-style: none;
-            padding: 0;
-            margin: 20px;
-        }
-
-        #dbmses-list li {
-            background-color: #ffffff;
-            border: 2px solid #ced4da;
-            padding: 15px;
-            margin-bottom: 10px;
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-            font-size : 15px; 
-            font-family: 'Inter', sans-serif;
-            font-weight: 400;
-        }
-
-        #dbmses-list li a {
-            text-decoration: none;
-            color: #520ed1;
-            font-family: 'Inter', sans-serif;
-            font-weight: 600;
-
-        }
-
-        #dbmses-list li a:hover {
-            color: #007bff;
-        }
-    </style>
+    <link rel="stylesheet" href="style.css">
+    <script src="common.js"></script>
 </head>
 <body>
     <!-- 페이지의 제목을 설정합니다. -->
@@ -97,6 +25,10 @@
             <li><a href="dailyMonitoring.html">Daily Monitoring </a></li>
             <!-- 일일점검 스크립트 목록 링크 -->
             <li><a href="monitoringScript.html">Monitoring Scripts </a></li>
+            <!-- 임계치 목록 링크 -->
+            <li><a href="monitoringThresholds.html">Thresholds </a></li>
+            <!-- 테이블 명세서 링크 -->
+            <li><a href="tableSpec.html">Table Spec </a></li>
         </ul>
     </nav>
 
@@ -122,7 +54,9 @@
                     const deleteButton = document.createElement('button');
                     
                     modifyButton.textContent = 'Modify';
+                    modifyButton.className = 'btn-secondary';
                     deleteButton.textContent = 'Delete';
+                    deleteButton.className = 'btn-danger';
 
                     const dbConfig = {
                                 id       : row.ID, 
@@ -139,7 +73,7 @@
                     
                     const dbmsId = row.ID
                     modifyButton.onclick = () => modifyDBMS(event, dbConfig);
-                    deleteButton.onclick = () => deleteDBMS(event, dbmsId);
+                    deleteButton.onclick = () => deleteDBMS(event, dbmsId, listItem);
 
                     columns.forEach(column => {
                         const p =  document.createElement('p');
@@ -167,10 +101,10 @@
                 localStorage.setItem("editData", JSON.stringify(dbConfig));
                 window.location.href = 'modifyDbms.html?';
             }
-          
 
-            // dbms 삭제 함수 
-            async function deleteDBMS(event, dbmsId) {
+
+            // dbms 삭제 함수
+            async function deleteDBMS(event, dbmsId, listItem) {
                 console.log( 'DBMSID!!!!!!!', dbmsId );
                 try {
                 const response = await fetch( '/api/deleteDbms', {
@@ -182,17 +116,18 @@
                 });
 
                     if (response.ok) {
-                        alert('DBMS 삭제 완료.');
-                        window.location.reload();
+                        showToast('DBMS 삭제 완료.');
+                        listItem.remove();
                     } else {
-                        alert(`Request failed: ${response.status}`);
+                        showToast(`요청 실패: ${response.status}`, 'error');
                     }
                 } catch (error) {
                     console.error('Error:', error.message);
-                    alert('An error occurred while sending the POST request.');
+                    showToast('요청 처리 중 오류가 발생했습니다.', 'error');
                 }
             }
 
+            showFlashMessageIfAny();
             fetchDbmses();
 
     </script>

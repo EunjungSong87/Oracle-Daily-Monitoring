@@ -66,3 +66,6 @@ startServer();
 const dbmsRouters = require('./routers/dbmsRouters'); // 라우터 가져오기
 app.use('/main', dbmsRouters);
 app.use('/api' , dbmsRouters);
+
+const tableSpecRouters = require('./routers/tableSpecRouters');
+app.use('/api', tableSpecRouters);
