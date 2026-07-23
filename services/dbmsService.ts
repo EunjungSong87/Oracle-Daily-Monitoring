@@ -1,5 +1,5 @@
 import * as dbmsList from '../models/dbmsModel'; // 데이터 모델 가져오기
-import type { DbmsIdParam, DbmsInfo, ScriptInfo, ThresholdInfo, QueryResult } from '../models/dbmsModel';
+import type { DbmsIdParam, DbmsInfo, ScriptInfo, ThresholdInfo, QueryResult, ScheduleConfig } from '../models/dbmsModel';
 
 function errMsg(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -291,6 +291,25 @@ async function deleteThreshold(thresholdId: Record<string, any>): Promise<number
   }
 }
 
+async function getScheduleConfig(): Promise<ScheduleConfig> {
+  try {
+    return await dbmsList.getScheduleConfig();
+  } catch (error) {
+    console.error('Service : 예약 실행 설정 조회 실패:', error);
+    throw new Error('예약 실행 설정 조회 실패', { cause: error });
+  }
+}
+
+async function saveScheduleConfig(config: ScheduleConfig, dbmsIds: (number | string)[]): Promise<void> {
+  try {
+    await dbmsList.saveScheduleConfig(config);
+    await dbmsList.setAutoScheduleTargets(dbmsIds);
+  } catch (error) {
+    console.error('Service : 예약 실행 설정 저장 실패:', error);
+    throw new Error('예약 실행 설정 저장 실패', { cause: error });
+  }
+}
+
 export {
   getAllDbmses,
   getDbmsInfo,
@@ -308,6 +327,8 @@ export {
   addThreshold,
   modifyThreshold,
   deleteThreshold,
+  getScheduleConfig,
+  saveScheduleConfig,
   // 순수 함수라 단위 테스트에서 직접 검증합니다.
   evaluateThreshold,
   applyThresholds,

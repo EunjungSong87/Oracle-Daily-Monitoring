@@ -12,16 +12,17 @@ ALTER SESSION SET CONTAINER = FREEPDB1;
 
 CREATE TABLE system.monitoring_dbms_list
 (
-    ID          NUMBER(10),
-    DBNAME      VARCHAR2(50),
-    USERNAME    VARCHAR2(50),
-    PASSWORD    VARCHAR2(100),
-    SID         VARCHAR2(50),
-    IP          VARCHAR2(16),
-    PORT        VARCHAR2(5),
-    MEMO        VARCHAR2(1000),
-    CREATETIME  VARCHAR2(20),
-    UPDATETIME  VARCHAR2(20)
+    ID            NUMBER(10),
+    DBNAME        VARCHAR2(50),
+    USERNAME      VARCHAR2(50),
+    PASSWORD      VARCHAR2(100),
+    SID           VARCHAR2(50),
+    IP            VARCHAR2(16),
+    PORT          VARCHAR2(5),
+    MEMO          VARCHAR2(1000),
+    CREATETIME    VARCHAR2(20),
+    UPDATETIME    VARCHAR2(20),
+    AUTO_SCHEDULE CHAR(1) DEFAULT 'N'
 );
 
 CREATE SEQUENCE system.seq_monitoring_dbms_list
@@ -59,3 +60,15 @@ CREATE TABLE system.monitoring_thresholds (
 
 ALTER TABLE system.monitoring_thresholds
   ADD CONSTRAINT pk_monitoring_thresholds PRIMARY KEY (id);
+
+CREATE TABLE system.monitoring_schedule_config
+(
+    id          NUMBER(1)   NOT NULL,
+    enabled     CHAR(1)     DEFAULT 'N',
+    run_time    VARCHAR2(5),
+    updatetime  VARCHAR2(20),
+    CONSTRAINT pk_monitoring_schedule_config PRIMARY KEY (id)
+);
+
+INSERT INTO system.monitoring_schedule_config (id, enabled, run_time, updatetime)
+VALUES (1, 'N', '07:00', TO_CHAR(SYSDATE, 'YYYYMMDDHH24MISS'));

@@ -210,6 +210,30 @@ async function deleteThreshold(req: Request, res: Response): Promise<Response | 
   }
 }
 
+async function getScheduleConfig(req: Request, res: Response): Promise<void> {
+  try {
+    const config = await dbmsService.getScheduleConfig();
+    res.json(config);
+  } catch (error) {
+    console.error('Controller : 예약 실행 설정 조회 오류:', error);
+    res.status(500).json({ message: 'Controller : 서버 오류 발생' });
+  }
+}
+
+async function saveScheduleConfig(req: Request, res: Response): Promise<Response | void> {
+  try {
+    const { enabled, runTime, dbmsIds } = req.body;
+    if (!enabled || !runTime) {
+      return res.status(400).json({ message: 'enabled, runTime 정보가 필요합니다.' });
+    }
+    await dbmsService.saveScheduleConfig({ enabled, runTime }, Array.isArray(dbmsIds) ? dbmsIds : []);
+    res.json({ message: '예약 실행 설정이 저장되었습니다.' });
+  } catch (error) {
+    console.error('Controller : 예약 실행 설정 저장 오류:', error);
+    res.status(500).json({ message: 'Controller : 서버 오류 발생' });
+  }
+}
+
 export {
   getAllDbmses,
   getMonResult,
@@ -225,4 +249,6 @@ export {
   addThreshold,
   modifyThreshold,
   deleteThreshold,
+  getScheduleConfig,
+  saveScheduleConfig,
 };

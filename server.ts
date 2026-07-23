@@ -14,6 +14,7 @@ import bodyParser from 'body-parser';
 import oracle from 'oracledb';
 import dbmsRouters from './routers/dbmsRouters'; // 라우터 가져오기
 import tableSpecRouters from './routers/tableSpecRouters';
+import { startScheduler } from './services/scheduler';
 
 // Express 애플리케이션을 생성합니다.
 const app = express();
@@ -61,6 +62,9 @@ async function startServer(): Promise<void> {
 
 // 서버 및 커넥션 풀 초기화 실행
 startServer();
+
+// 예약 실행(자동 일일점검) 스케줄러 시작
+startScheduler();
 
 // 라우트 설정
 app.use('/main', dbmsRouters);

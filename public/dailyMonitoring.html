@@ -35,7 +35,15 @@
             <button type="button" class="btn-secondary" onclick="checkAllDbms()">Check ALL</button>
             <button type="button" id="Run-button" onclick="getCheckedRows('runButton')">RUN</button>
             <button type="button" class="btn-secondary" onclick="getCheckedRows('downloadButton')">Download Report</button>
-            
+            <button type="button" class="btn-secondary" onclick="chooseDownloadFolder()">다운로드 위치 설정</button>
+            <span id="download-folder-label" class="download-folder-label"></span>
+
+            <div class="schedule-settings">
+                <label><input type="checkbox" id="schedule-enabled"> 매일 자동 실행</label>
+                <input type="time" id="schedule-time" value="07:00">
+                <button type="button" class="btn-secondary" onclick="saveScheduleSettings()">자동 실행 대상으로 저장 (아래 체크된 DB)</button>
+            </div>
+
             <table id="dbmses-list" class="table">
                 <thead>
                     <tr id="headerRow">
@@ -113,6 +121,7 @@
                 const checkbox = document.createElement('input');
                 checkbox.type ='checkbox';
                 checkbox.className='row-check';
+                checkbox.checked = row['AUTO_SCHEDULE'] === 'Y';
                 checkcell.appendChild(checkbox);
                 tr.appendChild(checkcell);
                 
@@ -131,8 +140,55 @@
          console.log('Error fetching users:', error);
       }}
        
-       // dbms list 표 생성 
+       // dbms list 표 생성
        createTable('/api/dbmslist');
+       loadScheduleConfig();
+
+       // <!-- 예약 실행(자동 일일점검) 설정 조회/저장 -->
+       async function loadScheduleConfig() {
+            try {
+                const res = await fetch('/api/schedule');
+                const config = await res.json();
+                document.getElementById('schedule-enabled').checked = config.enabled === 'Y';
+                if (config.runTime) document.getElementById('schedule-time').value = config.runTime;
+            } catch (error) {
+                console.log('예약 실행 설정 조회 실패:', error);
+            }
+       }
+
+       async function saveScheduleSettings() {
+            const enabled = document.getElementById('schedule-enabled').checked ? 'Y' : 'N';
+            const runTime = document.getElementById('schedule-time').value;
+            if (!runTime) {
+                showToast('실행 시각을 입력하세요', 'error');
+                return;
+            }
+
+            const dbmsIds = [];
+            document.querySelectorAll('.row-check').forEach(checkbox => {
+                if (checkbox.checked) {
+                    const row = checkbox.closest('tr');
+                    const cells = row.getElementsByTagName('td');
+                    dbmsIds.push(cells[1].innerText);
+                }
+            });
+
+            try {
+                const res = await fetch('/api/schedule', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled, runTime, dbmsIds }),
+                });
+                if (!res.ok) {
+                    showToast('예약 실행 설정 저장 실패', 'error');
+                    return;
+                }
+                showToast(`예약 실행 설정 저장 완료 (대상 ${dbmsIds.length}개, ${runTime})`);
+            } catch (error) {
+                console.error('예약 실행 설정 저장 실패:', error);
+                showToast('예약 실행 설정 저장 실패', 'error');
+            }
+       }
 
        function checkAllDbms() {
         try {
@@ -218,13 +274,13 @@
             const d = now.getDate();
             const resultFileName = dbConfig.dbname + "_" + y + "_" + m + "_" + d + ".html";
 
-            // report 다운로드 
+            // report 다운로드
             if ( buttonName === 'downloadButton') {
-                const tab = document.getElementById(dbConfig.dbname); 
+                const tab = document.getElementById(dbConfig.dbname);
                 openTab(tab, dbConfig.dbname);
                 //const html = document.getElementById(dbname).innerHTML;
                 const html = document.documentElement.outerHTML;
-                downloadHtml(html, resultFileName ); 
+                saveHtmlToFolder(html, resultFileName );
             }
             //alert(JSON.stringify(result, null, 2));  // 팝업으로 출력
         }
@@ -316,19 +372,7 @@
     
         }
 
-        // html파일 다운로드 함수 
-        async function downloadHtml(htmlString, filename = 'download.html') {
-            const blob = new Blob([htmlString], { type: 'text/html;charset=utf-8' });
-            const url = URL.createObjectURL(blob);
-
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        }
+        updateDownloadFolderLabel();
 
      </script>
  </body>

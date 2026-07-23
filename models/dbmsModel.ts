@@ -34,6 +34,11 @@ export interface ScriptInfo {
   is_active: string;
 }
 
+export interface ScheduleConfig {
+  enabled: string; // 'Y' | 'N'
+  runTime: string; // 'HH:MM'
+}
+
 export interface ThresholdInfo {
   id?: number | string;
   task_id: number | string;
@@ -84,7 +89,7 @@ async function getAllDbmses(): Promise<QueryResult> {
     const pool = await db.initializeDB();
     connection = await pool.getConnection();
     const query =
-      'select ID, DBNAME, USERNAME, SID, IP, PORT, MEMO, CREATETIME, UPDATETIME from system.monitoring_dbms_list order by ID';
+      'select ID, DBNAME, USERNAME, SID, IP, PORT, MEMO, CREATETIME, UPDATETIME, AUTO_SCHEDULE from system.monitoring_dbms_list order by ID';
     return await executeQuery(connection, query);
   } catch (err) {
     console.error('Error:', err);
@@ -470,6 +475,100 @@ async function deleteThreshold(thresholdId: Record<string, any>): Promise<number
   }
 }
 
+// 예약 실행(자동 점검) 설정을 조회합니다. 설정 행이 없으면 기본값(미사용)을 반환합니다.
+async function getScheduleConfig(): Promise<ScheduleConfig> {
+  let connection: oracledb.Connection | undefined;
+  try {
+    const pool = await db.initializeDB();
+    connection = await pool.getConnection();
+    const query = 'select enabled, run_time from system.monitoring_schedule_config where id = 1';
+    const result = await connection.execute<any[]>(query);
+    if (!result.rows || result.rows.length === 0) {
+      return { enabled: 'N', runTime: '07:00' };
+    }
+    const [enabled, runTime] = result.rows[0];
+    return { enabled, runTime };
+  } catch (err) {
+    console.error('Error:', err);
+    throw err;
+  } finally {
+    if (connection) {
+      await connection.close();
+    }
+  }
+}
+
+async function saveScheduleConfig(config: ScheduleConfig): Promise<number> {
+  let connection: oracledb.Connection | undefined;
+  try {
+    const pool = await db.initializeDB();
+    connection = await pool.getConnection();
+    const sql = `update system.monitoring_schedule_config
+                    set enabled = :enabled, run_time = :runTime, updatetime = TO_CHAR(SYSDATE, 'YYYYMMDDHH24MISS')
+                  where id = 1`;
+    const result = await connection.execute(sql, config as unknown as oracledb.BindParameters, { autoCommit: true });
+    return result.rowsAffected ?? 0;
+  } catch (err) {
+    console.error('Error:', err);
+    throw err;
+  } finally {
+    if (connection) {
+      await connection.close();
+    }
+  }
+}
+
+// 자동 실행 대상 DB 목록을 지정한 id 집합으로 갱신합니다 (그 외는 전부 대상 해제).
+async function setAutoScheduleTargets(dbmsIds: (number | string)[]): Promise<void> {
+  let connection: oracledb.Connection | undefined;
+  try {
+    const pool = await db.initializeDB();
+    connection = await pool.getConnection();
+
+    await connection.execute("update system.monitoring_dbms_list set auto_schedule = 'N'", {}, { autoCommit: false });
+
+    if (dbmsIds.length > 0) {
+      const binds: Record<string, any> = dbmsIds.reduce((acc: Record<string, any>, id, idx) => {
+        acc[`id${idx}`] = id;
+        return acc;
+      }, {});
+      const inClause = dbmsIds.map((_, idx) => `:id${idx}`).join(',');
+      await connection.execute(
+        `update system.monitoring_dbms_list set auto_schedule = 'Y' where id in (${inClause})`,
+        binds,
+        { autoCommit: false }
+      );
+    }
+
+    await connection.commit();
+  } catch (err) {
+    console.error('Error:', err);
+    throw err;
+  } finally {
+    if (connection) {
+      await connection.close();
+    }
+  }
+}
+
+// 자동 실행 대상으로 지정된 DB 목록을 가져옵니다.
+async function getAutoScheduleDbmses(): Promise<QueryResult> {
+  let connection: oracledb.Connection | undefined;
+  try {
+    const pool = await db.initializeDB();
+    connection = await pool.getConnection();
+    const query = "select ID, DBNAME from system.monitoring_dbms_list where auto_schedule = 'Y' order by ID";
+    return await executeQuery(connection, query);
+  } catch (err) {
+    console.error('Error:', err);
+    throw err;
+  } finally {
+    if (connection) {
+      await connection.close();
+    }
+  }
+}
+
 export {
   getAllDbmses,
   getDbmsInfo,
@@ -489,4 +588,8 @@ export {
   addThreshold,
   modifyThreshold,
   deleteThreshold,
+  getScheduleConfig,
+  saveScheduleConfig,
+  setAutoScheduleTargets,
+  getAutoScheduleDbmses,
 };

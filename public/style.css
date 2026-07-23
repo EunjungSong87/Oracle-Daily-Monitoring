@@ -192,6 +192,23 @@ button.btn-danger {
     background-color: var(--danger);
 }
 
+.download-folder-label {
+    margin-left: 8px;
+    font-size: 0.85em;
+    color: var(--text-secondary, #6b7280);
+}
+
+.schedule-settings {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 10px 0;
+    padding: 8px 12px;
+    background-color: #f3f4f6;
+    border-radius: 6px;
+    width: fit-content;
+}
+
 button.btn-danger:hover {
     background-color: var(--danger-hover);
 }
