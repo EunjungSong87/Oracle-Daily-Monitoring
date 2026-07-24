@@ -19,6 +19,7 @@
     <nav>
         <ul>
             <li><a href="index.html">DBMS List</a></li>
+            <li><a href="dailyMonitoring.html" class="current">Daily Monitoring</a></li>
             <li><a href="monitoringScript.html">Monitoring Scripts</a></li>
             <li><a href="monitoringThresholds.html">Thresholds</a></li>
             <li><a href="tableSpec.html">Table Spec</a></li>
@@ -277,51 +278,81 @@
 
             // report 다운로드
             if ( buttonName === 'downloadButton') {
-                const tab = document.getElementById(dbConfig.dbname);
-                openTab(tab, dbConfig.dbname);
-                //const html = document.getElementById(dbname).innerHTML;
+                const tabButton = document.getElementById('tab-btn-' + dbConfig.dbname);
+                openTab(tabButton, dbConfig.dbname);
                 const html = document.documentElement.outerHTML;
                 saveHtmlToFolder(html, resultFileName );
             }
             //alert(JSON.stringify(result, null, 2));  // 팝업으로 출력
         }
 
-        //<!--  실행 결과 탭 화면 생성 -->
-        async function addResultTab( dbConfig, results) {
-            const dbname = dbConfig.dbname; 
-            console.log('addResultTab columns' , results);
-            console.log('results task_name' , results[0].task_name);
-        
-            
-            const tabList =  document.getElementById('tab-list');
-            //<button class="tab-link" onclick="openTab(event, 'tab3')">탭 3</button>
-            const button =  document.createElement('button');
-            // 탭 버튼에 클래스 추가
-            button.className = 'tab-link active';
-            // 탭 버튼에 텍스트 추가
-            button.textContent = dbname;
-            // 탭 버튼에 이벤트 추가 
-            button.onclick = function() { 
-                openTab(this, dbname);
+        // 새로고침/다른 페이지 이동 후 돌아와도 탭이 사라지지 않도록, 실행 결과를
+        // sessionStorage에 저장해두고 페이지 로드시 다시 복원합니다 (브라우저 탭을
+        // 닫으면 사라짐 - 날짜 지난 결과가 영구히 남는 걸 방지).
+        const RESULT_TABS_KEY = 'dailyMonitoringResultTabs';
+
+        function saveResultTabToStorage(dbname, results) {
+            let saved = [];
+            try {
+                saved = JSON.parse(sessionStorage.getItem(RESULT_TABS_KEY)) || [];
+            } catch (error) {
+                saved = [];
             }
-            
-            // tabList에 tab추가 
-            tabList.appendChild(button);
-            // <div id="tab2" class="tab-content">
-            //     <h3>탭 2 내용</h3>
-            //     <p>여기에 탭 2의 내용을 넣으세요.</p>
-            // </div>
+            const idx = saved.findIndex((t) => t.dbname === dbname);
+            const entry = { dbname, results };
+            if (idx >= 0) saved[idx] = entry; else saved.push(entry);
+            sessionStorage.setItem(RESULT_TABS_KEY, JSON.stringify(saved));
+        }
 
-            const resultDiv =  document.createElement('div');
-            resultDiv.id = dbname;
-            resultDiv.className = 'tab-content';
+        function restoreResultTabs() {
+            let saved = [];
+            try {
+                saved = JSON.parse(sessionStorage.getItem(RESULT_TABS_KEY)) || [];
+            } catch (error) {
+                saved = [];
+            }
+            saved.forEach(({ dbname, results }) => addResultTab({ dbname }, results, { activate: false, persist: false }));
+        }
+
+        //<!--  실행 결과 탭 화면 생성 (같은 DB로 다시 RUN하면 새 탭을 또 만들지 않고 내용만 갱신) -->
+        async function addResultTab(dbConfig, results, options = {}) {
+            const { activate = true, persist = true } = options;
+            const dbname = dbConfig.dbname;
+            console.log('addResultTab columns' , results);
+
+            let button = document.getElementById('tab-btn-' + dbname);
+            let resultDiv = document.getElementById(dbname);
+
+            if (!button) {
+                const tabList = document.getElementById('tab-list');
+                button = document.createElement('button');
+                button.id = 'tab-btn-' + dbname;
+                button.className = 'tab-link';
+                button.textContent = dbname;
+                button.onclick = function () {
+                    openTab(this, dbname);
+                };
+                tabList.appendChild(button);
+
+                resultDiv = document.createElement('div');
+                resultDiv.id = dbname;
+                resultDiv.className = 'tab-content';
+                document.body.appendChild(resultDiv);
+            }
+
             resultDiv.innerHTML = `<h3>${dbname}</h3>`;
-
             renderMonitoringResults(resultDiv, results);
-            document.body.appendChild(resultDiv);
+
+            if (activate) {
+                openTab(button, dbname);
+            }
+            if (persist) {
+                saveResultTabToStorage(dbname, results);
+            }
         }
 
         updateDownloadFolderLabel();
+        restoreResultTabs();
 
      </script>
  </body>

@@ -19,8 +19,7 @@
     <!-- 네비게이션 링크 -->
     <nav>
         <ul>
-            <!-- DBMS 추가 페이지 링크 -->
-            <li><a href="addDbms.html">Add DBMS </a></li>
+            <li><a href="index.html" class="current">DBMS List</a></li>
             <!-- 일일점검 수행 링크 -->
             <li><a href="dailyMonitoring.html">Daily Monitoring </a></li>
             <!-- 일일점검 스크립트 목록 링크 -->
@@ -32,6 +31,8 @@
             <li><a href="history.html">Run History </a></li>
         </ul>
     </nav>
+
+    <button type="button" class="btn-secondary" onclick="location.href='addDbms.html'">Add DBMS</button>
 
     <!-- DBMS 목록을 표시하는 부분입니다. -->
     <table id="dbmses-list" class="table">
