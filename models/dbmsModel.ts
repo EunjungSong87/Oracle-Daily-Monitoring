@@ -127,7 +127,9 @@ async function getDbmsInfo(dbmsid: DbmsIdParam): Promise<any[] | null> {
 
     const { dbmsid: id } = dbmsid;
     console.log('dbmsid 값', id);
-    const query = 'select username, password, ip, port, sid, memo from system.monitoring_dbms_list where id = :id ';
+    // dbname은 맨 뒤에 추가: 기존 코드가 dbconfig[0]~[5]를 위치로 접근하므로 순서를 바꾸면 안 됨.
+    const query =
+      'select username, password, ip, port, sid, memo, dbname from system.monitoring_dbms_list where id = :id ';
     const result = await connection.execute<any[]>(query, { id });
 
     // 4. 결과 반환

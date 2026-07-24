@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Run History</title>
+
+    <link rel="stylesheet" href="style.css">
+    <script src="common.js"></script>
+</head>
+<body>
+    <a href="index.html">
+    <h1>Run History</h1>
+    </a>
+
+    <nav>
+        <ul>
+            <li><a href="index.html">DBMS List</a></li>
+            <li><a href="dailyMonitoring.html">Daily Monitoring</a></li>
+            <li><a href="monitoringScript.html">Monitoring Scripts</a></li>
+            <li><a href="monitoringThresholds.html">Thresholds</a></li>
+            <li><a href="tableSpec.html">Table Spec</a></li>
+        </ul>
+    </nav>
+
+    <div class="history-filter-bar">
+        <label for="history-dbms-select">DBMS:</label>
+        <select id="history-dbms-select"></select>
+
+        <label for="history-from-date">시작일:</label>
+        <input type="date" id="history-from-date">
+        <label for="history-to-date">종료일:</label>
+        <input type="date" id="history-to-date">
+        <button type="button" class="btn-secondary" onclick="applyDateFilter()">조회</button>
+        <button type="button" class="btn-secondary" onclick="clearDateFilter()">전체보기</button>
+    </div>
+
+    <table id="history-list" class="table">
+        <thead>
+            <tr>
+                <th>실행 시각</th>
+                <th>실행 방식</th>
+                <th>성공</th>
+                <th>실패</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody id="history-list-body"></tbody>
+    </table>
+
+    <div id="history-detail"></div>
+
+    <script>
+        async function loadDbmsOptions() {
+            const select = document.getElementById('history-dbms-select');
+            try {
+                const response = await fetch('/api/dbmslist');
+                const { rows } = await response.json();
+                rows.forEach((row) => {
+                    const option = document.createElement('option');
+                    option.value = row.ID;
+                    option.textContent = `${row.DBNAME} (${row.IP})`;
+                    select.appendChild(option);
+                });
+                if (rows.length > 0) {
+                    loadHistoryList(select.value);
+                }
+            } catch (error) {
+                console.error('DBMS 목록 조회 실패:', error);
+                showToast('DBMS 목록 조회 실패', 'error');
+            }
+        }
+
+        function formatRunAt(runAt) {
+            // 'YYYYMMDDHH24MISS' -> 'YYYY-MM-DD HH:MM:SS'
+            if (!runAt || runAt.length < 14) return runAt;
+            return `${runAt.slice(0, 4)}-${runAt.slice(4, 6)}-${runAt.slice(6, 8)} ${runAt.slice(8, 10)}:${runAt.slice(10, 12)}:${runAt.slice(12, 14)}`;
+        }
+
+        // <input type="date">의 'YYYY-MM-DD' 값을 API가 쓰는 'YYYYMMDD'로 변환합니다.
+        function toApiDate(dateInputValue) {
+            return dateInputValue ? dateInputValue.replaceAll('-', '') : undefined;
+        }
+
+        function applyDateFilter() {
+            const select = document.getElementById('history-dbms-select');
+            loadHistoryList(select.value);
+        }
+
+        function clearDateFilter() {
+            document.getElementById('history-from-date').value = '';
+            document.getElementById('history-to-date').value = '';
+            applyDateFilter();
+        }
+
+        async function loadHistoryList(dbmsid) {
+            const body = document.getElementById('history-list-body');
+            body.innerHTML = '';
+            document.getElementById('history-detail').innerHTML = '';
+            if (!dbmsid) return;
+
+            const fromDate = toApiDate(document.getElementById('history-from-date').value);
+            const toDate = toApiDate(document.getElementById('history-to-date').value);
+
+            try {
+                const response = await fetch('/api/history/list', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ dbmsid: Number(dbmsid), fromDate, toDate }),
+                });
+                if (!response.ok) {
+                    showToast('이력 목록 조회 실패', 'error');
+                    return;
+                }
+                const history = await response.json();
+
+                if (history.length === 0) {
+                    const tr = document.createElement('tr');
+                    const td = document.createElement('td');
+                    td.colSpan = 5;
+                    td.textContent = '실행 이력이 없습니다.';
+                    tr.appendChild(td);
+                    body.appendChild(tr);
+                    return;
+                }
+
+                history.forEach((h) => {
+                    const tr = document.createElement('tr');
+
+                    const runAtTd = document.createElement('td');
+                    runAtTd.textContent = formatRunAt(h.runAt);
+                    tr.appendChild(runAtTd);
+
+                    const triggerTd = document.createElement('td');
+                    triggerTd.textContent = h.triggerType === 'SCHEDULED' ? '자동' : '수동';
+                    tr.appendChild(triggerTd);
+
+                    const successTd = document.createElement('td');
+                    successTd.textContent = h.successCount;
+                    tr.appendChild(successTd);
+
+                    const failTd = document.createElement('td');
+                    failTd.textContent = h.failCount;
+                    if (h.failCount > 0) failTd.classList.add('cell-error');
+                    tr.appendChild(failTd);
+
+                    const actionTd = document.createElement('td');
+                    const viewButton = document.createElement('button');
+                    viewButton.type = 'button';
+                    viewButton.className = 'btn-secondary';
+                    viewButton.textContent = '보기';
+                    viewButton.onclick = () => loadHistoryDetail(h.id);
+                    actionTd.appendChild(viewButton);
+                    tr.appendChild(actionTd);
+
+                    body.appendChild(tr);
+                });
+            } catch (error) {
+                console.error('이력 목록 조회 실패:', error);
+                showToast('이력 목록 조회 실패', 'error');
+            }
+        }
+
+        async function loadHistoryDetail(id) {
+            const detailDiv = document.getElementById('history-detail');
+            detailDiv.innerHTML = '';
+
+            try {
+                const response = await fetch('/api/history/detail', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id }),
+                });
+                if (!response.ok) {
+                    showToast('이력 상세 조회 실패', 'error');
+                    return;
+                }
+                const detail = await response.json();
+
+                const heading = document.createElement('h2');
+                heading.textContent = `${detail.dbname} — ${formatRunAt(detail.runAt)} (${detail.triggerType === 'SCHEDULED' ? '자동' : '수동'})`;
+                detailDiv.appendChild(heading);
+
+                renderMonitoringResults(detailDiv, detail.results);
+            } catch (error) {
+                console.error('이력 상세 조회 실패:', error);
+                showToast('이력 상세 조회 실패', 'error');
+            }
+        }
+
+        document.getElementById('history-dbms-select').addEventListener('change', (e) => {
+            loadHistoryList(e.target.value);
+        });
+
+        showFlashMessageIfAny();
+        loadDbmsOptions();
+    </script>
+</body>
+</html>

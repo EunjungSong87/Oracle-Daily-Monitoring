@@ -22,6 +22,7 @@
             <li><a href="monitoringScript.html">Monitoring Scripts</a></li>
             <li><a href="monitoringThresholds.html">Thresholds</a></li>
             <li><a href="tableSpec.html">Table Spec</a></li>
+            <li><a href="history.html">Run History</a></li>
         </ul>
     </nav>
 
@@ -313,63 +314,11 @@
 
             const resultDiv =  document.createElement('div');
             resultDiv.id = dbname;
-            resultDiv.className = 'tab-content'; 
+            resultDiv.className = 'tab-content';
             resultDiv.innerHTML = `<h3>${dbname}</h3>`;
 
-
-            Object.entries(results).forEach( ([checkName, result], index ) => {
-                const monInfo = document.createElement('h3');
-                monInfo.textContent = results[index].task_name; 
-                monInfo.id = "monInfo";
-                resultDiv.appendChild(monInfo);
-                
-                // table 생성 
-                const tab =  document.createElement('table');
-                
-                // table에 클래스 추가 
-                tab.className = 'table'; 
-                const headerRow = document.createElement('thead');
-                const tableBody = document.createElement('tbody');
-                 
-
-                if ( result.rows.length === 0 ) { 
-                    const noResult = document.createElement('h3');
-                    noResult.id = 'NoResult';
-                    noResult.textContent = "No results found.";
-                    resultDiv.appendChild(noResult);
-                }
-                else {
-                    // 컬럼명 추가
-                    result.columns.forEach(column => {
-                            const th = document.createElement('th');
-                            th.textContent = column;
-                            headerRow.appendChild(th);
-                    });
-
-                    // 데이터 추가
-                    result.rows.forEach(row => {
-                        const tr = document.createElement('tr');
-                        const alerts = row._alerts || {};
-
-                        result.columns.forEach(column => {
-                                const td = document.createElement('td');
-                                td.textContent = row[column];
-                                if (alerts[column]) {
-                                    td.classList.add('cell-' + alerts[column].level.toLowerCase());
-                                    td.title = alerts[column].message || '';
-                                }
-                                tr.appendChild(td);
-                        });
-
-                        tableBody.appendChild(tr);
-                        tab.appendChild(headerRow);
-                        tab.appendChild(tableBody);
-                        resultDiv.appendChild(tab);
-                        document.body.appendChild(resultDiv);
-                    });
-                }
-        });
-    
+            renderMonitoringResults(resultDiv, results);
+            document.body.appendChild(resultDiv);
         }
 
         updateDownloadFolderLabel();

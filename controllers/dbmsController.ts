@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import * as dbmsService from '../services/dbmsService';
+import * as historyService from '../services/historyService';
 
 function errMsg(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -234,6 +235,37 @@ async function saveScheduleConfig(req: Request, res: Response): Promise<Response
   }
 }
 
+async function getRunHistoryList(req: Request, res: Response): Promise<Response | void> {
+  try {
+    const { dbmsid, fromDate, toDate } = req.body;
+    if (!dbmsid) {
+      return res.status(400).json({ message: 'dbmsid 정보가 필요합니다.' });
+    }
+    const history = await historyService.listRunHistory(dbmsid, fromDate, toDate);
+    res.json(history);
+  } catch (error) {
+    console.error('Controller : 실행 이력 목록 조회 오류:', error);
+    res.status(500).json({ message: 'Controller : 서버 오류 발생' });
+  }
+}
+
+async function getRunHistoryDetail(req: Request, res: Response): Promise<Response | void> {
+  try {
+    const { id } = req.body;
+    if (!id) {
+      return res.status(400).json({ message: 'id 정보가 필요합니다.' });
+    }
+    const detail = await historyService.getRunHistoryDetail(id);
+    if (!detail) {
+      return res.status(404).json({ message: '이력을 찾을 수 없습니다.' });
+    }
+    res.json(detail);
+  } catch (error) {
+    console.error('Controller : 실행 이력 상세 조회 오류:', error);
+    res.status(500).json({ message: 'Controller : 서버 오류 발생' });
+  }
+}
+
 export {
   getAllDbmses,
   getMonResult,
@@ -251,4 +283,6 @@ export {
   deleteThreshold,
   getScheduleConfig,
   saveScheduleConfig,
+  getRunHistoryList,
+  getRunHistoryDetail,
 };

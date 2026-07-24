@@ -33,7 +33,7 @@ async function runScheduledReports(): Promise<{ dbname: string; ok: boolean }[]>
     const dbmsid = row.ID;
     const dbname = row.DBNAME;
     try {
-      const results = await dbmsService.getMonResult({ dbmsid });
+      const results = await dbmsService.getMonResult({ dbmsid }, 'SCHEDULED');
       const html = renderReportHtml(dbname, results as any, now);
       await fs.writeFile(path.join(dayDir, `${dbname}.html`), html, 'utf-8');
       outcomes.push({ dbname, ok: true });

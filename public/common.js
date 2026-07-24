@@ -156,6 +156,63 @@ function downloadHtmlFallback(htmlString, filename) {
     URL.revokeObjectURL(url);
 }
 
+// 모니터링/이력 조회 결과(task별 columns/rows, _alerts 포함)를 컨테이너에 렌더링합니다.
+// dailyMonitoring.html, history.html에서 공용으로 사용합니다.
+function renderMonitoringResults(container, results) {
+    results.forEach((result) => {
+        const heading = document.createElement('h3');
+        heading.textContent = result.task_name;
+        container.appendChild(heading);
+
+        if (!result.success) {
+            const errEl = document.createElement('p');
+            errEl.className = 'error';
+            errEl.textContent = `실행 실패: ${result.error || ''}`;
+            container.appendChild(errEl);
+            return;
+        }
+
+        if (!result.rows || result.rows.length === 0) {
+            const noResult = document.createElement('p');
+            noResult.textContent = 'No results found.';
+            container.appendChild(noResult);
+            return;
+        }
+
+        const table = document.createElement('table');
+        table.className = 'table';
+
+        const thead = document.createElement('thead');
+        const headerRow = document.createElement('tr');
+        result.columns.forEach((column) => {
+            const th = document.createElement('th');
+            th.textContent = column;
+            headerRow.appendChild(th);
+        });
+        thead.appendChild(headerRow);
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        result.rows.forEach((row) => {
+            const tr = document.createElement('tr');
+            const alerts = row._alerts || {};
+            result.columns.forEach((column) => {
+                const td = document.createElement('td');
+                td.textContent = row[column];
+                if (alerts[column]) {
+                    td.classList.add('cell-' + alerts[column].level.toLowerCase());
+                    td.title = alerts[column].message || '';
+                }
+                tr.appendChild(td);
+            });
+            tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+
+        container.appendChild(table);
+    });
+}
+
 // 현재 설정된 다운로드 폴더 이름을 화면에 표시 (id="download-folder-label" 요소가 있을 때만).
 async function updateDownloadFolderLabel() {
     const label = document.getElementById('download-folder-label');

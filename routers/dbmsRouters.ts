@@ -20,4 +20,6 @@ router.post('/modifyThreshold', dbmsController.modifyThreshold);
 router.post('/deleteThreshold', dbmsController.deleteThreshold);
 router.get('/schedule', dbmsController.getScheduleConfig);
 router.post('/schedule', dbmsController.saveScheduleConfig);
+router.post('/history/list', dbmsController.getRunHistoryList);
+router.post('/history/detail', dbmsController.getRunHistoryDetail);
 export default router; // 라우터 내보내기

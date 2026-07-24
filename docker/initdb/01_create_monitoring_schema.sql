@@ -72,3 +72,23 @@ CREATE TABLE system.monitoring_schedule_config
 
 INSERT INTO system.monitoring_schedule_config (id, enabled, run_time, updatetime)
 VALUES (1, 'N', '07:00', TO_CHAR(SYSDATE, 'YYYYMMDDHH24MISS'));
+
+CREATE TABLE system.monitoring_run_history
+(
+    id             NUMBER          NOT NULL,
+    dbms_id        NUMBER          NOT NULL,
+    dbname         VARCHAR2(50),
+    run_at         VARCHAR2(20),
+    trigger_type   VARCHAR2(20),
+    success_count  NUMBER,
+    fail_count     NUMBER,
+    results        CLOB,
+    CONSTRAINT pk_monitoring_run_history PRIMARY KEY (id)
+);
+
+CREATE INDEX idx_monitoring_run_history_dbms ON system.monitoring_run_history (dbms_id, run_at);
+
+CREATE SEQUENCE system.seq_monitoring_run_history
+START WITH 1
+INCREMENT BY 1
+MINVALUE 1;

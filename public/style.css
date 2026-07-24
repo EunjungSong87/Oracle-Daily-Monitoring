@@ -198,6 +198,14 @@ button.btn-danger {
     color: var(--text-secondary, #6b7280);
 }
 
+.history-filter-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 10px 0;
+}
+
 .schedule-settings {
     display: flex;
     align-items: center;
