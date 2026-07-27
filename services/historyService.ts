@@ -1,5 +1,5 @@
 import * as historyModel from '../models/historyModel';
-import type { RunHistorySummary, RunHistoryDetail } from '../models/historyModel';
+import type { RunHistorySummary, RunHistoryDetail, Issue } from '../models/historyModel';
 
 async function listRunHistory(dbmsId: number | string, fromDate?: string, toDate?: string): Promise<RunHistorySummary[]> {
   try {
@@ -19,4 +19,13 @@ async function getRunHistoryDetail(id: number | string): Promise<RunHistoryDetai
   }
 }
 
-export { listRunHistory, getRunHistoryDetail };
+async function getLatestIssues(): Promise<Issue[]> {
+  try {
+    return await historyModel.getLatestIssues();
+  } catch (error) {
+    console.error('Service : 이슈 목록 조회 실패:', error);
+    throw new Error('이슈 목록 조회 실패', { cause: error });
+  }
+}
+
+export { listRunHistory, getRunHistoryDetail, getLatestIssues };

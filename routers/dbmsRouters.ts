@@ -22,4 +22,5 @@ router.get('/schedule', dbmsController.getScheduleConfig);
 router.post('/schedule', dbmsController.saveScheduleConfig);
 router.post('/history/list', dbmsController.getRunHistoryList);
 router.post('/history/detail', dbmsController.getRunHistoryDetail);
+router.get('/issues', dbmsController.getLatestIssues);
 export default router; // 라우터 내보내기

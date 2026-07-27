@@ -266,6 +266,16 @@ async function getRunHistoryDetail(req: Request, res: Response): Promise<Respons
   }
 }
 
+async function getLatestIssues(req: Request, res: Response): Promise<void> {
+  try {
+    const issues = await historyService.getLatestIssues();
+    res.json(issues);
+  } catch (error) {
+    console.error('Controller : 이슈 목록 조회 오류:', error);
+    res.status(500).json({ message: 'Controller : 서버 오류 발생' });
+  }
+}
+
 export {
   getAllDbmses,
   getMonResult,
@@ -285,4 +295,5 @@ export {
   saveScheduleConfig,
   getRunHistoryList,
   getRunHistoryDetail,
+  getLatestIssues,
 };
