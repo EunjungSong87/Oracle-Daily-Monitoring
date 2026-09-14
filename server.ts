@@ -11,9 +11,13 @@ import express from 'express';
 import path from 'path';
 import cors from 'cors';
 import bodyParser from 'body-parser';
+import session from 'express-session';
 import oracle from 'oracledb';
 import dbmsRouters from './routers/dbmsRouters'; // 라우터 가져오기
 import tableSpecRouters from './routers/tableSpecRouters';
+import authRouters from './routers/authRouters';
+import usersRouters from './routers/usersRouters';
+import { requireAuth } from './middleware/auth';
 import { startScheduler } from './services/scheduler';
 
 // Express 애플리케이션을 생성합니다.
@@ -34,16 +38,9 @@ const port = process.env.APP_PORT || 3000;
 // 모든 라우트에 대해 CORS를 활성화하여 교차 출처 문제를 방지합니다.
 app.use(cors());
 
-// 메인 기본 HTML 파일을 제공하는 라우트입니다.
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// 'public' 디렉토리에서 정적 파일을 제공합니다.
-app.use(express.static('public'));
-
 // 들어오는 JSON 데이터를 처리하기 위한 JSON 파서를 설정합니다.
-// body-parser 미들웨어 추가
+// body-parser 미들웨어 추가. 로그인 POST가 body를 필요로 하므로
+// 세션/인증 라우터보다 반드시 먼저 등록합니다.
 const jsonParser = bodyParser.json();
 const urlencodedParser = bodyParser.urlencoded({ extended: true });
 
@@ -52,6 +49,40 @@ app.use(jsonParser);
 
 // URL-encoded 요청 본문 처리
 app.use(urlencodedParser);
+
+// 로그인 세션. 세션 저장소는 기본 in-memory MemoryStore를 씁니다 — 프로세스 하나짜리
+// 내부 도구라 별도 스토어를 둘 이유가 없지만, 서버 재시작/tsx watch 리로드 시
+// 모든 세션이 사라지는 점은 알려진 제약입니다.
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET as string,
+    resave: false,
+    saveUninitialized: false,
+    rolling: true,
+    cookie: {
+      httpOnly: true,
+      sameSite: 'lax',
+      // 이 앱은 사설 IP/localhost 위 평문 HTTP로 운영되는 내부망 도구라 secure:true면
+      // 로그인 자체가 깨집니다.
+      secure: false,
+      maxAge: 8 * 60 * 60 * 1000, // 8시간
+    },
+  })
+);
+
+// 로그인/로그아웃은 비인증 상태에서 이뤄져야 하므로 requireAuth 게이트보다 먼저 마운트합니다.
+app.use('/auth', authRouters);
+
+// 이 아래의 모든 라우트/정적 파일은 로그인이 필요합니다 (로그인 페이지와 그 공통 자산은 예외).
+app.use(requireAuth);
+
+// 메인 기본 HTML 파일을 제공하는 라우트입니다.
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// 'public' 디렉토리에서 정적 파일을 제공합니다.
+app.use(express.static('public'));
 
 // 서버 시작
 async function startServer(): Promise<void> {
@@ -70,3 +101,4 @@ startScheduler();
 app.use('/main', dbmsRouters);
 app.use('/api', dbmsRouters);
 app.use('/api', tableSpecRouters);
+app.use('/api', usersRouters);

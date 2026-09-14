@@ -3,27 +3,47 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Run History</title>
+    <title>DB Cockpit — Run History</title>
 
     <link rel="stylesheet" href="style.css">
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <script src="common.js"></script>
 </head>
 <body>
-    <a href="index.html">
-    <h1>Run History</h1>
-    </a>
+    <!-- 상단 헤더: 왼쪽 브랜드 + 오른쪽 내비게이션 -->
+    <header class="app-header">
+        <a href="index.html" class="brand"><span class="brand-mark"><svg class="brand-icon" viewBox="0 0 32 32" aria-hidden="true"><ellipse cx="16" cy="11" rx="8.5" ry="3.2" fill="#fff"/><path d="M8 11v11.5c0 1.8 3.6 3.2 8 3.2s8-1.4 8-3.2V11" stroke="#fff" stroke-width="2.3" opacity="0.6" fill="none"/><path d="M7 19.6h4.6l1.8-3.6 2.3 6 1.8-2.4h5.7" stroke="#fff" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg></span>DB Cockpit</a>
 
-    <nav>
-        <ul>
-            <li><a href="index.html">DBMS List</a></li>
-            <li><a href="dailyMonitoring.html">Daily Monitoring</a></li>
-            <li><a href="monitoringScript.html">Monitoring Scripts</a></li>
-            <li><a href="monitoringThresholds.html">Thresholds</a></li>
-            <li><a href="tableSpec.html">Table Spec</a></li>
-            <li><a href="history.html" class="current">Run History</a></li>
-            <li><a href="issues.html">Issues</a></li>
-        </ul>
-    </nav>
+        <nav>
+            <ul>
+                <li><a href="index.html" class="nav-accent-1"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-db"></use></svg>Databases</a></li>
+
+                <li class="nav-dropdown">
+                    <a href="dailyMonitoring.html" class="nav-accent-2 nav-dropdown-trigger nav-group-active"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-pulse"></use></svg>Monitoring <span class="nav-caret">&#9662;</span></a>
+                    <ul class="nav-dropdown-menu">
+                        <li class="nav-dropdown">
+                            <a href="dailyMonitoring.html" class="nav-accent-2 nav-dropdown-trigger nav-group-active"><span class="nav-label"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-play"></use></svg>Daily Monitoring</span> <span class="nav-caret-sub">&#9656;</span></a>
+                            <ul class="nav-dropdown-menu">
+                                <li><a href="monitoringScript.html" class="nav-accent-3"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-code"></use></svg>Scripts</a></li>
+                                <li><a href="monitoringThresholds.html" class="nav-accent-4"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-gauge"></use></svg>Thresholds</a></li>
+                                <li><a href="history.html" class="nav-accent-5 current"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-history"></use></svg>Run History</a></li>
+                                <li><a href="issues.html" class="nav-accent-6"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-issue"></use></svg>Issues</a></li>
+                            </ul>
+                        </li>
+                    </ul>
+                </li>
+
+                <li class="nav-dropdown">
+                    <a href="tableSpec.html" class="nav-accent-7 nav-dropdown-trigger"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-wrench"></use></svg>Maintenance <span class="nav-caret">&#9662;</span></a>
+                    <ul class="nav-dropdown-menu">
+                        <li><a href="tableSpec.html" class="nav-accent-7"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-table"></use></svg>Table Spec</a></li>
+                    </ul>
+                </li>
+            </ul>
+        </nav>
+    </header>
+
+    <h2 class="page-title">Run History</h2>
 
     <div class="history-filter-bar">
         <label for="history-dbms-select">DBMS:</label>

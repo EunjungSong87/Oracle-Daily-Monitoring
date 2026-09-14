@@ -1,6 +1,9 @@
 import type { Request, Response } from 'express';
 import * as dbmsService from '../services/dbmsService';
 import * as historyService from '../services/historyService';
+import * as issuesService from '../services/issuesService';
+import type { IssueStatus } from '../models/issuesModel';
+import * as usersService from '../services/usersService';
 
 function errMsg(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -266,12 +269,119 @@ async function getRunHistoryDetail(req: Request, res: Response): Promise<Respons
   }
 }
 
-async function getLatestIssues(req: Request, res: Response): Promise<void> {
+async function listIssues(req: Request, res: Response): Promise<void> {
   try {
-    const issues = await historyService.getLatestIssues();
+    const statusParam = typeof req.query.status === 'string' ? req.query.status : undefined;
+    let statuses: IssueStatus[] | undefined;
+    if (!statusParam) {
+      statuses = ['OPEN', 'ACKNOWLEDGED'];
+    } else if (statusParam === 'ALL') {
+      statuses = undefined;
+    } else {
+      statuses = statusParam
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean) as IssueStatus[];
+    }
+    const issues = await issuesService.listIssues(statuses);
     res.json(issues);
   } catch (error) {
     console.error('Controller : 이슈 목록 조회 오류:', error);
+    res.status(500).json({ message: 'Controller : 서버 오류 발생' });
+  }
+}
+
+async function getIssueDetail(req: Request, res: Response): Promise<Response | void> {
+  try {
+    const { id } = req.body;
+    if (!id) {
+      return res.status(400).json({ message: 'id 정보가 필요합니다.' });
+    }
+    const detail = await issuesService.getIssueDetail(id);
+    if (!detail) {
+      return res.status(404).json({ message: '이슈를 찾을 수 없습니다.' });
+    }
+    res.json(detail);
+  } catch (error) {
+    console.error('Controller : 이슈 상세 조회 오류:', error);
+    res.status(500).json({ message: 'Controller : 서버 오류 발생' });
+  }
+}
+
+async function acknowledgeIssue(req: Request, res: Response): Promise<Response | void> {
+  try {
+    const { id } = req.body;
+    if (!id) {
+      return res.status(400).json({ message: 'id 정보가 필요합니다.' });
+    }
+    // 담당자가 비어있으면 확인 처리한 본인이 자동으로 담당자가 됩니다 (issuesModel의
+    // `assignee = nvl(:assignee, assignee)` 로직).
+    await issuesService.acknowledgeIssue(id, req.session.username);
+    res.json({ message: '이슈를 확인 처리했습니다.' });
+  } catch (error) {
+    console.error('Controller : 이슈 확인 처리 오류:', error);
+    res.status(500).json({ message: 'Controller : 서버 오류 발생' });
+  }
+}
+
+async function resolveIssue(req: Request, res: Response): Promise<Response | void> {
+  try {
+    const { id } = req.body;
+    if (!id) {
+      return res.status(400).json({ message: 'id 정보가 필요합니다.' });
+    }
+    await issuesService.resolveIssue(id, req.session.username);
+    res.json({ message: '이슈를 해결 처리했습니다.' });
+  } catch (error) {
+    console.error('Controller : 이슈 해결 처리 오류:', error);
+    res.status(500).json({ message: 'Controller : 서버 오류 발생' });
+  }
+}
+
+async function reopenIssue(req: Request, res: Response): Promise<Response | void> {
+  try {
+    const { id } = req.body;
+    if (!id) {
+      return res.status(400).json({ message: 'id 정보가 필요합니다.' });
+    }
+    await issuesService.reopenIssue(id, req.session.username);
+    res.json({ message: '이슈를 재오픈했습니다.' });
+  } catch (error) {
+    console.error('Controller : 이슈 재오픈 오류:', error);
+    res.status(500).json({ message: 'Controller : 서버 오류 발생' });
+  }
+}
+
+async function assignIssue(req: Request, res: Response): Promise<Response | void> {
+  try {
+    const { id, assignee } = req.body;
+    if (!id || !assignee) {
+      return res.status(400).json({ message: 'id, assignee 정보가 필요합니다.' });
+    }
+    // 자기 자신이 아닌 다른 사람에게 재배정하는 동작이라 여전히 body로 대상을 받되,
+    // 실제 등록된(활성) 계정인지 검증합니다 — 자유 텍스트로 남겨두면 신뢰성 확보 목적이 무너집니다.
+    const target = await usersService.findBasicByUsername(assignee);
+    if (!target) {
+      return res.status(400).json({ message: '등록된 사용자가 아닙니다.' });
+    }
+    await issuesService.assignIssue(id, assignee);
+    res.json({ message: '담당자를 지정했습니다.' });
+  } catch (error) {
+    console.error('Controller : 담당자 지정 오류:', error);
+    res.status(500).json({ message: 'Controller : 서버 오류 발생' });
+  }
+}
+
+async function addIssueComment(req: Request, res: Response): Promise<Response | void> {
+  try {
+    const { issueId, text } = req.body;
+    if (!issueId || !text) {
+      return res.status(400).json({ message: 'issueId, text 정보가 필요합니다.' });
+    }
+    await issuesService.addComment(issueId, req.session.username, text);
+    res.json({ message: '댓글이 등록되었습니다.' });
+  } catch (error) {
+    console.error('Controller : 댓글 등록 오류:', error);
     res.status(500).json({ message: 'Controller : 서버 오류 발생' });
   }
 }
@@ -295,5 +405,11 @@ export {
   saveScheduleConfig,
   getRunHistoryList,
   getRunHistoryDetail,
-  getLatestIssues,
+  listIssues,
+  getIssueDetail,
+  acknowledgeIssue,
+  resolveIssue,
+  reopenIssue,
+  assignIssue,
+  addIssueComment,
 };

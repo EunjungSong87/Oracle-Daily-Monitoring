@@ -6,31 +6,51 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <link rel="stylesheet" href="style.css">
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <script src="common.js"></script>
 </head>
 
 <body>
 <!-- 페이지의 제목을 설정합니다. -->
-<title> Monitoring Script</title>
-<!-- 페이지 상단에 표시되는 제목입니다. -->
-<a href="index.html">
-<h1> Monitoring Script </h1>
-</a> 
+<title>DB Cockpit — Scripts</title>
 
-<!-- 네비게이션 링크 -->
-<nav>
-    <ul>
-        <li><a href="index.html">DBMS List</a></li>
-        <li><a href="dailyMonitoring.html">Daily Monitoring</a></li>
-        <li><a href="monitoringScript.html" class="current">Monitoring Scripts</a></li>
-        <li><a href="monitoringThresholds.html">Thresholds</a></li>
-        <li><a href="tableSpec.html">Table Spec</a></li>
-        <li><a href="history.html">Run History</a></li>
-        <li><a href="issues.html">Issues</a></li>
-    </ul>
-</nav>
+<!-- 상단 헤더: 왼쪽 브랜드 + 오른쪽 내비게이션 -->
+<header class="app-header">
+    <a href="index.html" class="brand"><span class="brand-mark"><svg class="brand-icon" viewBox="0 0 32 32" aria-hidden="true"><ellipse cx="16" cy="11" rx="8.5" ry="3.2" fill="#fff"/><path d="M8 11v11.5c0 1.8 3.6 3.2 8 3.2s8-1.4 8-3.2V11" stroke="#fff" stroke-width="2.3" opacity="0.6" fill="none"/><path d="M7 19.6h4.6l1.8-3.6 2.3 6 1.8-2.4h5.7" stroke="#fff" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg></span>DB Cockpit</a>
 
-<button type="button" class="btn-secondary" onclick="location.href='addScript.html'">Add Script</button>
+    <nav>
+        <ul>
+            <li><a href="index.html" class="nav-accent-1"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-db"></use></svg>Databases</a></li>
+
+            <li class="nav-dropdown">
+                <a href="dailyMonitoring.html" class="nav-accent-2 nav-dropdown-trigger nav-group-active"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-pulse"></use></svg>Monitoring <span class="nav-caret">&#9662;</span></a>
+                <ul class="nav-dropdown-menu">
+                    <li class="nav-dropdown">
+                        <a href="dailyMonitoring.html" class="nav-accent-2 nav-dropdown-trigger nav-group-active"><span class="nav-label"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-play"></use></svg>Daily Monitoring</span> <span class="nav-caret-sub">&#9656;</span></a>
+                        <ul class="nav-dropdown-menu">
+                            <li><a href="monitoringScript.html" class="nav-accent-3 current"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-code"></use></svg>Scripts</a></li>
+                            <li><a href="monitoringThresholds.html" class="nav-accent-4"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-gauge"></use></svg>Thresholds</a></li>
+                            <li><a href="history.html" class="nav-accent-5"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-history"></use></svg>Run History</a></li>
+                            <li><a href="issues.html" class="nav-accent-6"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-issue"></use></svg>Issues</a></li>
+                        </ul>
+                    </li>
+                </ul>
+            </li>
+
+            <li class="nav-dropdown">
+                <a href="tableSpec.html" class="nav-accent-7 nav-dropdown-trigger"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-wrench"></use></svg>Maintenance <span class="nav-caret">&#9662;</span></a>
+                <ul class="nav-dropdown-menu">
+                    <li><a href="tableSpec.html" class="nav-accent-7"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-table"></use></svg>Table Spec</a></li>
+                </ul>
+            </li>
+        </ul>
+    </nav>
+</header>
+
+<div class="page-header-row">
+    <h2 class="page-title">Scripts</h2>
+    <button type="button" class="btn-secondary" onclick="openScriptModal()">Add Script</button>
+</div>
 
 <!-- 스크립트 목록을 표시하는 부분입니다. -->
 <table id="script-list" class="table">
@@ -39,6 +59,44 @@
     </thead>
     <tbody id="scriptTableBody"></tbody>
 </table>
+
+<!-- Add/Modify Script 팝업 -->
+<div id="script-modal-overlay" class="modal-overlay hidden">
+    <div class="modal">
+        <div class="modal-header">
+            <h2 id="script-modal-title">Add Script</h2>
+            <button type="button" class="modal-close" onclick="closeModal('script-modal-overlay')">&times;</button>
+        </div>
+        <form id="script-form" onsubmit="submitScriptForm(event)">
+            <label for="ID">ID:</label>
+            <input type="number" id="ID" name="ID" required>
+
+            <label for="NAME">NAME:</label>
+            <input type="text" id="NAME" name="NAME" required>
+
+            <label for="CATEGORY">CATEGORY:</label>
+            <input type="text" id="CATEGORY" name="CATEGORY" required>
+
+            <label for="DESCRIPTION">DESCRIPTION:</label>
+            <input type="text" id="DESCRIPTION" name="DESCRIPTION" required>
+
+            <label for="SQL_TEXT">SQL_TEXT:</label>
+            <textarea id="SQL_TEXT" name="SQL_TEXT" required></textarea>
+
+            <label for="SCHEDULE">SCHEDULE:</label>
+            <input type="text" id="SCHEDULE" name="SCHEDULE" required>
+
+            <label for="IS_ACTIVE">IS_ACTIVE:</label>
+            <select id="IS_ACTIVE" name="IS_ACTIVE" required>
+                <option value="Y">Y</option>
+                <option value="N">N</option>
+            </select>
+
+            <button type="submit" id="script-submit-btn">Script 추가</button>
+            <button type="button" class="btn-secondary" onclick="closeModal('script-modal-overlay')">취소</button>
+        </form>
+    </div>
+</div>
 
 <!-- JavaScript 코드입니다. -->
 <script>
@@ -50,6 +108,8 @@
 
             const headerRow = document.getElementById('scriptHeaderRow');
             const tableBody = document.getElementById('scriptTableBody');
+            headerRow.innerHTML = '';
+            tableBody.innerHTML = '';
 
             columns.forEach(column => {
                 const th = document.createElement('th');
@@ -106,13 +166,95 @@
         }
     }
 
-    // script 정보 수정 함수
+    // script 정보 수정 함수 (팝업으로 편집)
     async function modifyScript(event, scriptConfig) {
-        console.log(scriptConfig);
-        localStorage.setItem("editData", JSON.stringify(scriptConfig));
-        window.location.href = 'modifyScript.html?';
+        await openScriptModal(scriptConfig);
     }
-  
+
+    async function getSqlText(scriptConfig) {
+        try {
+            const response = await fetch('/api/getSqlText', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(scriptConfig)
+            });
+
+            if (response.ok) {
+                const result = await response.json();
+                return Object.values(result)[1];
+            }
+            showToast(`요청 실패: ${response.status}`, 'error');
+        } catch (error) {
+            console.error('Error:', error.message);
+            showToast('요청 처리 중 오류가 발생했습니다.', 'error');
+        }
+    }
+
+    // scriptConfig가 있으면 수정 모드, 없으면 추가 모드로 팝업을 연다.
+    async function openScriptModal(scriptConfig) {
+        const form = document.getElementById('script-form');
+        form.reset();
+
+        const isEdit = !!scriptConfig;
+        document.getElementById('script-modal-title').textContent = isEdit ? 'Modify Script' : 'Add Script';
+        document.getElementById('script-submit-btn').textContent = isEdit ? '수정 완료' : 'Script 추가';
+        document.getElementById('ID').readOnly = isEdit;
+
+        if (isEdit) {
+            const sqlText = await getSqlText({ id: scriptConfig.id, name: scriptConfig.name });
+            document.getElementById('ID').value = scriptConfig.id;
+            document.getElementById('NAME').value = scriptConfig.name;
+            document.getElementById('CATEGORY').value = scriptConfig.category;
+            document.getElementById('DESCRIPTION').value = scriptConfig.description;
+            document.getElementById('SQL_TEXT').value = sqlText || '';
+            document.getElementById('SCHEDULE').value = scriptConfig.schedule;
+            document.getElementById('IS_ACTIVE').value = scriptConfig.is_active;
+        }
+
+        openModal('script-modal-overlay');
+    }
+
+    async function submitScriptForm(event) {
+        event.preventDefault();
+
+        const scriptConfig = {
+            id: document.getElementById('ID').value,
+            name: document.getElementById('NAME').value,
+            category: document.getElementById('CATEGORY').value,
+            description: document.getElementById('DESCRIPTION').value,
+            sql_text: document.getElementById('SQL_TEXT').value,
+            schedule: document.getElementById('SCHEDULE').value,
+            is_active: document.getElementById('IS_ACTIVE').value
+        };
+
+        if (!scriptConfig.id || !scriptConfig.name || !scriptConfig.sql_text || !scriptConfig.is_active) {
+            showToast('필수 항목을 입력해주세요.', 'error');
+            return;
+        }
+
+        const isEdit = document.getElementById('ID').readOnly;
+        const url = isEdit ? '/api/modifyScript' : '/api/addScript';
+
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(scriptConfig)
+            });
+
+            if (response.ok) {
+                showToast(isEdit ? 'Script 수정 완료.' : 'Script 추가 완료.');
+                closeModal('script-modal-overlay');
+                fetchScripts();
+            } else {
+                showToast(`요청 실패: ${response.status}`, 'error');
+            }
+        } catch (error) {
+            console.error('Error:', error.message);
+            showToast('요청 처리 중 오류가 발생했습니다.', 'error');
+        }
+    }
+
 
     // script 삭제 함수
     async function deletScript(event, scriptId, listItem) {
@@ -140,6 +282,7 @@
 
     showFlashMessageIfAny();
     fetchScripts();
+    setupModalDismiss('script-modal-overlay');
 
 </script>
 </body>

@@ -1,6 +1,8 @@
 services:
   oracle-test:
-    image: gvenzl/oracle-free:latest
+    # Pinned below latest: newer "Oracle AI Database" banner breaks Debezium's
+    # version-detection query (LIKE 'Oracle Database%'), used by ../Datalake's CDC connector.
+    image: gvenzl/oracle-free:23.4
     container_name: oracle-daily-monitoring-test
     environment:
       ORACLE_PASSWORD: ${ORACLE_PASSWORD:-OraTest_2026!}

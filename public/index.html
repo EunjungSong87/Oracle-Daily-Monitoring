@@ -8,32 +8,50 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <link rel="stylesheet" href="style.css">
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <script src="common.js"></script>
 </head>
 <body>
     <!-- 페이지의 제목을 설정합니다. -->
-    <title>DBMS Daily Monitoring</title>
-    <!-- 페이지 상단에 표시되는 제목입니다. -->
-    <h1>DBMS Daily Monitoring</h1>
-    
-    <!-- 네비게이션 링크 -->
-    <nav>
-        <ul>
-            <li><a href="index.html" class="current">DBMS List</a></li>
-            <!-- 일일점검 수행 링크 -->
-            <li><a href="dailyMonitoring.html">Daily Monitoring </a></li>
-            <!-- 일일점검 스크립트 목록 링크 -->
-            <li><a href="monitoringScript.html">Monitoring Scripts </a></li>
-            <!-- 임계치 목록 링크 -->
-            <li><a href="monitoringThresholds.html">Thresholds </a></li>
-            <!-- 테이블 명세서 링크 -->
-            <li><a href="tableSpec.html">Table Spec </a></li>
-            <li><a href="history.html">Run History </a></li>
-            <li><a href="issues.html">Issues </a></li>
-        </ul>
-    </nav>
+    <title>DB Cockpit — Databases</title>
 
-    <button type="button" class="btn-secondary" onclick="location.href='addDbms.html'">Add DBMS</button>
+    <!-- 상단 헤더: 왼쪽 브랜드 + 오른쪽 내비게이션 -->
+    <header class="app-header">
+        <a href="index.html" class="brand"><span class="brand-mark"><svg class="brand-icon" viewBox="0 0 32 32" aria-hidden="true"><ellipse cx="16" cy="11" rx="8.5" ry="3.2" fill="#fff"/><path d="M8 11v11.5c0 1.8 3.6 3.2 8 3.2s8-1.4 8-3.2V11" stroke="#fff" stroke-width="2.3" opacity="0.6" fill="none"/><path d="M7 19.6h4.6l1.8-3.6 2.3 6 1.8-2.4h5.7" stroke="#fff" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg></span>DB Cockpit</a>
+
+        <nav>
+            <ul>
+                <li><a href="index.html" class="nav-accent-1 current"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-db"></use></svg>Databases</a></li>
+
+                <li class="nav-dropdown">
+                    <a href="dailyMonitoring.html" class="nav-accent-2 nav-dropdown-trigger"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-pulse"></use></svg>Monitoring <span class="nav-caret">&#9662;</span></a>
+                    <ul class="nav-dropdown-menu">
+                        <li class="nav-dropdown">
+                            <a href="dailyMonitoring.html" class="nav-accent-2 nav-dropdown-trigger"><span class="nav-label"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-play"></use></svg>Daily Monitoring</span> <span class="nav-caret-sub">&#9656;</span></a>
+                            <ul class="nav-dropdown-menu">
+                                <li><a href="monitoringScript.html" class="nav-accent-3"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-code"></use></svg>Scripts</a></li>
+                                <li><a href="monitoringThresholds.html" class="nav-accent-4"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-gauge"></use></svg>Thresholds</a></li>
+                                <li><a href="history.html" class="nav-accent-5"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-history"></use></svg>Run History</a></li>
+                                <li><a href="issues.html" class="nav-accent-6"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-issue"></use></svg>Issues</a></li>
+                            </ul>
+                        </li>
+                    </ul>
+                </li>
+
+                <li class="nav-dropdown">
+                    <a href="tableSpec.html" class="nav-accent-7 nav-dropdown-trigger"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-wrench"></use></svg>Maintenance <span class="nav-caret">&#9662;</span></a>
+                    <ul class="nav-dropdown-menu">
+                        <li><a href="tableSpec.html" class="nav-accent-7"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-table"></use></svg>Table Spec</a></li>
+                    </ul>
+                </li>
+            </ul>
+        </nav>
+    </header>
+
+    <div class="page-header-row">
+        <h2 class="page-title">Databases</h2>
+        <button type="button" class="btn-secondary" onclick="openDbmsModal()">Add DBMS</button>
+    </div>
 
     <!-- DBMS 목록을 표시하는 부분입니다. -->
     <table id="dbmses-list" class="table">
@@ -42,6 +60,46 @@
         </thead>
         <tbody id="dbmsTableBody"></tbody>
     </table>
+
+    <!-- Add/Modify DBMS 팝업 -->
+    <div id="dbms-modal-overlay" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 id="dbms-modal-title">Add DBMS</h2>
+                <button type="button" class="modal-close" onclick="closeModal('dbms-modal-overlay')">&times;</button>
+            </div>
+            <form id="dbms-form" onsubmit="submitDbmsForm(event)">
+                <div id="dbms-id-row" class="field-hidden">
+                    <label for="DBMS_ID">ID:</label>
+                    <input type="number" id="DBMS_ID" name="DBMS_ID" readonly>
+                </div>
+
+                <label for="DBMS">DBMS:</label>
+                <input type="text" id="DBMS" name="DBMS" required>
+
+                <label for="USERNAME">USERNAME:</label>
+                <input type="text" id="USERNAME" name="USERNAME" required>
+
+                <label for="PASSWORD" id="dbms-password-label">PASSWORD:</label>
+                <input type="text" id="PASSWORD" name="PASSWORD">
+
+                <label for="SID">SID:</label>
+                <input type="text" id="SID" name="SID" required>
+
+                <label for="IP">IP:</label>
+                <input type="text" id="IP" name="IP" required>
+
+                <label for="PORT">PORT:</label>
+                <input type="text" id="PORT" name="PORT" required>
+
+                <label for="MEMO">MEMO:</label>
+                <textarea id="MEMO" name="MEMO"></textarea>
+
+                <button type="submit" id="dbms-submit-btn">DBMS 추가</button>
+                <button type="button" class="btn-secondary" onclick="closeModal('dbms-modal-overlay')">취소</button>
+            </form>
+        </div>
+    </div>
 
     <!-- JavaScript 코드입니다. -->
     <script>
@@ -52,6 +110,8 @@
 
                     const headerRow = document.getElementById('dbmsHeaderRow');
                     const tableBody = document.getElementById('dbmsTableBody');
+                    headerRow.innerHTML = '';
+                    tableBody.innerHTML = '';
 
                     // 헤더 추가
                     columns.forEach(column => {
@@ -110,11 +170,81 @@
 
 
 
-            // dbms 정보 수정 함수
+            // dbms 정보 수정 함수 (팝업으로 편집)
             async function modifyDBMS(event, dbConfig) {
-                console.log(dbConfig);
-                localStorage.setItem("editData", JSON.stringify(dbConfig));
-                window.location.href = 'modifyDbms.html?';
+                openDbmsModal(dbConfig);
+            }
+
+            // dbConfig가 있으면 수정 모드, 없으면 추가 모드로 팝업을 연다.
+            function openDbmsModal(dbConfig) {
+                const form = document.getElementById('dbms-form');
+                form.reset();
+
+                const isEdit = !!dbConfig;
+                document.getElementById('dbms-modal-title').textContent = isEdit ? 'Modify DBMS Info' : 'Add DBMS';
+                document.getElementById('dbms-submit-btn').textContent = isEdit ? '수정 완료' : 'DBMS 추가';
+                document.getElementById('dbms-id-row').classList.toggle('field-hidden', !isEdit);
+
+                const passwordInput = document.getElementById('PASSWORD');
+                const passwordLabel = document.getElementById('dbms-password-label');
+                passwordInput.required = !isEdit;
+                passwordLabel.textContent = isEdit ? 'PASSWORD (변경하지 않으려면 비워두세요):' : 'PASSWORD:';
+                passwordInput.placeholder = isEdit ? '변경하지 않으려면 비워두세요' : '';
+
+                if (isEdit) {
+                    document.getElementById('DBMS_ID').value = dbConfig.id;
+                    document.getElementById('DBMS').value = dbConfig.dbname;
+                    document.getElementById('USERNAME').value = dbConfig.username;
+                    document.getElementById('SID').value = dbConfig.sid;
+                    document.getElementById('IP').value = dbConfig.ip;
+                    document.getElementById('PORT').value = dbConfig.port;
+                    document.getElementById('MEMO').value = dbConfig.memo || '';
+                }
+
+                openModal('dbms-modal-overlay');
+            }
+
+            async function submitDbmsForm(event) {
+                event.preventDefault();
+
+                const isEdit = !document.getElementById('dbms-id-row').classList.contains('field-hidden');
+                const dbConfig = {
+                    dbname: document.getElementById('DBMS').value,
+                    username: document.getElementById('USERNAME').value,
+                    password: document.getElementById('PASSWORD').value,
+                    sid: document.getElementById('SID').value,
+                    ip: document.getElementById('IP').value,
+                    port: document.getElementById('PORT').value,
+                    memo: document.getElementById('MEMO').value
+                };
+
+                if (!dbConfig.dbname || !dbConfig.username || !dbConfig.sid || !dbConfig.ip || !dbConfig.port
+                    || (!isEdit && !dbConfig.password)) {
+                    showToast('필수 항목을 입력해주세요.', 'error');
+                    return;
+                }
+
+                const url = isEdit ? '/api/modifyDbms' : '/api/addDbms';
+                if (isEdit) dbConfig.id = document.getElementById('DBMS_ID').value;
+
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(dbConfig)
+                    });
+
+                    if (response.ok) {
+                        showToast(isEdit ? 'DBMS 수정 완료.' : 'DBMS 추가 완료.');
+                        closeModal('dbms-modal-overlay');
+                        fetchDbmses();
+                    } else {
+                        showToast(`요청 실패: ${response.status}`, 'error');
+                    }
+                } catch (error) {
+                    console.error('Error:', error.message);
+                    showToast('요청 처리 중 오류가 발생했습니다.', 'error');
+                }
             }
 
 
@@ -144,6 +274,7 @@
 
             showFlashMessageIfAny();
             fetchDbmses();
+            setupModalDismiss('dbms-modal-overlay');
 
     </script>
 </body>

@@ -5,28 +5,49 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="style.css">
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <script src="common.js"></script>
-    <title>Monitoring Thresholds</title>
+    <title>DB Cockpit — Thresholds</title>
 </head>
 <body>
 
-<a href="index.html">
-<h1>Monitoring Thresholds</h1>
-</a>
+<!-- 상단 헤더: 왼쪽 브랜드 + 오른쪽 내비게이션 -->
+<header class="app-header">
+    <a href="index.html" class="brand"><span class="brand-mark"><svg class="brand-icon" viewBox="0 0 32 32" aria-hidden="true"><ellipse cx="16" cy="11" rx="8.5" ry="3.2" fill="#fff"/><path d="M8 11v11.5c0 1.8 3.6 3.2 8 3.2s8-1.4 8-3.2V11" stroke="#fff" stroke-width="2.3" opacity="0.6" fill="none"/><path d="M7 19.6h4.6l1.8-3.6 2.3 6 1.8-2.4h5.7" stroke="#fff" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg></span>DB Cockpit</a>
 
-<nav>
-    <ul>
-        <li><a href="index.html">DBMS List</a></li>
-        <li><a href="dailyMonitoring.html">Daily Monitoring</a></li>
-        <li><a href="monitoringScript.html">Monitoring Scripts</a></li>
-        <li><a href="monitoringThresholds.html" class="current">Thresholds</a></li>
-        <li><a href="tableSpec.html">Table Spec</a></li>
-        <li><a href="history.html">Run History</a></li>
-        <li><a href="issues.html">Issues</a></li>
-    </ul>
-</nav>
+    <nav>
+        <ul>
+            <li><a href="index.html" class="nav-accent-1"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-db"></use></svg>Databases</a></li>
 
-<button type="button" class="btn-secondary" onclick="location.href='addThreshold.html'">Add Threshold</button>
+            <li class="nav-dropdown">
+                <a href="dailyMonitoring.html" class="nav-accent-2 nav-dropdown-trigger nav-group-active"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-pulse"></use></svg>Monitoring <span class="nav-caret">&#9662;</span></a>
+                <ul class="nav-dropdown-menu">
+                    <li class="nav-dropdown">
+                        <a href="dailyMonitoring.html" class="nav-accent-2 nav-dropdown-trigger nav-group-active"><span class="nav-label"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-play"></use></svg>Daily Monitoring</span> <span class="nav-caret-sub">&#9656;</span></a>
+                        <ul class="nav-dropdown-menu">
+                            <li><a href="monitoringScript.html" class="nav-accent-3"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-code"></use></svg>Scripts</a></li>
+                            <li><a href="monitoringThresholds.html" class="nav-accent-4 current"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-gauge"></use></svg>Thresholds</a></li>
+                            <li><a href="history.html" class="nav-accent-5"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-history"></use></svg>Run History</a></li>
+                            <li><a href="issues.html" class="nav-accent-6"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-issue"></use></svg>Issues</a></li>
+                        </ul>
+                    </li>
+                </ul>
+            </li>
+
+            <li class="nav-dropdown">
+                <a href="tableSpec.html" class="nav-accent-7 nav-dropdown-trigger"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-wrench"></use></svg>Maintenance <span class="nav-caret">&#9662;</span></a>
+                <ul class="nav-dropdown-menu">
+                    <li><a href="tableSpec.html" class="nav-accent-7"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-table"></use></svg>Table Spec</a></li>
+                </ul>
+            </li>
+        </ul>
+    </nav>
+</header>
+
+<div class="page-header-row">
+    <h2 class="page-title">Thresholds</h2>
+    <button type="button" class="btn-secondary" onclick="openThresholdModal()">Add Threshold</button>
+</div>
 
 <table id="threshold-list" class="table">
     <thead>
@@ -35,6 +56,68 @@
     <tbody id="thresholdTableBody"></tbody>
 </table>
 
+<!-- Add/Modify Threshold 팝업 -->
+<div id="threshold-modal-overlay" class="modal-overlay hidden">
+    <div class="modal">
+        <div class="modal-header">
+            <h2 id="threshold-modal-title">Add Threshold</h2>
+            <button type="button" class="modal-close" onclick="closeModal('threshold-modal-overlay')">&times;</button>
+        </div>
+        <form id="threshold-form" onsubmit="submitThresholdForm(event)">
+            <div id="threshold-id-row" class="field-hidden">
+                <label for="THRESHOLD_ID">ID:</label>
+                <input type="number" id="THRESHOLD_ID" name="THRESHOLD_ID" readonly>
+            </div>
+
+            <label for="TASK_ID">점검 항목 (TASK):</label>
+            <select id="TASK_ID" name="TASK_ID" required></select>
+
+            <label for="COLUMN_NAME">컬럼명 (결과 테이블의 컬럼명과 정확히 일치해야 함):</label>
+            <input type="text" id="COLUMN_NAME" name="COLUMN_NAME" placeholder="예: USED(%)" required>
+
+            <label for="CONDITION_TYPE">조건 유형:</label>
+            <select id="CONDITION_TYPE" name="CONDITION_TYPE" required>
+                <option value="NUMERIC">NUMERIC (숫자 비교)</option>
+                <option value="STRING">STRING (문자열 일치)</option>
+                <option value="PATTERN">PATTERN (문자열 포함)</option>
+            </select>
+
+            <label for="OPERATOR">연산자:</label>
+            <select id="OPERATOR" name="OPERATOR" required>
+                <option value=">">&gt;</option>
+                <option value=">=">&gt;=</option>
+                <option value="<">&lt;</option>
+                <option value="<=">&lt;=</option>
+                <option value="=">=</option>
+                <option value="!=">!=</option>
+                <option value="LIKE">LIKE (포함)</option>
+            </select>
+
+            <label for="THRESHOLD">기준값:</label>
+            <input type="text" id="THRESHOLD" name="THRESHOLD" placeholder="예: 90" required>
+
+            <label for="CLEVEL">알림 레벨:</label>
+            <select id="CLEVEL" name="CLEVEL" required>
+                <option value="WARN">WARN</option>
+                <option value="ERROR">ERROR</option>
+                <option value="INFO">INFO</option>
+            </select>
+
+            <label for="MESSAGE">메시지:</label>
+            <input type="text" id="MESSAGE" name="MESSAGE" placeholder="예: 테이블스페이스 사용률 90% 초과">
+
+            <label for="IS_ACTIVE">활성화 여부:</label>
+            <select id="IS_ACTIVE" name="IS_ACTIVE" required>
+                <option value="Y">Y</option>
+                <option value="N">N</option>
+            </select>
+
+            <button type="submit" id="threshold-submit-btn">임계치 추가</button>
+            <button type="button" class="btn-secondary" onclick="closeModal('threshold-modal-overlay')">취소</button>
+        </form>
+    </div>
+</div>
+
 <script>
     async function fetchThresholds() {
         try {
@@ -42,6 +125,8 @@
             const { columns, rows } = await response.json();
             const headerRow = document.getElementById('thresholdHeaderRow');
             const tableBody = document.getElementById('thresholdTableBody');
+            headerRow.innerHTML = '';
+            tableBody.innerHTML = '';
 
             columns.forEach(column => {
                 const th = document.createElement('th');
@@ -99,8 +184,89 @@
     }
 
     async function modifyThreshold(event, thresholdConfig) {
-        localStorage.setItem("editThresholdData", JSON.stringify(thresholdConfig));
-        window.location.href = 'modifyThreshold.html';
+        await openThresholdModal(thresholdConfig);
+    }
+
+    async function loadTaskOptions(selectedTaskId) {
+        try {
+            const response = await fetch('/api/scriptlist');
+            const { rows } = await response.json();
+            const select = document.getElementById('TASK_ID');
+            select.innerHTML = '';
+            rows.forEach(row => {
+                const option = document.createElement('option');
+                option.value = row.ID;
+                option.textContent = `${row.ID} - ${row.NAME}`;
+                if (String(row.ID) === String(selectedTaskId)) option.selected = true;
+                select.appendChild(option);
+            });
+        } catch (error) {
+            console.error('Error loading tasks:', error.message);
+        }
+    }
+
+    // thresholdConfig가 있으면 수정 모드, 없으면 추가 모드로 팝업을 연다.
+    async function openThresholdModal(thresholdConfig) {
+        const form = document.getElementById('threshold-form');
+        form.reset();
+
+        const isEdit = !!thresholdConfig;
+        document.getElementById('threshold-modal-title').textContent = isEdit ? 'Modify Threshold' : 'Add Threshold';
+        document.getElementById('threshold-submit-btn').textContent = isEdit ? '수정 완료' : '임계치 추가';
+        document.getElementById('threshold-id-row').classList.toggle('field-hidden', !isEdit);
+
+        await loadTaskOptions(isEdit ? thresholdConfig.task_id : undefined);
+
+        if (isEdit) {
+            document.getElementById('THRESHOLD_ID').value = thresholdConfig.id;
+            document.getElementById('COLUMN_NAME').value = thresholdConfig.column_name;
+            document.getElementById('CONDITION_TYPE').value = thresholdConfig.condition_type;
+            document.getElementById('OPERATOR').value = thresholdConfig.operator;
+            document.getElementById('THRESHOLD').value = thresholdConfig.threshold;
+            document.getElementById('CLEVEL').value = thresholdConfig.clevel;
+            document.getElementById('MESSAGE').value = thresholdConfig.message || '';
+            document.getElementById('IS_ACTIVE').value = thresholdConfig.is_active;
+        }
+
+        openModal('threshold-modal-overlay');
+    }
+
+    async function submitThresholdForm(event) {
+        event.preventDefault();
+
+        const isEdit = !document.getElementById('threshold-id-row').classList.contains('field-hidden');
+        const thresholdInfo = {
+            task_id: document.getElementById('TASK_ID').value,
+            column_name: document.getElementById('COLUMN_NAME').value,
+            condition_type: document.getElementById('CONDITION_TYPE').value,
+            operator: document.getElementById('OPERATOR').value,
+            threshold: document.getElementById('THRESHOLD').value,
+            clevel: document.getElementById('CLEVEL').value,
+            message: document.getElementById('MESSAGE').value,
+            is_active: document.getElementById('IS_ACTIVE').value
+        };
+        if (isEdit) thresholdInfo.id = document.getElementById('THRESHOLD_ID').value;
+
+        const url = isEdit ? '/api/modifyThreshold' : '/api/addThreshold';
+
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(thresholdInfo)
+            });
+
+            if (response.ok) {
+                showToast(isEdit ? '임계치 수정 완료.' : '임계치 추가 완료.');
+                closeModal('threshold-modal-overlay');
+                fetchThresholds();
+            } else {
+                showToast(`요청 실패: ${response.status}`, 'error');
+            }
+        } catch (error) {
+            console.error('Error:', error.message);
+            showToast('요청 처리 중 오류가 발생했습니다.', 'error');
+        }
     }
 
     async function deleteThreshold(event, thresholdId, listItem) {
@@ -125,6 +291,7 @@
 
     showFlashMessageIfAny();
     fetchThresholds();
+    setupModalDismiss('threshold-modal-overlay');
 </script>
 </body>
 </html>

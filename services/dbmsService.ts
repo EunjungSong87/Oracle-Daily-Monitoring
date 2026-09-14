@@ -1,6 +1,7 @@
 import * as dbmsList from '../models/dbmsModel'; // 데이터 모델 가져오기
 import type { DbmsIdParam, DbmsInfo, ScriptInfo, ThresholdInfo, QueryResult, ScheduleConfig } from '../models/dbmsModel';
 import * as historyModel from '../models/historyModel';
+import * as issuesModel from '../models/issuesModel';
 
 function errMsg(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -202,10 +203,15 @@ async function getMonResult(
     await targetConnection.close();
   }
 
-  // 이력 저장은 부가 기능이라, 실패해도 실제 점검 응답에는 영향을 주지 않습니다.
+  // 이력 저장/이슈 동기화는 부가 기능이라, 실패해도 실제 점검 응답에는 영향을 주지 않습니다.
   try {
     const dbname = dbconfig[6];
-    await historyModel.saveRunHistory(dbmsid.dbmsid, dbname, triggerType, results);
+    const runHistoryId = await historyModel.saveRunHistory(dbmsid.dbmsid, dbname, triggerType, results);
+    try {
+      await issuesModel.syncIssues(dbmsid.dbmsid, dbname, runHistoryId, results);
+    } catch (error) {
+      console.error('Service : 이슈 동기화 실패 (점검 결과는 정상 반환):', error);
+    }
   } catch (error) {
     console.error('Service : 실행 이력 저장 실패 (점검 결과는 정상 반환):', error);
   }

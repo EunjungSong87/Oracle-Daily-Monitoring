@@ -31,13 +31,15 @@ async function getTables(req: Request, res: Response): Promise<Response | void> 
 
 async function downloadTableSpec(req: Request, res: Response): Promise<Response | void> {
   try {
-    const { dbmsid, owner, tables, tablesPerSheet } = req.body;
-    if (!dbmsid || !owner || !tables) {
-      return res.status(400).json({ message: 'dbmsid, owner, tables 정보가 필요합니다.' });
+    const { dbmsid, schemas, tablesPerSheet } = req.body;
+    if (!dbmsid || !schemas || typeof schemas !== 'object' || Object.keys(schemas).length === 0) {
+      return res.status(400).json({ message: 'dbmsid, schemas 정보가 필요합니다.' });
     }
-    const workbook = await tableSpecService.buildTableSpecWorkbook({ dbmsid }, owner, tables, tablesPerSheet);
+    const workbook = await tableSpecService.buildTableSpecWorkbook({ dbmsid }, schemas, tablesPerSheet);
 
-    const filename = `${owner}_table_spec_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    const owners = Object.keys(schemas);
+    const baseName = owners.length === 1 ? owners[0] : `multi_schema_${owners.length}`;
+    const filename = `${baseName}_table_spec_${new Date().toISOString().slice(0, 10)}.xlsx`;
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
 

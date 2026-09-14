@@ -182,11 +182,9 @@ function groupByTable(rows: Record<string, any>[]): Record<string, Record<string
   return map;
 }
 
-function buildWorkbook(owner: string, spec: TableSpec, tablesPerSheet: number): ExcelJS.Workbook {
-  const workbook = new ExcelJS.Workbook();
-  workbook.creator = 'Oracle Daily Monitoring';
-  workbook.created = new Date();
-
+// 스키마 하나의 명세를 기존 workbook에 시트로 이어붙입니다 (여러 스키마를
+// 한 파일에 같이 담을 수 있도록, workbook 생성과 분리했습니다).
+function appendSchemaToWorkbook(workbook: ExcelJS.Workbook, owner: string, spec: TableSpec, tablesPerSheet: number): void {
   const columnsByTable = groupByTable(spec.columns);
   const constraintsByTable = groupByTable(spec.constraints);
   const indexesByTable = groupByTable(spec.indexes);
@@ -206,24 +204,40 @@ function buildWorkbook(owner: string, spec: TableSpec, tablesPerSheet: number): 
       synonymsByTable[table.TABLE_NAME] || []
     );
   });
-
-  return workbook;
 }
 
+// schemas는 { 스키마명: 'ALL' | 테이블명 배열 } 형태 — 스키마마다 원하는 범위를
+// 따로 지정할 수 있고, 여러 스키마를 한 번에 골라도 시트만 스키마별로 나뉜
+// 엑셀 파일 하나로 합쳐집니다.
 async function buildTableSpecWorkbook(
   dbmsid: DbmsIdParam,
-  owner: string,
-  tables: string[] | 'ALL',
+  schemas: Record<string, string[] | 'ALL'>,
   tablesPerSheet?: number | string
 ): Promise<ExcelJS.Workbook> {
   try {
-    const tableNames = tables === 'ALL' ? await tableSpecModel.getTables(dbmsid, owner) : tables;
-    if (!tableNames || tableNames.length === 0) {
-      throw new Error('선택된 테이블이 없습니다.');
+    const owners = Object.keys(schemas);
+    if (owners.length === 0) {
+      throw new Error('선택된 스키마가 없습니다.');
     }
     const perSheet = Number(tablesPerSheet) > 0 ? Number(tablesPerSheet) : DEFAULT_TABLES_PER_SHEET;
-    const spec = await tableSpecModel.getTableSpec(dbmsid, owner, tableNames);
-    return buildWorkbook(owner, spec, perSheet);
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Oracle Daily Monitoring';
+    workbook.created = new Date();
+
+    for (const owner of owners) {
+      const requested = schemas[owner];
+      const tableNames = requested === 'ALL' ? await tableSpecModel.getTables(dbmsid, owner) : requested;
+      if (!tableNames || tableNames.length === 0) continue;
+      const spec = await tableSpecModel.getTableSpec(dbmsid, owner, tableNames);
+      appendSchemaToWorkbook(workbook, owner, spec, perSheet);
+    }
+
+    if (workbook.worksheets.length === 0) {
+      throw new Error('선택된 테이블이 없습니다.');
+    }
+
+    return workbook;
   } catch (error) {
     console.error('Service : 테이블 명세서 생성 실패:', error);
     throw new Error('테이블 명세서 생성 실패', { cause: error });

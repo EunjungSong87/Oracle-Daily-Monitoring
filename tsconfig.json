@@ -17,6 +17,7 @@
     "db.ts",
     "config/**/*.ts",
     "controllers/**/*.ts",
+    "middleware/**/*.ts",
     "services/**/*.ts",
     "models/**/*.ts",
     "routers/**/*.ts",

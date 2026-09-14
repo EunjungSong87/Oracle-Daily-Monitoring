@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DB Cockpit — Users</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <script src="common.js"></script>
+</head>
+<body>
+    <!-- 상단 헤더: 왼쪽 브랜드 + 오른쪽 내비게이션 -->
+    <header class="app-header">
+        <a href="index.html" class="brand"><span class="brand-mark"><svg class="brand-icon" viewBox="0 0 32 32" aria-hidden="true"><ellipse cx="16" cy="11" rx="8.5" ry="3.2" fill="#fff"/><path d="M8 11v11.5c0 1.8 3.6 3.2 8 3.2s8-1.4 8-3.2V11" stroke="#fff" stroke-width="2.3" opacity="0.6" fill="none"/><path d="M7 19.6h4.6l1.8-3.6 2.3 6 1.8-2.4h5.7" stroke="#fff" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg></span>DB Cockpit</a>
+
+        <nav>
+            <ul>
+                <li><a href="index.html" class="nav-accent-1"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-db"></use></svg>Databases</a></li>
+
+                <li class="nav-dropdown">
+                    <a href="dailyMonitoring.html" class="nav-accent-2 nav-dropdown-trigger"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-pulse"></use></svg>Monitoring <span class="nav-caret">&#9662;</span></a>
+                    <ul class="nav-dropdown-menu">
+                        <li class="nav-dropdown">
+                            <a href="dailyMonitoring.html" class="nav-accent-2 nav-dropdown-trigger"><span class="nav-label"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-play"></use></svg>Daily Monitoring</span> <span class="nav-caret-sub">&#9656;</span></a>
+                            <ul class="nav-dropdown-menu">
+                                <li><a href="monitoringScript.html" class="nav-accent-3"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-code"></use></svg>Scripts</a></li>
+                                <li><a href="monitoringThresholds.html" class="nav-accent-4"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-gauge"></use></svg>Thresholds</a></li>
+                                <li><a href="history.html" class="nav-accent-5"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-history"></use></svg>Run History</a></li>
+                                <li><a href="issues.html" class="nav-accent-6"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-issue"></use></svg>Issues</a></li>
+                            </ul>
+                        </li>
+                    </ul>
+                </li>
+
+                <li class="nav-dropdown">
+                    <a href="tableSpec.html" class="nav-accent-7 nav-dropdown-trigger"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-wrench"></use></svg>Maintenance <span class="nav-caret">&#9662;</span></a>
+                    <ul class="nav-dropdown-menu">
+                        <li><a href="tableSpec.html" class="nav-accent-7"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-table"></use></svg>Table Spec</a></li>
+                    </ul>
+                </li>
+            </ul>
+        </nav>
+    </header>
+
+    <div class="page-header-row">
+        <h2 class="page-title">Users</h2>
+        <button type="button" class="btn-secondary" onclick="openUserModal()">Add User</button>
+    </div>
+
+    <table id="users-list" class="table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>USERNAME</th>
+                <th>DISPLAY NAME</th>
+                <th>ADMIN</th>
+                <th>ACTIVE</th>
+                <th>CREATED</th>
+                <th>LAST LOGIN</th>
+                <th>ACTIONS</th>
+            </tr>
+        </thead>
+        <tbody id="users-table-body"></tbody>
+    </table>
+
+    <!-- Add User 팝업 -->
+    <div id="user-modal-overlay" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Add User</h2>
+                <button type="button" class="modal-close" onclick="closeModal('user-modal-overlay')">&times;</button>
+            </div>
+            <form id="user-form" onsubmit="submitUserForm(event)">
+                <label for="USERNAME">아이디:</label>
+                <input type="text" id="USERNAME" name="USERNAME" required autocomplete="off">
+
+                <label for="PASSWORD">비밀번호:</label>
+                <input type="password" id="PASSWORD" name="PASSWORD" required autocomplete="new-password">
+
+                <label for="DISPLAY_NAME">표시 이름 (선택):</label>
+                <input type="text" id="DISPLAY_NAME" name="DISPLAY_NAME">
+
+                <label style="display:inline-block; text-transform:none; font-weight:normal; margin-top:16px;">
+                    <input type="checkbox" id="IS_ADMIN" name="IS_ADMIN"> 관리자 권한 부여
+                </label>
+
+                <div style="margin-top: 16px;">
+                    <button type="submit">사용자 추가</button>
+                    <button type="button" class="btn-secondary" onclick="closeModal('user-modal-overlay')">취소</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 비밀번호 재설정 팝업 -->
+    <div id="resetpw-modal-overlay" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 id="resetpw-modal-title">비밀번호 재설정</h2>
+                <button type="button" class="modal-close" onclick="closeModal('resetpw-modal-overlay')">&times;</button>
+            </div>
+            <form id="resetpw-form" onsubmit="submitResetPassword(event)">
+                <label for="NEW_PASSWORD">새 비밀번호:</label>
+                <input type="password" id="NEW_PASSWORD" name="NEW_PASSWORD" required autocomplete="new-password">
+
+                <div style="margin-top: 16px;">
+                    <button type="submit">재설정</button>
+                    <button type="button" class="btn-secondary" onclick="closeModal('resetpw-modal-overlay')">취소</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        let resetPasswordUserId = null;
+
+        function formatDate(s) {
+            if (!s || s.length < 14) return s || '-';
+            return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)} ${s.slice(8, 10)}:${s.slice(10, 12)}:${s.slice(12, 14)}`;
+        }
+
+        async function loadUsers() {
+            const tbody = document.getElementById('users-table-body');
+            try {
+                const response = await fetch('/api/users');
+                if (!response.ok) {
+                    showToast('사용자 목록 조회 실패', 'error');
+                    return;
+                }
+                const users = await response.json();
+                tbody.innerHTML = '';
+
+                users.forEach((user) => {
+                    const tr = document.createElement('tr');
+
+                    const cells = [
+                        user.id,
+                        user.username,
+                        user.displayName || '-',
+                        user.isAdmin ? 'Y' : 'N',
+                        user.isActive ? 'Y' : 'N',
+                        formatDate(user.createdAt),
+                        formatDate(user.lastLoginAt),
+                    ];
+                    cells.forEach((value) => {
+                        const td = document.createElement('td');
+                        td.textContent = value;
+                        tr.appendChild(td);
+                    });
+
+                    const actionsTd = document.createElement('td');
+
+                    const toggleBtn = document.createElement('button');
+                    toggleBtn.type = 'button';
+                    toggleBtn.className = user.isActive ? 'btn-danger' : 'btn-secondary';
+                    toggleBtn.textContent = user.isActive ? '비활성화' : '활성화';
+                    toggleBtn.onclick = () => toggleActive(user.id, !user.isActive);
+                    actionsTd.appendChild(toggleBtn);
+
+                    const resetBtn = document.createElement('button');
+                    resetBtn.type = 'button';
+                    resetBtn.className = 'btn-secondary';
+                    resetBtn.textContent = '비밀번호 재설정';
+                    resetBtn.onclick = () => openResetPasswordModal(user.id, user.username);
+                    actionsTd.appendChild(resetBtn);
+
+                    tr.appendChild(actionsTd);
+                    tbody.appendChild(tr);
+                });
+            } catch (error) {
+                console.error('Error loading users:', error.message);
+                showToast('사용자 목록 조회 중 오류가 발생했습니다.', 'error');
+            }
+        }
+
+        function openUserModal() {
+            document.getElementById('user-form').reset();
+            openModal('user-modal-overlay');
+        }
+
+        async function submitUserForm(event) {
+            event.preventDefault();
+
+            const payload = {
+                username: document.getElementById('USERNAME').value.trim(),
+                password: document.getElementById('PASSWORD').value,
+                displayName: document.getElementById('DISPLAY_NAME').value.trim() || undefined,
+                isAdmin: document.getElementById('IS_ADMIN').checked,
+            };
+
+            if (!payload.username || !payload.password) {
+                showToast('아이디와 비밀번호를 입력해주세요.', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/users/add', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+
+                if (!response.ok) {
+                    const err = await response.json().catch(() => ({}));
+                    showToast(err.message || '사용자 등록 실패', 'error');
+                    return;
+                }
+
+                showToast('사용자를 등록했습니다.');
+                closeModal('user-modal-overlay');
+                loadUsers();
+            } catch (error) {
+                console.error('Error:', error.message);
+                showToast('사용자 등록 중 오류가 발생했습니다.', 'error');
+            }
+        }
+
+        async function toggleActive(id, isActive) {
+            try {
+                const response = await fetch('/api/users/setActive', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id, isActive }),
+                });
+                if (!response.ok) {
+                    showToast('처리 실패', 'error');
+                    return;
+                }
+                showToast(isActive ? '계정을 활성화했습니다.' : '계정을 비활성화했습니다.');
+                loadUsers();
+            } catch (error) {
+                console.error('Error:', error.message);
+                showToast('처리 중 오류가 발생했습니다.', 'error');
+            }
+        }
+
+        function openResetPasswordModal(id, username) {
+            resetPasswordUserId = id;
+            document.getElementById('resetpw-modal-title').textContent = `비밀번호 재설정 — ${username}`;
+            document.getElementById('resetpw-form').reset();
+            openModal('resetpw-modal-overlay');
+        }
+
+        async function submitResetPassword(event) {
+            event.preventDefault();
+            const newPassword = document.getElementById('NEW_PASSWORD').value;
+            if (!newPassword) {
+                showToast('새 비밀번호를 입력해주세요.', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/users/resetPassword', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: resetPasswordUserId, newPassword }),
+                });
+                if (!response.ok) {
+                    showToast('비밀번호 재설정 실패', 'error');
+                    return;
+                }
+                showToast('비밀번호를 재설정했습니다.');
+                closeModal('resetpw-modal-overlay');
+            } catch (error) {
+                console.error('Error:', error.message);
+                showToast('처리 중 오류가 발생했습니다.', 'error');
+            }
+        }
+
+        loadUsers();
+        setupModalDismiss('user-modal-overlay');
+        setupModalDismiss('resetpw-modal-overlay');
+    </script>
+</body>
+</html>

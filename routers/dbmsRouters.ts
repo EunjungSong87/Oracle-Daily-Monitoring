@@ -22,5 +22,11 @@ router.get('/schedule', dbmsController.getScheduleConfig);
 router.post('/schedule', dbmsController.saveScheduleConfig);
 router.post('/history/list', dbmsController.getRunHistoryList);
 router.post('/history/detail', dbmsController.getRunHistoryDetail);
-router.get('/issues', dbmsController.getLatestIssues);
+router.get('/issues', dbmsController.listIssues);
+router.post('/issues/detail', dbmsController.getIssueDetail);
+router.post('/issues/acknowledge', dbmsController.acknowledgeIssue);
+router.post('/issues/resolve', dbmsController.resolveIssue);
+router.post('/issues/reopen', dbmsController.reopenIssue);
+router.post('/issues/assign', dbmsController.assignIssue);
+router.post('/issues/comment', dbmsController.addIssueComment);
 export default router; // 라우터 내보내기

@@ -1,0 +1,100 @@
+이번 세션에서 반영된 변경사항을 다른 환경(내부망 등)에 옮길 때 필요한 작업 순서입니다.
+위에서부터 순서대로 진행하세요.
+
+============================================================
+1. .env 파일에 SESSION_SECRET 추가
+============================================================
+로그인 세션 쿠키 서명에 쓰는 값입니다. 기존 DBMS_ENCRYPTION_KEY와 같은 방식으로
+생성해서 .env에 추가하세요 (.env.example에도 항목이 이미 추가되어 있습니다).
+
+  node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+
+.env 예시:
+  SESSION_SECRET=여기에_생성한_값
+
+주의: 이 값을 나중에 바꾸면 그 순간 모든 로그인 세션이 무효화됩니다(전원 로그아웃).
+
+
+============================================================
+2. DB 스키마 반영 (메타데이터 DB에 아래 두 스크립트를 순서 상관없이 1회 실행)
+============================================================
+  scripts/add_monitoring_issues.sql   -> 티켓 시스템 테이블 (monitoring_issues, monitoring_issue_comments)
+  scripts/add_users.sql               -> 로그인 계정 테이블 (users)
+
+sqlplus 등으로 직접 실행하거나, sqlplus가 없으면 오라클 드라이버로 직접 실행하는
+방법도 있습니다 (예시, 프로젝트 루트에서):
+
+  node -e "
+    const oracledb = require('oracledb');
+    const fs = require('fs');
+    require('dotenv').config();
+    (async () => {
+      oracledb.initOracleClient({ libDir: './instantclient_19_25' });
+      const conn = await oracledb.getConnection({
+        user: process.env.NODE_ORACLEDB_USER,
+        password: process.env.NODE_ORACLEDB_PASSWORD,
+        connectString: process.env.NODE_ORACLEDB_CONNECTIONSTRING,
+      });
+      const sql = fs.readFileSync('scripts/add_users.sql', 'utf-8');
+      for (const stmt of sql.split(/;\s*\n/).map(s => s.trim()).filter(s => s && !s.startsWith('--'))) {
+        await conn.execute(stmt, [], { autoCommit: true });
+      }
+      await conn.close();
+    })();
+  "
+
+(파일명만 add_monitoring_issues.sql로 바꿔서 한 번 더 실행)
+
+이미 실행했던 DB라면 다시 실행할 필요 없습니다 (CREATE TABLE이라 재실행하면 에러만 나고
+아무 영향 없습니다 — 실수로 두 번 실행해도 안전합니다).
+
+
+============================================================
+3. 최초 관리자 계정 생성
+============================================================
+로그인 기능이 생기면서 이제 모든 페이지가 로그인해야만 보입니다. 관리자 계정이
+하나도 없으면 아무도 로그인할 수 없으므로(로그인해야 사용자 관리 페이지에 들어갈
+수 있는데, 그 페이지 자체가 로그인이 있어야 보이는 닭과 달걀 문제), 배포 후 반드시
+아래 스크립트를 한 번 실행해야 합니다.
+
+  npx tsx scripts/create-admin-user.ts <아이디> <비밀번호> [표시이름]
+
+예시:
+  npx tsx scripts/create-admin-user.ts admin "안전한비번!23" "관리자"
+
+이미 있는 아이디로 다시 실행하면 비밀번호와 관리자 권한을 갱신합니다 (관리자 본인이
+비밀번호를 잊어버렸을 때도 이 스크립트로 복구 가능).
+
+
+============================================================
+4. node_modules / npm install 관련 참고
+============================================================
+이 저장소는 node_modules를 git에 직접 커밋하는 방식입니다(레포 관례). 그래서 보통은
+내부망으로 옮길 때 npm install이 따로 필요 없습니다.
+
+다만 oracledb 등 일부 패키지는 OS/CPU 아키텍처별로 다른 네이티브 바이너리를 씁니다.
+개발 PC와 내부망 서버의 OS/아키텍처가 다르면(예: Windows -> Linux, x64 -> ARM 등)
+커밋된 node_modules가 그대로 동작하지 않을 수 있습니다. 이런 경우에는 내부망 서버에서
+직접 다음을 실행해서 해당 환경용 바이너리로 다시 설치해주세요.
+
+  npm install
+
+
+============================================================
+5. 서버 재시작
+============================================================
+  npm start        (또는 npm run dev)
+
+정상 기동 후 확인:
+  - http://<서버주소>:3000 접속 시 /login.html로 리다이렉트되는지
+  - 2번에서 만든 관리자 계정으로 로그인되는지
+  - nav 오른쪽 끝에 "{아이디} ▾" 드롭다운(Users, 로그아웃)이 보이는지
+
+
+============================================================
+그 외 이번 세션에서 함께 반영된 것 (스키마/설정 변경 없음, 코드만 바뀜)
+============================================================
+  - DB Cockpit 브랜딩(파비콘, 헤더, nav 아이콘), nav 구조 재정리
+  - Issues 페이지: 티켓 상태(Open/Acknowledged/Resolved) + 댓글 + 담당자 지정
+  - Table Spec: 스키마 여러 개 동시 선택/다운로드
+  - Daily Monitoring: 전체 선택/전체 선택 해제 버튼

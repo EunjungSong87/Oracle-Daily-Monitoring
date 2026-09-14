@@ -3,46 +3,89 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Issues</title>
+    <title>DB Cockpit — Issues</title>
 
     <link rel="stylesheet" href="style.css">
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <script src="common.js"></script>
 </head>
 <body>
-    <a href="index.html">
-    <h1>Issues</h1>
-    </a>
+    <!-- 상단 헤더: 왼쪽 브랜드 + 오른쪽 내비게이션 -->
+    <header class="app-header">
+        <a href="index.html" class="brand"><span class="brand-mark"><svg class="brand-icon" viewBox="0 0 32 32" aria-hidden="true"><ellipse cx="16" cy="11" rx="8.5" ry="3.2" fill="#fff"/><path d="M8 11v11.5c0 1.8 3.6 3.2 8 3.2s8-1.4 8-3.2V11" stroke="#fff" stroke-width="2.3" opacity="0.6" fill="none"/><path d="M7 19.6h4.6l1.8-3.6 2.3 6 1.8-2.4h5.7" stroke="#fff" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg></span>DB Cockpit</a>
 
-    <nav>
-        <ul>
-            <li><a href="index.html">DBMS List</a></li>
-            <li><a href="dailyMonitoring.html">Daily Monitoring</a></li>
-            <li><a href="monitoringScript.html">Monitoring Scripts</a></li>
-            <li><a href="monitoringThresholds.html">Thresholds</a></li>
-            <li><a href="tableSpec.html">Table Spec</a></li>
-            <li><a href="history.html">Run History</a></li>
-            <li><a href="issues.html" class="current">Issues</a></li>
-        </ul>
-    </nav>
+        <nav>
+            <ul>
+                <li><a href="index.html" class="nav-accent-1"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-db"></use></svg>Databases</a></li>
 
-    <p class="issues-subtitle">각 DB의 가장 최근 실행 결과 중, 임계치를 위반한 항목만 모아서 보여줍니다.</p>
+                <li class="nav-dropdown">
+                    <a href="dailyMonitoring.html" class="nav-accent-2 nav-dropdown-trigger nav-group-active"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-pulse"></use></svg>Monitoring <span class="nav-caret">&#9662;</span></a>
+                    <ul class="nav-dropdown-menu">
+                        <li class="nav-dropdown">
+                            <a href="dailyMonitoring.html" class="nav-accent-2 nav-dropdown-trigger nav-group-active"><span class="nav-label"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-play"></use></svg>Daily Monitoring</span> <span class="nav-caret-sub">&#9656;</span></a>
+                            <ul class="nav-dropdown-menu">
+                                <li><a href="monitoringScript.html" class="nav-accent-3"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-code"></use></svg>Scripts</a></li>
+                                <li><a href="monitoringThresholds.html" class="nav-accent-4"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-gauge"></use></svg>Thresholds</a></li>
+                                <li><a href="history.html" class="nav-accent-5"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-history"></use></svg>Run History</a></li>
+                                <li><a href="issues.html" class="nav-accent-6 current"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-issue"></use></svg>Issues</a></li>
+                            </ul>
+                        </li>
+                    </ul>
+                </li>
+
+                <li class="nav-dropdown">
+                    <a href="tableSpec.html" class="nav-accent-7 nav-dropdown-trigger"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-wrench"></use></svg>Maintenance <span class="nav-caret">&#9662;</span></a>
+                    <ul class="nav-dropdown-menu">
+                        <li><a href="tableSpec.html" class="nav-accent-7"><svg class="nav-icon" viewBox="0 0 16 16"><use href="#ic-table"></use></svg>Table Spec</a></li>
+                    </ul>
+                </li>
+            </ul>
+        </nav>
+    </header>
+
+    <h2 class="page-title">Issues</h2>
+
+    <p class="issues-subtitle">임계치를 위반한 항목을 티켓으로 추적합니다. 상태를 확인/해결 처리하고, 담당자를 지정하고, 댓글을 남길 수 있습니다.</p>
+
     <div class="issues-toolbar">
-        <button type="button" class="btn-secondary" onclick="loadIssues()">새로고침</button>
-        <label for="auto-refresh-select">자동 새로고침:</label>
-        <select id="auto-refresh-select">
-            <option value="0">사용 안 함</option>
-            <option value="10">10초</option>
-            <option value="30">30초</option>
-            <option value="60">1분</option>
-            <option value="300">5분</option>
-        </select>
+        <div class="status-tabs" id="status-tabs">
+            <button type="button" class="status-tab status-tab-active" data-status="OPEN" onclick="setStatusFilter('OPEN')">Open</button>
+            <button type="button" class="status-tab" data-status="ACKNOWLEDGED" onclick="setStatusFilter('ACKNOWLEDGED')">Acknowledged</button>
+            <button type="button" class="status-tab" data-status="RESOLVED" onclick="setStatusFilter('RESOLVED')">Resolved</button>
+            <button type="button" class="status-tab" data-status="ALL" onclick="setStatusFilter('ALL')">All</button>
+        </div>
+        <div class="issues-toolbar-actions">
+            <button type="button" class="btn-secondary" onclick="loadIssues()">새로고침</button>
+            <label for="auto-refresh-select">자동 새로고침:</label>
+            <select id="auto-refresh-select">
+                <option value="0">사용 안 함</option>
+                <option value="10">10초</option>
+                <option value="30">30초</option>
+                <option value="60">1분</option>
+                <option value="300">5분</option>
+            </select>
+        </div>
     </div>
 
     <div id="issues-grid" class="issues-grid"></div>
 
+    <!-- 이슈 상세 + 댓글 모달 -->
+    <div id="issue-modal-overlay" class="modal-overlay hidden">
+        <div class="modal modal-wide">
+            <div class="modal-header">
+                <h2 id="issue-modal-title">이슈 상세</h2>
+                <button type="button" class="modal-close" onclick="closeModal('issue-modal-overlay')">&times;</button>
+            </div>
+            <div class="modal-body" id="issue-modal-body"></div>
+        </div>
+    </div>
+
     <script>
         const AUTO_REFRESH_STORAGE_KEY = 'issuesAutoRefreshSeconds';
+        const STATUS_LABELS = { OPEN: '미확인', ACKNOWLEDGED: '확인함', RESOLVED: '해결됨' };
         let autoRefreshTimer = null;
+        let currentStatusFilter = 'OPEN';
+        let currentIssueId = null;
 
         function applyAutoRefresh(seconds) {
             if (autoRefreshTimer) {
@@ -68,22 +111,32 @@
             });
         }
 
+        // 상태 필터 탭 전환. 자동 새로고침 setInterval은 #issues-grid만 건드리므로,
+        // 이 함수가 실행 중이어도(또는 모달이 열려있어도) 서로 간섭하지 않는다.
+        function setStatusFilter(status) {
+            currentStatusFilter = status;
+            document.querySelectorAll('.status-tab').forEach((btn) => {
+                btn.classList.toggle('status-tab-active', btn.dataset.status === status);
+            });
+            loadIssues();
+        }
+
         async function loadIssues() {
             const grid = document.getElementById('issues-grid');
-            grid.innerHTML = '';
 
             try {
-                const response = await fetch('/api/issues');
+                const response = await fetch(`/api/issues?status=${encodeURIComponent(currentStatusFilter)}`);
                 if (!response.ok) {
                     showToast('이슈 목록 조회 실패', 'error');
                     return;
                 }
                 const issues = await response.json();
+                grid.innerHTML = '';
 
                 if (issues.length === 0) {
                     const empty = document.createElement('p');
                     empty.className = 'issues-empty';
-                    empty.textContent = '현재 임계치를 위반한 항목이 없습니다.';
+                    empty.textContent = '해당 상태의 이슈가 없습니다.';
                     grid.appendChild(empty);
                     return;
                 }
@@ -97,22 +150,27 @@
             }
         }
 
-        function formatRunAt(runAt) {
-            if (!runAt || runAt.length < 14) return runAt;
-            return `${runAt.slice(0, 4)}-${runAt.slice(4, 6)}-${runAt.slice(6, 8)} ${runAt.slice(8, 10)}:${runAt.slice(10, 12)}:${runAt.slice(12, 14)}`;
+        function formatDate(s) {
+            if (!s || s.length < 14) return s || '-';
+            return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)} ${s.slice(8, 10)}:${s.slice(10, 12)}:${s.slice(12, 14)}`;
         }
 
         function buildIssueCard(issue) {
             const card = document.createElement('div');
-            card.className = 'issue-card issue-card-' + issue.level.toLowerCase();
+            card.className = 'issue-card issue-card-' + issue.clevel.toLowerCase() + (issue.status === 'RESOLVED' ? ' issue-card-resolved' : '');
 
             const header = document.createElement('div');
             header.className = 'issue-card-header';
 
-            const badge = document.createElement('span');
-            badge.className = 'issue-badge issue-badge-' + issue.level.toLowerCase();
-            badge.textContent = issue.level;
-            header.appendChild(badge);
+            const levelBadge = document.createElement('span');
+            levelBadge.className = 'issue-badge issue-badge-' + issue.clevel.toLowerCase();
+            levelBadge.textContent = issue.clevel;
+            header.appendChild(levelBadge);
+
+            const statusBadge = document.createElement('span');
+            statusBadge.className = 'issue-badge issue-badge-status-' + issue.status.toLowerCase();
+            statusBadge.textContent = STATUS_LABELS[issue.status] || issue.status;
+            header.appendChild(statusBadge);
 
             const dbname = document.createElement('span');
             dbname.className = 'issue-dbname';
@@ -128,7 +186,9 @@
 
             const detail = document.createElement('div');
             detail.className = 'issue-detail';
-            detail.textContent = `${issue.column}: ${issue.value}`;
+            detail.textContent = issue.occurrenceCount > 1
+                ? `${issue.columnName}: ${issue.value} 외 ${issue.occurrenceCount - 1}건`
+                : `${issue.columnName}: ${issue.value}`;
             card.appendChild(detail);
 
             if (issue.message) {
@@ -138,16 +198,308 @@
                 card.appendChild(message);
             }
 
+            const meta = document.createElement('div');
+            meta.className = 'issue-meta';
+            meta.textContent = issue.assignee ? `담당자: ${issue.assignee}` : '담당자 미지정';
+            card.appendChild(meta);
+
             const runAt = document.createElement('div');
             runAt.className = 'issue-runat';
-            runAt.textContent = formatRunAt(issue.runAt);
+            runAt.textContent = `최근 감지: ${formatDate(issue.lastSeenAt)}`;
             card.appendChild(runAt);
+
+            const actions = document.createElement('div');
+            actions.className = 'issue-card-actions';
+            const detailBtn = document.createElement('button');
+            detailBtn.type = 'button';
+            detailBtn.className = 'btn-secondary';
+            detailBtn.textContent = '상세';
+            detailBtn.onclick = () => openIssueDetail(issue.id);
+            actions.appendChild(detailBtn);
+            card.appendChild(actions);
 
             return card;
         }
 
+        // ── 이슈 상세 모달 ──────────────────────────────────────────────────
+
+        async function openIssueDetail(id) {
+            currentIssueId = id;
+            openModal('issue-modal-overlay');
+            await refreshIssueModal(id);
+        }
+
+        async function refreshIssueModal(id) {
+            try {
+                const response = await fetch('/api/issues/detail', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id }),
+                });
+                if (!response.ok) {
+                    showToast('이슈 상세 조회 실패', 'error');
+                    return;
+                }
+                const detail = await response.json();
+                renderIssueModal(detail);
+            } catch (error) {
+                console.error('이슈 상세 조회 실패:', error);
+                showToast('이슈 상세 조회 실패', 'error');
+            }
+        }
+
+        function addInfoRow(container, label, value) {
+            const row = document.createElement('div');
+            row.className = 'issue-modal-info-row';
+            const strong = document.createElement('strong');
+            strong.textContent = label + ': ';
+            row.appendChild(strong);
+            row.appendChild(document.createTextNode(value === null || value === undefined || value === '' ? '-' : value));
+            container.appendChild(row);
+        }
+
+        function renderIssueModal(detail) {
+            currentIssueId = detail.id;
+            document.getElementById('issue-modal-title').textContent = `${detail.taskName} — ${detail.columnName}`;
+
+            const body = document.getElementById('issue-modal-body');
+            body.innerHTML = '';
+
+            const badges = document.createElement('div');
+            badges.className = 'issue-modal-badges';
+            const levelBadge = document.createElement('span');
+            levelBadge.className = 'issue-badge issue-badge-' + detail.clevel.toLowerCase();
+            levelBadge.textContent = detail.clevel;
+            badges.appendChild(levelBadge);
+            const statusBadge = document.createElement('span');
+            statusBadge.className = 'issue-badge issue-badge-status-' + detail.status.toLowerCase();
+            statusBadge.textContent = STATUS_LABELS[detail.status] || detail.status;
+            badges.appendChild(statusBadge);
+            body.appendChild(badges);
+
+            const info = document.createElement('div');
+            addInfoRow(info, 'DB', detail.dbname);
+            addInfoRow(info, '메시지', detail.message);
+            addInfoRow(info, '최초 감지', formatDate(detail.firstSeenAt));
+            addInfoRow(info, '최근 감지', formatDate(detail.lastSeenAt));
+            addInfoRow(info, '재오픈 횟수', detail.reopenCount);
+            body.appendChild(info);
+
+            // 담당자 지정 — 등록된(활성) 계정 중에서만 고를 수 있다.
+            const assigneeRow = document.createElement('div');
+            assigneeRow.className = 'issue-modal-assignee';
+            const assigneeLabel = document.createElement('label');
+            assigneeLabel.setAttribute('for', 'issue-assignee-select');
+            assigneeLabel.textContent = '담당자';
+            assigneeRow.appendChild(assigneeLabel);
+            const assigneeSelect = document.createElement('select');
+            assigneeSelect.id = 'issue-assignee-select';
+            assigneeRow.appendChild(assigneeSelect);
+            const assigneeSaveBtn = document.createElement('button');
+            assigneeSaveBtn.type = 'button';
+            assigneeSaveBtn.className = 'btn-secondary';
+            assigneeSaveBtn.textContent = '저장';
+            assigneeSaveBtn.onclick = () => saveAssignee();
+            assigneeRow.appendChild(assigneeSaveBtn);
+            body.appendChild(assigneeRow);
+            populateAssigneeSelect(assigneeSelect, detail.assignee);
+
+            // 상태 액션 (현재 상태에 따라 표시되는 버튼이 달라짐)
+            const actions = document.createElement('div');
+            actions.className = 'issue-modal-actions';
+            if (detail.status === 'OPEN') {
+                const ackBtn = document.createElement('button');
+                ackBtn.type = 'button';
+                ackBtn.className = 'btn-secondary';
+                ackBtn.textContent = '확인 처리 (Acknowledge)';
+                ackBtn.onclick = () => acknowledgeCurrentIssue();
+                actions.appendChild(ackBtn);
+            }
+            if (detail.status === 'OPEN' || detail.status === 'ACKNOWLEDGED') {
+                const resolveBtn = document.createElement('button');
+                resolveBtn.type = 'button';
+                resolveBtn.className = 'btn-secondary';
+                resolveBtn.textContent = '해결 처리 (Resolve)';
+                resolveBtn.onclick = () => resolveCurrentIssue();
+                actions.appendChild(resolveBtn);
+            }
+            if (detail.status === 'RESOLVED') {
+                const reopenBtn = document.createElement('button');
+                reopenBtn.type = 'button';
+                reopenBtn.className = 'btn-secondary';
+                reopenBtn.textContent = '재오픈 (Reopen)';
+                reopenBtn.onclick = () => reopenCurrentIssue();
+                actions.appendChild(reopenBtn);
+            }
+            body.appendChild(actions);
+
+            // 영향받은 행 목록
+            if (detail.details && detail.details.length > 0) {
+                const heading = document.createElement('h3');
+                heading.className = 'issue-modal-subheading';
+                heading.textContent = `영향받은 행 (${detail.details.length}건)`;
+                body.appendChild(heading);
+
+                const table = document.createElement('table');
+                table.className = 'table issue-modal-table';
+                const columns = Object.keys(detail.details[0]);
+
+                const thead = document.createElement('thead');
+                const headerRow = document.createElement('tr');
+                columns.forEach((col) => {
+                    const th = document.createElement('th');
+                    th.textContent = col;
+                    headerRow.appendChild(th);
+                });
+                thead.appendChild(headerRow);
+                table.appendChild(thead);
+
+                const tbody = document.createElement('tbody');
+                detail.details.forEach((rowData) => {
+                    const tr = document.createElement('tr');
+                    columns.forEach((col) => {
+                        const td = document.createElement('td');
+                        td.textContent = rowData[col];
+                        tr.appendChild(td);
+                    });
+                    tbody.appendChild(tr);
+                });
+                table.appendChild(tbody);
+                body.appendChild(table);
+            }
+
+            // 댓글 스레드
+            const commentsHeading = document.createElement('h3');
+            commentsHeading.className = 'issue-modal-subheading';
+            commentsHeading.textContent = '댓글';
+            body.appendChild(commentsHeading);
+
+            const commentList = document.createElement('div');
+            commentList.className = 'comment-list';
+            if (!detail.comments || detail.comments.length === 0) {
+                const empty = document.createElement('p');
+                empty.className = 'comment-empty';
+                empty.textContent = '아직 댓글이 없습니다.';
+                commentList.appendChild(empty);
+            } else {
+                detail.comments.forEach((comment) => {
+                    const item = document.createElement('div');
+                    item.className = 'comment-item' + (comment.commentType === 'STATUS_CHANGE' ? ' comment-item-system' : '');
+                    const meta = document.createElement('div');
+                    meta.className = 'comment-item-meta';
+                    meta.textContent = `${comment.author || '익명'} · ${formatDate(comment.createdAt)}`;
+                    item.appendChild(meta);
+                    const text = document.createElement('div');
+                    text.className = 'comment-item-text';
+                    text.textContent = comment.commentText;
+                    item.appendChild(text);
+                    commentList.appendChild(item);
+                });
+            }
+            body.appendChild(commentList);
+
+            const commentForm = document.createElement('div');
+            commentForm.className = 'comment-form';
+            const textArea = document.createElement('textarea');
+            textArea.id = 'issue-comment-text';
+            textArea.placeholder = '댓글을 입력하세요';
+            commentForm.appendChild(textArea);
+            const submitBtn = document.createElement('button');
+            submitBtn.type = 'button';
+            submitBtn.className = 'btn-secondary';
+            submitBtn.textContent = '댓글 등록';
+            submitBtn.onclick = () => submitComment();
+            commentForm.appendChild(submitBtn);
+            body.appendChild(commentForm);
+        }
+
+        // 담당자 select를 /api/users/basic(활성 계정 목록)으로 채운다.
+        async function populateAssigneeSelect(selectEl, currentAssignee) {
+            selectEl.innerHTML = '<option value="">담당자 미지정</option>';
+            try {
+                const response = await fetch('/api/users/basic');
+                if (!response.ok) return;
+                const users = await response.json();
+                users.forEach((user) => {
+                    const option = document.createElement('option');
+                    option.value = user.username;
+                    option.textContent = user.displayName ? `${user.displayName} (${user.username})` : user.username;
+                    selectEl.appendChild(option);
+                });
+                selectEl.value = currentAssignee || '';
+            } catch (error) {
+                console.error('사용자 목록 조회 실패:', error);
+            }
+        }
+
+        async function postIssueAction(url, payload, successMessage) {
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                if (!response.ok) {
+                    showToast('처리 실패', 'error');
+                    return;
+                }
+                showToast(successMessage);
+                await refreshIssueModal(currentIssueId);
+                loadIssues();
+            } catch (error) {
+                console.error('처리 실패:', error);
+                showToast('처리 실패', 'error');
+            }
+        }
+
+        async function saveAssignee() {
+            const assignee = document.getElementById('issue-assignee-select').value;
+            if (!assignee) {
+                showToast('담당자를 선택해주세요.', 'error');
+                return;
+            }
+            await postIssueAction('/api/issues/assign', { id: currentIssueId, assignee }, '담당자를 지정했습니다.');
+        }
+
+        // 확인/해결/재오픈은 별도 입력 없이 로그인한 본인 이름으로 서버가 기록한다.
+        async function acknowledgeCurrentIssue() {
+            await postIssueAction('/api/issues/acknowledge', { id: currentIssueId }, '이슈를 확인 처리했습니다.');
+        }
+
+        async function resolveCurrentIssue() {
+            await postIssueAction('/api/issues/resolve', { id: currentIssueId }, '이슈를 해결 처리했습니다.');
+        }
+
+        async function reopenCurrentIssue() {
+            await postIssueAction('/api/issues/reopen', { id: currentIssueId }, '이슈를 재오픈했습니다.');
+        }
+
+        async function submitComment() {
+            const text = document.getElementById('issue-comment-text').value.trim();
+            if (!text) {
+                showToast('댓글 내용을 입력해주세요.', 'error');
+                return;
+            }
+            try {
+                const response = await fetch('/api/issues/comment', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ issueId: currentIssueId, text }),
+                });
+                if (!response.ok) {
+                    showToast('댓글 등록 실패', 'error');
+                    return;
+                }
+                await refreshIssueModal(currentIssueId);
+            } catch (error) {
+                console.error('댓글 등록 실패:', error);
+                showToast('댓글 등록 실패', 'error');
+            }
+        }
+
         loadIssues();
         initAutoRefresh();
+        setupModalDismiss('issue-modal-overlay');
     </script>
 </body>
 </html>

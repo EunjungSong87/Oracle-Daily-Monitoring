@@ -15,25 +15,15 @@ export interface RunHistoryDetail extends RunHistorySummary {
   results: Record<string, any>[];
 }
 
-export interface Issue {
-  dbmsId: number;
-  dbname: string;
-  runAt: string;
-  taskName: string;
-  column: string;
-  value: unknown;
-  level: string;
-  message: string;
-}
-
 // 모니터링 실행 결과 한 건을 이력으로 저장합니다. 저장 실패가 실제 점검 응답을
 // 막으면 안 되므로, 호출하는 쪽(dbmsService)에서 실패를 흡수합니다.
+// 생성된 run_history id를 반환합니다 (issuesModel.syncIssues에서 latest_run_history_id로 사용).
 async function saveRunHistory(
   dbmsId: number | string,
   dbname: string,
   triggerType: 'MANUAL' | 'SCHEDULED',
   results: Record<string, any>[]
-): Promise<void> {
+): Promise<number> {
   let connection: oracledb.Connection | undefined;
   try {
     const pool = await db.initializeDB();
@@ -63,6 +53,8 @@ async function saveRunHistory(
       },
       { autoCommit: true }
     );
+
+    return nextId;
   } finally {
     if (connection) {
       await connection.close();
@@ -147,67 +139,4 @@ async function getRunHistoryDetail(id: number | string): Promise<RunHistoryDetai
   }
 }
 
-// DB별 가장 최근 실행 결과에서, 임계치를 위반한(=_alerts가 붙은) 항목만 뽑아 카드용으로 펼칩니다.
-async function getLatestIssues(): Promise<Issue[]> {
-  let connection: oracledb.Connection | undefined;
-  try {
-    const pool = await db.initializeDB();
-    connection = await pool.getConnection();
-
-    const query = `select dbms_id, dbname, run_at, results
-                      from (
-                        select dbms_id, dbname, run_at, results,
-                               row_number() over (partition by dbms_id order by run_at desc) rn
-                          from system.monitoring_run_history
-                      )
-                     where rn = 1
-                     order by dbname`;
-    const result = await connection.execute<Record<string, any>>(
-      query,
-      {},
-      { outFormat: oracledb.OUT_FORMAT_OBJECT, fetchInfo: { RESULTS: { type: oracledb.STRING } } }
-    );
-
-    const issues: Issue[] = [];
-    for (const row of result.rows ?? []) {
-      let tasks: Record<string, any>[];
-      try {
-        tasks = JSON.parse(row.RESULTS);
-      } catch {
-        continue;
-      }
-      for (const task of tasks) {
-        for (const dataRow of task.rows ?? []) {
-          const alerts = dataRow._alerts;
-          if (!alerts) continue;
-          for (const column of Object.keys(alerts)) {
-            if (alerts[column].level === 'INFO') continue;
-            issues.push({
-              dbmsId: row.DBMS_ID,
-              dbname: row.DBNAME,
-              runAt: row.RUN_AT,
-              taskName: task.task_name,
-              column,
-              value: dataRow[column],
-              level: alerts[column].level,
-              message: alerts[column].message,
-            });
-          }
-        }
-      }
-    }
-
-    // ERROR가 위, 그 안에서는 최신순.
-    issues.sort((a, b) => {
-      if (a.level !== b.level) return a.level === 'ERROR' ? -1 : 1;
-      return b.runAt.localeCompare(a.runAt);
-    });
-    return issues;
-  } finally {
-    if (connection) {
-      await connection.close();
-    }
-  }
-}
-
-export { saveRunHistory, listRunHistory, getRunHistoryDetail, getLatestIssues };
+export { saveRunHistory, listRunHistory, getRunHistoryDetail };

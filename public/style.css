@@ -13,9 +13,27 @@
     --danger: #dc2626;
     --danger-hover: #b91c1c;
     --success: #16a34a;
+    --surface-alt: #f3f4f6;
+    --btn-secondary-bg: #e5e7eb;
+    --btn-secondary-bg-hover: #d1d5db;
+    --row-hover: #f8f9fc;
     --radius: 8px;
     --shadow: 0 1px 3px rgba(16, 24, 40, 0.08), 0 1px 2px rgba(16, 24, 40, 0.04);
     --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", "Malgun Gothic", sans-serif;
+}
+
+/* 다크 모드 (common.js의 테마 토글이 <html data-theme="dark">를 설정) */
+:root[data-theme="dark"] {
+    --bg: #0f1420;
+    --surface: #1a2233;
+    --surface-alt: #202a3d;
+    --border: #2d3748;
+    --text: #e5e7eb;
+    --text-muted: #9ca3af;
+    --btn-secondary-bg: #2d3748;
+    --btn-secondary-bg-hover: #384254;
+    --row-hover: #1f2937;
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.55), 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
 * {
@@ -29,65 +47,319 @@ body {
     background-color: var(--bg);
     color: var(--text);
     line-height: 1.5;
+    transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 a {
     color: var(--primary);
 }
 
-/* 페이지 상단 헤더 */
-h1 {
-    font-family: var(--font);
-    background-color: var(--header-bg);
+/* 상단 헤더 — 왼쪽에 솔루션 이름(브랜드), 오른쪽에 내비게이션을 한 줄로 배치 */
+.app-header {
+    background: linear-gradient(120deg, #1e1b4b 0%, #241f57 50%, #1e1b4b 100%);
+    box-shadow: 0 4px 18px rgba(15, 12, 41, 0.35);
+    position: relative;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 28px;
+    padding: 0 20px;
+}
+
+.app-header nav {
+    flex: 1;
+    min-width: 0;
+}
+
+.brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 0;
+    text-decoration: none;
     color: #ffffff;
-    padding: 22px 28px;
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+}
+
+.brand:hover {
+    color: #ffffff;
+}
+
+.brand-mark {
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #6366f1, #a855f7);
+    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.55);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.brand-icon {
+    width: 16px;
+    height: 16px;
+}
+
+/* 페이지별 소제목 — 예전의 큰 그라데이션 배너 대신, 페이지가 바뀌어도
+   튀지 않도록 본문 색과 어울리는 차분한 텍스트로 표시 */
+.page-title {
     margin: 0;
-    font-size: 22px;
-    font-weight: 600;
+    padding: 20px 28px 0;
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text);
     letter-spacing: -0.01em;
 }
 
-a > h1 {
-    cursor: pointer;
+/* 소제목 옆에 "추가" 버튼처럼 화면의 대표 액션이 나란히 붙는 경우,
+   같은 줄에서 제목은 왼쪽, 버튼은 오른쪽으로 정렬한다. */
+.page-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 20px 28px 0;
 }
 
-a:has(h1) {
-    text-decoration: none;
+.page-header-row .page-title {
+    padding: 0;
+}
+
+.page-header-row button {
+    margin: 0;
 }
 
 /* 네비게이션 */
 nav ul {
     list-style: none;
-    padding: 0 18px;
+    padding: 10px 0;
     margin: 0;
-    background-color: var(--header-bg);
     display: flex;
-    overflow: hidden;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
 }
 
 nav ul li {
     padding: 0;
+    display: flex;
+    align-items: center;
+}
+
+/* 모니터링처럼 하위 항목이 여러 개인 그룹은 가로로 나열하지 않고,
+   커서를 올리면 아래로 펼쳐지는 드롭다운으로 묶는다. */
+.nav-dropdown {
+    position: relative;
+}
+
+.nav-dropdown-trigger {
+    display: inline-flex !important;
+    align-items: center;
+    gap: 4px;
+}
+
+.nav-caret {
+    font-size: 10px;
+    transition: transform 0.2s ease;
+}
+
+.nav-dropdown:hover > .nav-dropdown-trigger .nav-caret {
+    transform: rotate(180deg);
+}
+
+.nav-dropdown-menu {
+    list-style: none;
+    margin: 0;
+    padding: 8px;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    min-width: 210px;
+    background: linear-gradient(160deg, #241f57 0%, #1e1b4b 100%);
+    border-radius: 12px;
+    box-shadow: 0 16px 32px rgba(15, 12, 41, 0.45);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-6px);
+    transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s;
+    z-index: 20;
+}
+
+.nav-dropdown:hover > .nav-dropdown-menu,
+.nav-dropdown-menu:focus-within {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
+/* 드롭다운 안에 또 드롭다운(2단 depth) — 예: Monitoring > Daily Monitoring > Scripts/Thresholds.
+   위/아래가 아니라 옆으로 펼쳐지는 플라이아웃 형태로 표시한다. */
+.nav-dropdown-menu .nav-dropdown-trigger {
+    display: flex !important;
+    width: 100%;
+    justify-content: space-between;
+}
+
+.nav-caret-sub {
+    font-size: 10px;
+    opacity: 0.8;
+}
+
+.nav-dropdown-menu .nav-dropdown-menu {
+    top: -8px;
+    left: 100%;
+    margin-left: 6px;
+}
+
+/* 계정 메뉴는 nav 맨 오른쪽 끝에 붙기 때문에, 다른 메뉴처럼 왼쪽 기준으로 펼치면
+   화면 밖으로 넘어간다. 오른쪽 기준으로 펼치도록 뒤집는다. */
+#account-nav-item > .nav-dropdown-menu {
+    left: auto;
+    right: 0;
+}
+
+.nav-dropdown-menu li {
+    display: block;
+}
+
+.nav-dropdown-menu a {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 10px 14px;
+    border-radius: 8px;
+    white-space: nowrap;
+}
+
+/* 하위 페이지 중 하나에 있을 때 트리거를 은은하게 강조.
+   (정확히 어떤 하위 페이지인지는 드롭다운을 열면 그 항목의 포인트 컬러로 보인다) */
+.nav-group-active {
+    background-color: rgba(255, 255, 255, 0.14);
+    color: #ffffff;
 }
 
 nav ul li a {
     text-decoration: none;
-    color: #e5e7eb;
-    font-weight: 500;
+    color: #c7d2fe;
+    font-weight: 600;
     font-size: 14px;
-    display: inline-block;
-    padding: 12px 18px;
-    transition: background-color 0.15s ease, color 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 18px;
+    border-radius: 999px;
+    transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
+}
+
+.nav-icon {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+}
+
+.nav-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
 }
 
 nav ul li a:hover {
-    background-color: var(--header-bg-hover);
     color: #ffffff;
+    transform: translateY(-2px);
 }
 
 nav ul li a.current {
-    background-color: var(--header-bg-hover);
     color: #ffffff;
-    box-shadow: inset 0 -2px 0 var(--primary);
+    transform: translateY(-1px);
+}
+
+/* 항목별 포인트 컬러 — 호버 & 현재 페이지일 때 입체감 있는 그라데이션 필
+   (li 순서가 아니라 링크의 nav-accent-N 클래스에 매여있어, 대분류로 묶거나
+   순서를 바꿔도 색이 흐트러지지 않는다) */
+.nav-accent-1:hover, .nav-accent-1.current {
+    background: linear-gradient(135deg, #6366f1, #4f46e5);
+    box-shadow: 0 6px 16px rgba(99, 102, 241, 0.5);
+}
+.nav-accent-2:hover, .nav-accent-2.current {
+    background: linear-gradient(135deg, #22d3ee, #0891b2);
+    box-shadow: 0 6px 16px rgba(6, 182, 212, 0.5);
+}
+.nav-accent-3:hover, .nav-accent-3.current {
+    background: linear-gradient(135deg, #a78bfa, #7c3aed);
+    box-shadow: 0 6px 16px rgba(139, 92, 246, 0.5);
+}
+.nav-accent-4:hover, .nav-accent-4.current {
+    background: linear-gradient(135deg, #fbbf24, #d97706);
+    box-shadow: 0 6px 16px rgba(217, 119, 6, 0.5);
+}
+.nav-accent-5:hover, .nav-accent-5.current {
+    background: linear-gradient(135deg, #34d399, #059669);
+    box-shadow: 0 6px 16px rgba(5, 150, 105, 0.5);
+}
+.nav-accent-6:hover, .nav-accent-6.current {
+    background: linear-gradient(135deg, #fb7185, #e11d48);
+    box-shadow: 0 6px 16px rgba(225, 29, 72, 0.5);
+}
+.nav-accent-7:hover, .nav-accent-7.current {
+    background: linear-gradient(135deg, #f472b6, #db2777);
+    box-shadow: 0 6px 16px rgba(219, 39, 119, 0.5);
+}
+/* 계정 메뉴(로그인 사용자명/로그아웃/Users) — 도메인 nav 색과 구분되는 중립 톤 */
+.nav-accent-8:hover, .nav-accent-8.current {
+    background: linear-gradient(135deg, #64748b, #475569);
+    box-shadow: 0 6px 16px rgba(71, 85, 105, 0.5);
+}
+
+/* 다크모드 토글 버튼 (common.js가 nav 맨 끝에 자동으로 삽입) */
+.theme-toggle-item {
+    list-style: none;
+}
+
+/* 계정 메뉴(있으면)와 테마 토글, 둘 중 nav에서 먼저 나오는 쪽을 오른쪽 끝으로 밀어붙인다.
+   theme-toggle-item에 margin-left:auto를 주면 계정 메뉴가 있을 때 둘 사이가 벌어지므로,
+   더 먼저 붙는 계정 메뉴 쪽에만 준다. */
+#account-nav-item {
+    margin-left: auto;
+}
+
+nav ul:not(:has(#account-nav-item)) .theme-toggle-item {
+    margin-left: auto;
+}
+
+.theme-toggle-btn {
+    background-color: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 999px;
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    margin: 0;
+    font-size: 16px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background-color 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+}
+
+.theme-toggle-btn:hover {
+    background-color: rgba(255, 255, 255, 0.18);
+    transform: translateY(-2px) rotate(12deg);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
 }
 
 /* 폼 */
@@ -186,12 +458,12 @@ button:active {
 }
 
 button.btn-secondary {
-    background-color: #e5e7eb;
+    background-color: var(--btn-secondary-bg);
     color: var(--text);
 }
 
 button.btn-secondary:hover {
-    background-color: #d1d5db;
+    background-color: var(--btn-secondary-bg-hover);
 }
 
 button.btn-danger {
@@ -202,6 +474,87 @@ button.btn-danger {
     margin-left: 8px;
     font-size: 0.85em;
     color: var(--text-secondary, #6b7280);
+}
+
+/* 로그인 페이지 */
+.login-page {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 20px;
+}
+
+.login-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.login-brand .brand-mark {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+}
+
+.login-brand .brand-icon {
+    width: 20px;
+    height: 20px;
+}
+
+.login-brand span.login-brand-name {
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    color: var(--text);
+}
+
+#login-form {
+    width: 100%;
+    max-width: 360px;
+    margin: 0;
+}
+
+#login-form button[type="submit"] {
+    width: 100%;
+    margin-top: 20px;
+}
+
+/* 스키마/테이블 체크박스 목록 (Table Spec 페이지) */
+.checkbox-panel {
+    max-height: 320px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    background: var(--surface);
+    margin-bottom: 16px;
+}
+
+.checkbox-row {
+    display: block;
+    font-weight: normal;
+    text-transform: none;
+    margin: 0 0 4px;
+}
+
+.schema-table-group {
+    margin-bottom: 14px;
+}
+
+.schema-table-group-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.schema-table-group-header strong {
+    font-size: 13px;
+    color: var(--text);
 }
 
 .issues-toolbar {
@@ -229,7 +582,7 @@ button.btn-danger {
 }
 
 .issue-card {
-    background-color: #ffffff;
+    background-color: var(--surface);
     border-radius: 10px;
     padding: 16px 18px;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
@@ -307,6 +660,189 @@ button.btn-danger {
     text-align: right;
 }
 
+/* 티켓 상태(status) 배지 — 심각도(level) 배지와는 별도 색 계열로 구분 */
+.issue-card-resolved {
+    opacity: 0.7;
+}
+
+.issue-badge-status-open {
+    background-color: #2563eb;
+}
+
+.issue-badge-status-acknowledged {
+    background-color: #7c3aed;
+}
+
+.issue-badge-status-resolved {
+    background-color: var(--success);
+}
+
+.issue-meta {
+    font-size: 12px;
+    color: var(--text-secondary, #6b7280);
+    margin-bottom: 4px;
+}
+
+.issue-card-actions {
+    margin-top: 10px;
+    display: flex;
+    justify-content: flex-end;
+}
+
+.issue-card-actions button {
+    margin: 0;
+}
+
+/* 상태 필터 탭 */
+.status-tabs {
+    display: flex;
+    gap: 6px;
+}
+
+button.status-tab {
+    background-color: var(--btn-secondary-bg);
+    color: var(--text);
+    padding: 8px 14px;
+    font-size: 13px;
+    margin: 0;
+}
+
+button.status-tab:hover {
+    background-color: var(--btn-secondary-bg-hover);
+}
+
+button.status-tab-active {
+    background-color: var(--primary);
+    color: #ffffff;
+}
+
+.issues-toolbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.issues-toolbar-actions button {
+    white-space: nowrap;
+}
+
+/* 이슈 상세/댓글 모달 */
+.modal-wide {
+    max-width: 880px;
+}
+
+.modal-body {
+    padding: 20px 24px 24px;
+}
+
+.issue-modal-badges {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.issue-modal-info-row {
+    font-size: 14px;
+    margin-bottom: 6px;
+    color: var(--text);
+}
+
+.issue-modal-assignee {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 16px 0;
+}
+
+.issue-modal-assignee label {
+    margin: 0;
+    white-space: nowrap;
+}
+
+.issue-modal-assignee input {
+    width: auto;
+    flex: 1;
+}
+
+.issue-modal-assignee button {
+    margin: 0;
+}
+
+.issue-modal-actions {
+    display: flex;
+    gap: 8px;
+    margin: 12px 0 20px;
+    flex-wrap: wrap;
+}
+
+.issue-modal-actions button {
+    margin: 0;
+}
+
+.issue-modal-subheading {
+    font-size: 15px;
+    font-weight: 700;
+    margin: 20px 0 8px;
+    color: var(--text);
+}
+
+.modal table.issue-modal-table {
+    width: 100%;
+    max-width: none;
+    margin: 0 0 8px;
+}
+
+.comment-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-height: 220px;
+    overflow-y: auto;
+    margin-bottom: 12px;
+}
+
+.comment-empty {
+    color: var(--text-secondary, #6b7280);
+    font-size: 13px;
+}
+
+.comment-item {
+    background-color: var(--surface-alt);
+    border-radius: 8px;
+    padding: 8px 12px;
+}
+
+.comment-item-system {
+    font-style: italic;
+    opacity: 0.8;
+}
+
+.comment-item-meta {
+    font-size: 11px;
+    color: var(--text-secondary, #6b7280);
+    margin-bottom: 4px;
+}
+
+.comment-item-text {
+    font-size: 13px;
+    color: var(--text);
+    white-space: pre-wrap;
+}
+
+.comment-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.comment-form button {
+    align-self: flex-end;
+    margin: 0;
+}
+
 .history-filter-bar {
     display: flex;
     align-items: center;
@@ -321,7 +857,7 @@ button.btn-danger {
     gap: 12px;
     margin: 10px 0;
     padding: 8px 12px;
-    background-color: #f3f4f6;
+    background-color: var(--surface-alt);
     border-radius: 6px;
     width: fit-content;
 }
@@ -362,7 +898,7 @@ table.table {
 }
 
 .table tbody tr:hover {
-    background-color: #f8f9fc;
+    background-color: var(--row-hover);
 }
 
 .table tbody tr:last-child td {
@@ -486,4 +1022,97 @@ table.table {
 
 .toast-error {
     background-color: #dc2626;
+}
+
+/* 모달 (Add/Modify 팝업) */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background-color: rgba(15, 23, 42, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1100;
+    padding: 20px;
+}
+
+.modal-overlay.hidden {
+    display: none;
+}
+
+.modal {
+    background-color: var(--surface);
+    border-radius: var(--radius);
+    box-shadow: 0 10px 40px rgba(16, 24, 40, 0.25);
+    width: 100%;
+    max-width: 640px;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 24px;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background-color: var(--surface);
+}
+
+.modal-header h2 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.modal-close {
+    background-color: transparent;
+    color: var(--text-muted);
+    font-size: 20px;
+    line-height: 1;
+    padding: 4px 10px;
+    margin: 0;
+    cursor: pointer;
+    border-radius: 6px;
+}
+
+.modal-close:hover {
+    background-color: var(--surface-alt);
+    color: var(--text);
+}
+
+.modal form {
+    margin: 0;
+    border: none;
+    box-shadow: none;
+    max-width: none;
+    padding: 20px 24px 24px;
+    background-color: transparent;
+}
+
+.modal .field-hidden {
+    display: none;
+}
+
+/* 다크 모드 보정 — 밝은 배경을 전제로 고정색을 쓴 요소들 */
+:root[data-theme="dark"] .issue-card-error {
+    background-color: rgba(220, 38, 38, 0.14);
+}
+
+:root[data-theme="dark"] .issue-card-warn {
+    background-color: rgba(217, 119, 6, 0.14);
+}
+
+:root[data-theme="dark"] .issue-message {
+    color: #fca5a5;
+}
+
+:root[data-theme="dark"] input[type="text"],
+:root[data-theme="dark"] input[type="number"],
+:root[data-theme="dark"] input[type="password"],
+:root[data-theme="dark"] textarea,
+:root[data-theme="dark"] select {
+    color-scheme: dark;
 }
