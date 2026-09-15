@@ -27,12 +27,14 @@
     --bg: #0f1420;
     --surface: #1a2233;
     --surface-alt: #202a3d;
-    --border: #2d3748;
+    --border: #3d4a64;
     --text: #e5e7eb;
     --text-muted: #9ca3af;
+    --header-bg: #10162e;
+    --header-bg-hover: #374151;
     --btn-secondary-bg: #2d3748;
     --btn-secondary-bg-hover: #384254;
-    --row-hover: #1f2937;
+    --row-hover: #26314a;
     --shadow: 0 1px 3px rgba(0, 0, 0, 0.55), 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
@@ -899,6 +901,11 @@ table.table {
 
 .table tbody tr:hover {
     background-color: var(--row-hover);
+}
+
+/* 다크 모드에서는 테두리만으로 행 구분이 잘 안 보여서 줄무늬를 추가로 넣습니다. */
+:root[data-theme="dark"] .table tbody tr:nth-child(even) td {
+    background-color: var(--surface-alt);
 }
 
 .table tbody tr:last-child td {

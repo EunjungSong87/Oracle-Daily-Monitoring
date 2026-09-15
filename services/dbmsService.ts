@@ -1,5 +1,13 @@
 import * as dbmsList from '../models/dbmsModel'; // 데이터 모델 가져오기
-import type { DbmsIdParam, DbmsInfo, ScriptInfo, ThresholdInfo, QueryResult, ScheduleConfig } from '../models/dbmsModel';
+import type {
+  DbmsIdParam,
+  DbmsInfo,
+  ScriptInfo,
+  ThresholdInfo,
+  QueryResult,
+  ScheduleConfig,
+  TestConnectionInput,
+} from '../models/dbmsModel';
 import * as historyModel from '../models/historyModel';
 import * as issuesModel from '../models/issuesModel';
 
@@ -219,6 +227,12 @@ async function getMonResult(
   return results;
 }
 
+// 다른 CRUD 함수들과 달리 원본 에러를 그대로 던집니다 — 이 기능의 목적 자체가
+// 실제 Oracle 에러(예: ORA-12514)를 사용자에게 그대로 보여주는 것이기 때문입니다.
+async function testConnection(input: TestConnectionInput): Promise<void> {
+  await dbmsList.testConnection(input);
+}
+
 async function addDbms(dbmsInfo: DbmsInfo): Promise<number> {
   try {
     return await dbmsList.addDbms(dbmsInfo);
@@ -332,6 +346,7 @@ export {
   getAllDbmses,
   getDbmsInfo,
   getMonResult,
+  testConnection,
   addDbms,
   modifyDbms,
   deleteDbms,

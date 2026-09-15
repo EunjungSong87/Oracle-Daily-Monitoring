@@ -95,51 +95,39 @@
         </div>
     </div>
 
-    <!-- 권한 변경 팝업 -->
-    <div id="role-modal-overlay" class="modal-overlay hidden">
+    <!-- 사용자 수정 팝업 (활성화/권한/표시이름/비밀번호를 한번에) -->
+    <div id="edit-user-modal-overlay" class="modal-overlay hidden">
         <div class="modal">
             <div class="modal-header">
-                <h2 id="role-modal-title">권한 변경</h2>
-                <button type="button" class="modal-close" onclick="closeModal('role-modal-overlay')">&times;</button>
+                <h2 id="edit-user-modal-title">사용자 수정</h2>
+                <button type="button" class="modal-close" onclick="closeModal('edit-user-modal-overlay')">&times;</button>
             </div>
-            <form id="role-form" onsubmit="submitRoleChange(event)">
-                <label for="NEW_ROLE">권한:</label>
-                <select id="NEW_ROLE" name="NEW_ROLE">
+            <form id="edit-user-form" onsubmit="submitEditUser(event)">
+                <label for="EDIT_DISPLAY_NAME">표시 이름:</label>
+                <input type="text" id="EDIT_DISPLAY_NAME" name="EDIT_DISPLAY_NAME">
+
+                <label for="EDIT_ROLE">권한:</label>
+                <select id="EDIT_ROLE" name="EDIT_ROLE">
                     <option value="VIEWER">Viewer — 조회, 티켓 처리</option>
                     <option value="DBA">DBA — Viewer + DB/스크립트/임계치 관리</option>
                     <option value="SUPER_ADMIN">Super Admin — DBA + 계정 관리</option>
                 </select>
 
-                <div style="margin-top: 16px;">
-                    <button type="submit">변경</button>
-                    <button type="button" class="btn-secondary" onclick="closeModal('role-modal-overlay')">취소</button>
-                </div>
-            </form>
-        </div>
-    </div>
+                <label><input type="checkbox" id="EDIT_ACTIVE"> 계정 활성화</label>
 
-    <!-- 비밀번호 재설정 팝업 -->
-    <div id="resetpw-modal-overlay" class="modal-overlay hidden">
-        <div class="modal">
-            <div class="modal-header">
-                <h2 id="resetpw-modal-title">비밀번호 재설정</h2>
-                <button type="button" class="modal-close" onclick="closeModal('resetpw-modal-overlay')">&times;</button>
-            </div>
-            <form id="resetpw-form" onsubmit="submitResetPassword(event)">
-                <label for="NEW_PASSWORD">새 비밀번호:</label>
-                <input type="password" id="NEW_PASSWORD" name="NEW_PASSWORD" required autocomplete="new-password">
+                <label for="EDIT_NEW_PASSWORD">새 비밀번호 (변경하지 않으려면 비워두세요):</label>
+                <input type="password" id="EDIT_NEW_PASSWORD" name="EDIT_NEW_PASSWORD" autocomplete="new-password">
 
                 <div style="margin-top: 16px;">
-                    <button type="submit">재설정</button>
-                    <button type="button" class="btn-secondary" onclick="closeModal('resetpw-modal-overlay')">취소</button>
+                    <button type="submit">저장</button>
+                    <button type="button" class="btn-secondary" onclick="closeModal('edit-user-modal-overlay')">취소</button>
                 </div>
             </form>
         </div>
     </div>
 
     <script>
-        let resetPasswordUserId = null;
-        let roleChangeUserId = null;
+        let editUserId = null;
         const ROLE_LABELS = { VIEWER: 'Viewer', DBA: 'DBA', SUPER_ADMIN: 'Super Admin' };
 
         function formatDate(s) {
@@ -178,26 +166,12 @@
 
                     const actionsTd = document.createElement('td');
 
-                    const toggleBtn = document.createElement('button');
-                    toggleBtn.type = 'button';
-                    toggleBtn.className = user.isActive ? 'btn-danger' : 'btn-secondary';
-                    toggleBtn.textContent = user.isActive ? '비활성화' : '활성화';
-                    toggleBtn.onclick = () => toggleActive(user.id, !user.isActive);
-                    actionsTd.appendChild(toggleBtn);
-
-                    const roleBtn = document.createElement('button');
-                    roleBtn.type = 'button';
-                    roleBtn.className = 'btn-secondary';
-                    roleBtn.textContent = '권한 변경';
-                    roleBtn.onclick = () => openRoleModal(user.id, user.username, user.role);
-                    actionsTd.appendChild(roleBtn);
-
-                    const resetBtn = document.createElement('button');
-                    resetBtn.type = 'button';
-                    resetBtn.className = 'btn-secondary';
-                    resetBtn.textContent = '비밀번호 재설정';
-                    resetBtn.onclick = () => openResetPasswordModal(user.id, user.username);
-                    actionsTd.appendChild(resetBtn);
+                    const editBtn = document.createElement('button');
+                    editBtn.type = 'button';
+                    editBtn.className = 'btn-secondary';
+                    editBtn.textContent = '수정';
+                    editBtn.onclick = () => openEditUserModal(user);
+                    actionsTd.appendChild(editBtn);
 
                     tr.appendChild(actionsTd);
                     tbody.appendChild(tr);
@@ -250,82 +224,41 @@
             }
         }
 
-        async function toggleActive(id, isActive) {
-            try {
-                const response = await fetch('/api/users/setActive', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id, isActive }),
-                });
-                if (!response.ok) {
-                    showToast('처리 실패', 'error');
-                    return;
-                }
-                showToast(isActive ? '계정을 활성화했습니다.' : '계정을 비활성화했습니다.');
-                loadUsers();
-            } catch (error) {
-                console.error('Error:', error.message);
-                showToast('처리 중 오류가 발생했습니다.', 'error');
-            }
+        function openEditUserModal(user) {
+            editUserId = user.id;
+            document.getElementById('edit-user-modal-title').textContent = `사용자 수정 — ${user.username}`;
+            document.getElementById('EDIT_DISPLAY_NAME').value = user.displayName || '';
+            document.getElementById('EDIT_ROLE').value = user.role;
+            document.getElementById('EDIT_ACTIVE').checked = user.isActive;
+            document.getElementById('EDIT_NEW_PASSWORD').value = '';
+            openModal('edit-user-modal-overlay');
         }
 
-        function openRoleModal(id, username, currentRole) {
-            roleChangeUserId = id;
-            document.getElementById('role-modal-title').textContent = `권한 변경 — ${username}`;
-            document.getElementById('NEW_ROLE').value = currentRole;
-            openModal('role-modal-overlay');
-        }
-
-        async function submitRoleChange(event) {
+        async function submitEditUser(event) {
             event.preventDefault();
-            const role = document.getElementById('NEW_ROLE').value;
+
+            const payload = {
+                id: editUserId,
+                displayName: document.getElementById('EDIT_DISPLAY_NAME').value.trim() || undefined,
+                role: document.getElementById('EDIT_ROLE').value,
+                isActive: document.getElementById('EDIT_ACTIVE').checked,
+                newPassword: document.getElementById('EDIT_NEW_PASSWORD').value || undefined,
+            };
 
             try {
-                const response = await fetch('/api/users/setRole', {
+                const response = await fetch('/api/users/update', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id: roleChangeUserId, role }),
+                    body: JSON.stringify(payload),
                 });
                 if (!response.ok) {
-                    showToast('권한 변경 실패', 'error');
+                    const err = await response.json().catch(() => ({}));
+                    showToast(err.message || '사용자 수정 실패', 'error');
                     return;
                 }
-                showToast('권한을 변경했습니다.');
-                closeModal('role-modal-overlay');
+                showToast('사용자 정보를 수정했습니다.');
+                closeModal('edit-user-modal-overlay');
                 loadUsers();
-            } catch (error) {
-                console.error('Error:', error.message);
-                showToast('처리 중 오류가 발생했습니다.', 'error');
-            }
-        }
-
-        function openResetPasswordModal(id, username) {
-            resetPasswordUserId = id;
-            document.getElementById('resetpw-modal-title').textContent = `비밀번호 재설정 — ${username}`;
-            document.getElementById('resetpw-form').reset();
-            openModal('resetpw-modal-overlay');
-        }
-
-        async function submitResetPassword(event) {
-            event.preventDefault();
-            const newPassword = document.getElementById('NEW_PASSWORD').value;
-            if (!newPassword) {
-                showToast('새 비밀번호를 입력해주세요.', 'error');
-                return;
-            }
-
-            try {
-                const response = await fetch('/api/users/resetPassword', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id: resetPasswordUserId, newPassword }),
-                });
-                if (!response.ok) {
-                    showToast('비밀번호 재설정 실패', 'error');
-                    return;
-                }
-                showToast('비밀번호를 재설정했습니다.');
-                closeModal('resetpw-modal-overlay');
             } catch (error) {
                 console.error('Error:', error.message);
                 showToast('처리 중 오류가 발생했습니다.', 'error');
@@ -334,8 +267,7 @@
 
         loadUsers();
         setupModalDismiss('user-modal-overlay');
-        setupModalDismiss('role-modal-overlay');
-        setupModalDismiss('resetpw-modal-overlay');
+        setupModalDismiss('edit-user-modal-overlay');
     </script>
 </body>
 </html>

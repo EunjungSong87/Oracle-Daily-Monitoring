@@ -1,5 +1,5 @@
 import * as usersModel from '../models/usersModel';
-import type { UserSummary, UserBasic, CreateUserInput, UserRole } from '../models/usersModel';
+import type { UserSummary, UserBasic, CreateUserInput, UpdateUserInput, UserRole } from '../models/usersModel';
 import { verifyPassword } from '../models/passwordUtils';
 
 async function listUsers(): Promise<UserSummary[]> {
@@ -38,30 +38,12 @@ async function createUser(input: CreateUserInput): Promise<number> {
   }
 }
 
-async function setActive(id: number | string, isActive: boolean): Promise<void> {
+async function updateUser(input: UpdateUserInput): Promise<void> {
   try {
-    await usersModel.setActive(id, isActive);
+    await usersModel.updateUser(input);
   } catch (error) {
-    console.error('Service : 사용자 활성 상태 변경 실패:', error);
-    throw new Error('사용자 활성 상태 변경 실패', { cause: error });
-  }
-}
-
-async function setRole(id: number | string, role: UserRole): Promise<void> {
-  try {
-    await usersModel.setRole(id, role);
-  } catch (error) {
-    console.error('Service : 권한 변경 실패:', error);
-    throw new Error('권한 변경 실패', { cause: error });
-  }
-}
-
-async function resetPassword(id: number | string, newPassword: string): Promise<void> {
-  try {
-    await usersModel.resetPassword(id, newPassword);
-  } catch (error) {
-    console.error('Service : 비밀번호 재설정 실패:', error);
-    throw new Error('비밀번호 재설정 실패', { cause: error });
+    console.error('Service : 사용자 정보 수정 실패:', error);
+    throw new Error('사용자 정보 수정 실패', { cause: error });
   }
 }
 
@@ -94,9 +76,7 @@ export {
   listBasic,
   findBasicByUsername,
   createUser,
-  setActive,
-  setRole,
-  resetPassword,
+  updateUser,
   verifyCredentials,
   touchLastLogin,
 };

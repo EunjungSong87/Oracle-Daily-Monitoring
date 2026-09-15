@@ -11,8 +11,6 @@ router.get('/users/basic', usersController.listBasic);
 router.use(requireSuperAdmin);
 router.get('/users', usersController.listUsers);
 router.post('/users/add', usersController.createUser);
-router.post('/users/setActive', usersController.setActive);
-router.post('/users/setRole', usersController.setRole);
-router.post('/users/resetPassword', usersController.resetPassword);
+router.post('/users/update', usersController.updateUser);
 
 export default router;

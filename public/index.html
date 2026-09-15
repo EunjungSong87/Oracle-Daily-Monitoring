@@ -95,6 +95,7 @@
                 <label for="MEMO">MEMO:</label>
                 <textarea id="MEMO" name="MEMO"></textarea>
 
+                <button type="button" class="btn-secondary" id="dbms-test-btn" onclick="testDbmsConnection()">접속 테스트</button>
                 <button type="submit" id="dbms-submit-btn">DBMS 추가</button>
                 <button type="button" class="btn-secondary" onclick="closeModal('dbms-modal-overlay')">취소</button>
             </form>
@@ -211,6 +212,44 @@
                 }
 
                 openModal('dbms-modal-overlay');
+            }
+
+            async function testDbmsConnection() {
+                const isEdit = !document.getElementById('dbms-id-row').classList.contains('field-hidden');
+                const testInput = {
+                    username: document.getElementById('USERNAME').value,
+                    password: document.getElementById('PASSWORD').value,
+                    sid: document.getElementById('SID').value,
+                    ip: document.getElementById('IP').value,
+                    port: document.getElementById('PORT').value
+                };
+                if (isEdit) testInput.id = document.getElementById('DBMS_ID').value;
+
+                if (!testInput.username || !testInput.sid || !testInput.ip || !testInput.port) {
+                    showToast('아이디/SID/IP/PORT를 입력해주세요.', 'error');
+                    return;
+                }
+
+                const testBtn = document.getElementById('dbms-test-btn');
+                const originalText = testBtn.textContent;
+                testBtn.disabled = true;
+                testBtn.textContent = '접속 확인 중...';
+
+                try {
+                    const response = await fetch('/api/testDbmsConnection', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(testInput)
+                    });
+                    const result = await response.json();
+                    showToast(result.message, result.success ? 'success' : 'error');
+                } catch (error) {
+                    console.error('Error:', error.message);
+                    showToast('접속 테스트 처리 중 오류가 발생했습니다.', 'error');
+                } finally {
+                    testBtn.disabled = false;
+                    testBtn.textContent = originalText;
+                }
             }
 
             async function submitDbmsForm(event) {

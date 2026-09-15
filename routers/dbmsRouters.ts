@@ -13,6 +13,7 @@ router.post('/dbmslist/monResult', dbmsController.getMonResult);
 router.post('/addDbms', requireDba, dbmsController.addDbms);
 router.post('/modifyDbms', requireDba, dbmsController.modifyDbms);
 router.post('/deleteDbms', requireDba, dbmsController.deleteDbms);
+router.post('/testDbmsConnection', requireDba, dbmsController.testDbmsConnection);
 router.post('/getSqlText', dbmsController.getSqlText);
 router.post('/modifyScript', requireDba, dbmsController.modifyScript);
 router.post('/addScript', requireDba, dbmsController.addScript);

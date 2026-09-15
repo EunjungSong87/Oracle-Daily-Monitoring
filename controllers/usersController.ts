@@ -41,46 +41,20 @@ async function createUser(req: Request, res: Response): Promise<Response | void>
   }
 }
 
-async function setActive(req: Request, res: Response): Promise<Response | void> {
+// 비활성화/권한 변경/비밀번호 재설정을 각각 따로 팝업으로 두지 않고, 수정 팝업 하나로 합쳐서 저장합니다.
+// newPassword는 비워두면(변경하지 않으려면 비워두는 UX) 비밀번호를 그대로 둡니다.
+async function updateUser(req: Request, res: Response): Promise<Response | void> {
   try {
-    const { id, isActive } = req.body;
-    if (!id || typeof isActive !== 'boolean') {
-      return res.status(400).json({ message: 'id, isActive 정보가 필요합니다.' });
+    const { id, displayName, role, isActive, newPassword } = req.body;
+    if (!id || !VALID_ROLES.includes(role) || typeof isActive !== 'boolean') {
+      return res.status(400).json({ message: 'id, role, isActive 정보가 필요합니다.' });
     }
-    await usersService.setActive(id, isActive);
-    res.json({ message: isActive ? '계정을 활성화했습니다.' : '계정을 비활성화했습니다.' });
+    await usersService.updateUser({ id, displayName, role, isActive, newPassword: newPassword || undefined });
+    res.json({ message: '사용자 정보를 수정했습니다.' });
   } catch (error) {
-    console.error('Controller : 계정 활성 상태 변경 오류:', error);
+    console.error('Controller : 사용자 정보 수정 오류:', error);
     res.status(500).json({ message: '서버 오류 발생' });
   }
 }
 
-async function setRole(req: Request, res: Response): Promise<Response | void> {
-  try {
-    const { id, role } = req.body;
-    if (!id || !VALID_ROLES.includes(role)) {
-      return res.status(400).json({ message: 'id와 올바른 role 정보가 필요합니다.' });
-    }
-    await usersService.setRole(id, role);
-    res.json({ message: '권한을 변경했습니다.' });
-  } catch (error) {
-    console.error('Controller : 권한 변경 오류:', error);
-    res.status(500).json({ message: '서버 오류 발생' });
-  }
-}
-
-async function resetPassword(req: Request, res: Response): Promise<Response | void> {
-  try {
-    const { id, newPassword } = req.body;
-    if (!id || !newPassword) {
-      return res.status(400).json({ message: 'id, newPassword 정보가 필요합니다.' });
-    }
-    await usersService.resetPassword(id, newPassword);
-    res.json({ message: '비밀번호를 재설정했습니다.' });
-  } catch (error) {
-    console.error('Controller : 비밀번호 재설정 오류:', error);
-    res.status(500).json({ message: '서버 오류 발생' });
-  }
-}
-
-export { listUsers, listBasic, createUser, setActive, setRole, resetPassword };
+export { listUsers, listBasic, createUser, updateUser };

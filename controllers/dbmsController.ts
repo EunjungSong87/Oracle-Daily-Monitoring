@@ -96,6 +96,24 @@ async function deleteDbms(req: Request, res: Response): Promise<Response | void>
   }
 }
 
+// 접속 테스트: 실패해도 서버 오류(500)가 아니라 정상 응답(200)으로 처리합니다 —
+// "접속 실패"는 이 기능이 확인하려는 정상적인 결과이지, 서버 쪽 장애가 아니기 때문입니다.
+// 비밀번호는 로그에 남기지 않습니다.
+async function testDbmsConnection(req: Request, res: Response): Promise<Response | void> {
+  try {
+    const { id, username, password, ip, port, sid } = req.body;
+
+    if (!username || !ip || !port || !sid) {
+      return res.status(400).json({ success: false, message: '아이디/IP/포트/SID는 필수입니다.' });
+    }
+
+    await dbmsService.testConnection({ id, username, password, ip, port, sid });
+    return res.status(200).json({ success: true, message: '접속에 성공했습니다.' });
+  } catch (error) {
+    return res.status(200).json({ success: false, message: errMsg(error) });
+  }
+}
+
 async function modifyScript(req: Request, res: Response): Promise<Response | void> {
   try {
     const { id, name, category, description, sql_text, schedule, is_active } = req.body;
@@ -392,6 +410,7 @@ export {
   addDbms,
   modifyDbms,
   deleteDbms,
+  testDbmsConnection,
   getScripts,
   modifyScript,
   getSqlText,
