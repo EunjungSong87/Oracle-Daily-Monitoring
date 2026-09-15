@@ -2,11 +2,13 @@ import oracledb from 'oracledb';
 import * as db from '../db';
 import { hashPassword } from './passwordUtils';
 
+export type UserRole = 'VIEWER' | 'DBA' | 'SUPER_ADMIN';
+
 export interface UserSummary {
   id: number;
   username: string;
   displayName: string | null;
-  isAdmin: boolean;
+  role: UserRole;
   isActive: boolean;
   createdAt: string;
   lastLoginAt: string | null;
@@ -25,7 +27,7 @@ export interface CreateUserInput {
   username: string;
   password: string;
   displayName?: string;
-  isAdmin?: boolean;
+  role?: UserRole;
 }
 
 function mapUserSummary(row: Record<string, any>): UserSummary {
@@ -33,7 +35,7 @@ function mapUserSummary(row: Record<string, any>): UserSummary {
     id: row.ID,
     username: row.USERNAME,
     displayName: row.DISPLAY_NAME,
-    isAdmin: row.IS_ADMIN === 'Y',
+    role: row.ROLE,
     isActive: row.IS_ACTIVE === 'Y',
     createdAt: row.CREATED_AT,
     lastLoginAt: row.LAST_LOGIN_AT,
@@ -46,7 +48,7 @@ async function findByUsername(username: string): Promise<UserWithHash | null> {
     const pool = await db.initializeDB();
     connection = await pool.getConnection();
     const result = await connection.execute<Record<string, any>>(
-      `select id, username, password_hash, display_name, is_admin, is_active, created_at, last_login_at
+      `select id, username, password_hash, display_name, role, is_active, created_at, last_login_at
          from system.users
         where username = :username`,
       { username },
@@ -85,7 +87,7 @@ async function listUsers(): Promise<UserSummary[]> {
     const pool = await db.initializeDB();
     connection = await pool.getConnection();
     const result = await connection.execute<Record<string, any>>(
-      `select id, username, display_name, is_admin, is_active, created_at, last_login_at
+      `select id, username, display_name, role, is_active, created_at, last_login_at
          from system.users
         order by username`,
       {},
@@ -123,9 +125,9 @@ async function createUser(input: CreateUserInput): Promise<number> {
     const nextId = maxRes.rows?.[0][0];
 
     const sql = `insert into system.users
-                    (id, username, password_hash, display_name, is_admin, is_active, created_at)
+                    (id, username, password_hash, display_name, role, is_active, created_at)
                  values
-                    (:id, :username, :passwordHash, :displayName, :isAdmin, 'Y', TO_CHAR(SYSDATE, 'YYYYMMDDHH24MISS'))`;
+                    (:id, :username, :passwordHash, :displayName, :role, 'Y', TO_CHAR(SYSDATE, 'YYYYMMDDHH24MISS'))`;
 
     const result = await connection.execute(
       sql,
@@ -134,7 +136,7 @@ async function createUser(input: CreateUserInput): Promise<number> {
         username: input.username,
         passwordHash: hashPassword(input.password),
         displayName: input.displayName ?? null,
-        isAdmin: input.isAdmin ? 'Y' : 'N',
+        role: input.role ?? 'VIEWER',
       },
       { autoCommit: true }
     );
@@ -152,6 +154,21 @@ async function setActive(id: number | string, isActive: boolean): Promise<void> 
     await connection.execute(
       `update system.users set is_active = :isActive where id = :id`,
       { id, isActive: isActive ? 'Y' : 'N' },
+      { autoCommit: true }
+    );
+  } finally {
+    if (connection) await connection.close();
+  }
+}
+
+async function setRole(id: number | string, role: UserRole): Promise<void> {
+  let connection: oracledb.Connection | undefined;
+  try {
+    const pool = await db.initializeDB();
+    connection = await pool.getConnection();
+    await connection.execute(
+      `update system.users set role = :role where id = :id`,
+      { id, role },
       { autoCommit: true }
     );
   } finally {
@@ -196,6 +213,7 @@ export {
   listBasic,
   createUser,
   setActive,
+  setRole,
   resetPassword,
   touchLastLogin,
 };

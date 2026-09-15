@@ -16,7 +16,7 @@ async function login(req: Request, res: Response): Promise<Response | void> {
 
     req.session.userId = result.userId;
     req.session.username = username;
-    req.session.isAdmin = result.isAdmin;
+    req.session.role = result.role;
 
     try {
       await usersService.touchLastLogin(username);
@@ -24,7 +24,7 @@ async function login(req: Request, res: Response): Promise<Response | void> {
       console.error('Controller : 마지막 로그인 시각 갱신 실패 (로그인은 정상 처리):', error);
     }
 
-    res.json({ username, isAdmin: result.isAdmin });
+    res.json({ username, role: result.role });
   } catch (error) {
     console.error('Controller : 로그인 오류:', error);
     res.status(500).json({ message: '서버 오류 발생' });
@@ -46,7 +46,7 @@ function me(req: Request, res: Response): Response | void {
   if (!req.session?.userId) {
     return res.status(401).json({ message: '로그인이 필요합니다.' });
   }
-  res.json({ username: req.session.username, isAdmin: !!req.session.isAdmin });
+  res.json({ username: req.session.username, role: req.session.role });
 }
 
 export { login, logout, me };

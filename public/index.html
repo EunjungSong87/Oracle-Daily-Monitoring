@@ -50,7 +50,7 @@
 
     <div class="page-header-row">
         <h2 class="page-title">Databases</h2>
-        <button type="button" class="btn-secondary" onclick="openDbmsModal()">Add DBMS</button>
+        <button type="button" id="add-dbms-btn" class="btn-secondary" onclick="openDbmsModal()">Add DBMS</button>
     </div>
 
     <!-- DBMS 목록을 표시하는 부분입니다. -->
@@ -103,6 +103,8 @@
 
     <!-- JavaScript 코드입니다. -->
     <script>
+            let canManage = false;
+
             async function fetchDbmses() {
                 try {
                     const response = await fetch('/main/dbmslist');
@@ -119,9 +121,11 @@
                         th.textContent = column;
                         headerRow.appendChild(th);
                     });
-                    const actionsTh = document.createElement('th');
-                    actionsTh.textContent = 'ACTIONS';
-                    headerRow.appendChild(actionsTh);
+                    if (canManage) {
+                        const actionsTh = document.createElement('th');
+                        actionsTh.textContent = 'ACTIONS';
+                        headerRow.appendChild(actionsTh);
+                    }
 
                     // 데이터 추가
                     rows.forEach( row => {
@@ -132,6 +136,11 @@
                         td.textContent = row[column];
                         tr.appendChild(td);
                     });
+
+                    if (!canManage) {
+                        tableBody.appendChild(tr);
+                        return;
+                    }
 
                     const actionsTd = document.createElement('td');
                     const modifyButton = document.createElement('button');
@@ -272,9 +281,15 @@
                 }
             }
 
-            showFlashMessageIfAny();
-            fetchDbmses();
-            setupModalDismiss('dbms-modal-overlay');
+            async function init() {
+                const user = await getCurrentUser();
+                canManage = isDbaOrAbove(user);
+                document.getElementById('add-dbms-btn').style.display = canManage ? '' : 'none';
+                showFlashMessageIfAny();
+                fetchDbmses();
+                setupModalDismiss('dbms-modal-overlay');
+            }
+            init();
 
     </script>
 </body>

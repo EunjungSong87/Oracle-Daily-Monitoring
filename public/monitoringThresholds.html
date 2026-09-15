@@ -46,7 +46,7 @@
 
 <div class="page-header-row">
     <h2 class="page-title">Thresholds</h2>
-    <button type="button" class="btn-secondary" onclick="openThresholdModal()">Add Threshold</button>
+    <button type="button" id="add-threshold-btn" class="btn-secondary" onclick="openThresholdModal()">Add Threshold</button>
 </div>
 
 <table id="threshold-list" class="table">
@@ -119,6 +119,8 @@
 </div>
 
 <script>
+    let canManage = false;
+
     async function fetchThresholds() {
         try {
             const response = await fetch('/api/thresholdlist');
@@ -133,9 +135,11 @@
                 th.textContent = column;
                 headerRow.appendChild(th);
             });
-            const actionsTh = document.createElement('th');
-            actionsTh.textContent = 'ACTIONS';
-            headerRow.appendChild(actionsTh);
+            if (canManage) {
+                const actionsTh = document.createElement('th');
+                actionsTh.textContent = 'ACTIONS';
+                headerRow.appendChild(actionsTh);
+            }
 
             rows.forEach(row => {
                 const tr = document.createElement('tr');
@@ -145,6 +149,11 @@
                     td.textContent = row[column];
                     tr.appendChild(td);
                 });
+
+                if (!canManage) {
+                    tableBody.appendChild(tr);
+                    return;
+                }
 
                 const actionsTd = document.createElement('td');
                 const modifyButton = document.createElement('button');
@@ -289,9 +298,15 @@
         }
     }
 
-    showFlashMessageIfAny();
-    fetchThresholds();
-    setupModalDismiss('threshold-modal-overlay');
+    async function init() {
+        const user = await getCurrentUser();
+        canManage = isDbaOrAbove(user);
+        document.getElementById('add-threshold-btn').style.display = canManage ? '' : 'none';
+        showFlashMessageIfAny();
+        fetchThresholds();
+        setupModalDismiss('threshold-modal-overlay');
+    }
+    init();
 </script>
 </body>
 </html>

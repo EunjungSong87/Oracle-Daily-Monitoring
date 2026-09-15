@@ -46,6 +46,8 @@
 
 <h2 class="page-title">Table Spec (테이블 명세서)</h2>
 
+<p id="table-spec-denied" class="issues-empty" style="display:none;">이 기능은 DBA 이상만 사용할 수 있습니다.</p>
+
 <form id="table-spec-form" onsubmit="event.preventDefault()">
     <label for="DBMS_ID">DBMS:</label>
     <select id="DBMS_ID" name="DBMS_ID" required></select>
@@ -361,7 +363,16 @@
         loadSchemas();
     });
 
-    loadDbmsList();
+    async function init() {
+        const user = await getCurrentUser();
+        if (!isDbaOrAbove(user)) {
+            document.getElementById('table-spec-form').style.display = 'none';
+            document.getElementById('table-spec-denied').style.display = '';
+            return;
+        }
+        loadDbmsList();
+    }
+    init();
 </script>
 </body>
 </html>

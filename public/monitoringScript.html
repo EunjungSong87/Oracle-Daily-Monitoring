@@ -49,7 +49,7 @@
 
 <div class="page-header-row">
     <h2 class="page-title">Scripts</h2>
-    <button type="button" class="btn-secondary" onclick="openScriptModal()">Add Script</button>
+    <button type="button" id="add-script-btn" class="btn-secondary" onclick="openScriptModal()">Add Script</button>
 </div>
 
 <!-- 스크립트 목록을 표시하는 부분입니다. -->
@@ -100,6 +100,8 @@
 
 <!-- JavaScript 코드입니다. -->
 <script>
+    let canManage = false;
+
     async function fetchScripts() {
         try {
 
@@ -116,9 +118,11 @@
                 th.textContent = column;
                 headerRow.appendChild(th);
             });
-            const actionsTh = document.createElement('th');
-            actionsTh.textContent = 'ACTIONS';
-            headerRow.appendChild(actionsTh);
+            if (canManage) {
+                const actionsTh = document.createElement('th');
+                actionsTh.textContent = 'ACTIONS';
+                headerRow.appendChild(actionsTh);
+            }
 
             // 데이터 추가
             rows.forEach( row => {
@@ -129,6 +133,11 @@
                 td.textContent = row[column];
                 tr.appendChild(td);
             });
+
+            if (!canManage) {
+                tableBody.appendChild(tr);
+                return;
+            }
 
             const actionsTd = document.createElement('td');
             const modifyButton = document.createElement('button');
@@ -280,9 +289,15 @@
         }
     }
 
-    showFlashMessageIfAny();
-    fetchScripts();
-    setupModalDismiss('script-modal-overlay');
+    async function init() {
+        const user = await getCurrentUser();
+        canManage = isDbaOrAbove(user);
+        document.getElementById('add-script-btn').style.display = canManage ? '' : 'none';
+        showFlashMessageIfAny();
+        fetchScripts();
+        setupModalDismiss('script-modal-overlay');
+    }
+    init();
 
 </script>
 </body>

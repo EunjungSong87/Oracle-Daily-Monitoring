@@ -62,7 +62,7 @@
             <button type="button" class="btn-secondary" onclick="chooseDownloadFolder()">다운로드 위치 설정</button>
             <span id="download-folder-label" class="download-folder-label"></span>
 
-            <div class="schedule-settings">
+            <div id="schedule-settings" class="schedule-settings">
                 <label><input type="checkbox" id="schedule-enabled"> 매일 자동 실행</label>
                 <input type="time" id="schedule-time" value="07:00">
                 <button type="button" class="btn-secondary" onclick="saveScheduleSettings()">자동 실행 대상으로 저장 (아래 체크된 DB)</button>
@@ -164,9 +164,16 @@
          console.log('Error fetching users:', error);
       }}
        
-       // dbms list 표 생성
-       createTable('/api/dbmslist');
-       loadScheduleConfig();
+       async function init() {
+            const user = await getCurrentUser();
+            if (!isDbaOrAbove(user)) {
+                document.getElementById('schedule-settings').style.display = 'none';
+            }
+            // dbms list 표 생성
+            createTable('/api/dbmslist');
+            loadScheduleConfig();
+       }
+       init();
 
        // <!-- 예약 실행(자동 일일점검) 설정 조회/저장 -->
        async function loadScheduleConfig() {

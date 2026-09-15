@@ -53,7 +53,7 @@
                 <th>ID</th>
                 <th>USERNAME</th>
                 <th>DISPLAY NAME</th>
-                <th>ADMIN</th>
+                <th>ROLE</th>
                 <th>ACTIVE</th>
                 <th>CREATED</th>
                 <th>LAST LOGIN</th>
@@ -80,13 +80,39 @@
                 <label for="DISPLAY_NAME">표시 이름 (선택):</label>
                 <input type="text" id="DISPLAY_NAME" name="DISPLAY_NAME">
 
-                <label style="display:inline-block; text-transform:none; font-weight:normal; margin-top:16px;">
-                    <input type="checkbox" id="IS_ADMIN" name="IS_ADMIN"> 관리자 권한 부여
-                </label>
+                <label for="ROLE">권한:</label>
+                <select id="ROLE" name="ROLE">
+                    <option value="VIEWER" selected>Viewer — 조회, 티켓 처리</option>
+                    <option value="DBA">DBA — Viewer + DB/스크립트/임계치 관리</option>
+                    <option value="SUPER_ADMIN">Super Admin — DBA + 계정 관리</option>
+                </select>
 
                 <div style="margin-top: 16px;">
                     <button type="submit">사용자 추가</button>
                     <button type="button" class="btn-secondary" onclick="closeModal('user-modal-overlay')">취소</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 권한 변경 팝업 -->
+    <div id="role-modal-overlay" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 id="role-modal-title">권한 변경</h2>
+                <button type="button" class="modal-close" onclick="closeModal('role-modal-overlay')">&times;</button>
+            </div>
+            <form id="role-form" onsubmit="submitRoleChange(event)">
+                <label for="NEW_ROLE">권한:</label>
+                <select id="NEW_ROLE" name="NEW_ROLE">
+                    <option value="VIEWER">Viewer — 조회, 티켓 처리</option>
+                    <option value="DBA">DBA — Viewer + DB/스크립트/임계치 관리</option>
+                    <option value="SUPER_ADMIN">Super Admin — DBA + 계정 관리</option>
+                </select>
+
+                <div style="margin-top: 16px;">
+                    <button type="submit">변경</button>
+                    <button type="button" class="btn-secondary" onclick="closeModal('role-modal-overlay')">취소</button>
                 </div>
             </form>
         </div>
@@ -113,6 +139,8 @@
 
     <script>
         let resetPasswordUserId = null;
+        let roleChangeUserId = null;
+        const ROLE_LABELS = { VIEWER: 'Viewer', DBA: 'DBA', SUPER_ADMIN: 'Super Admin' };
 
         function formatDate(s) {
             if (!s || s.length < 14) return s || '-';
@@ -137,7 +165,7 @@
                         user.id,
                         user.username,
                         user.displayName || '-',
-                        user.isAdmin ? 'Y' : 'N',
+                        ROLE_LABELS[user.role] || user.role,
                         user.isActive ? 'Y' : 'N',
                         formatDate(user.createdAt),
                         formatDate(user.lastLoginAt),
@@ -156,6 +184,13 @@
                     toggleBtn.textContent = user.isActive ? '비활성화' : '활성화';
                     toggleBtn.onclick = () => toggleActive(user.id, !user.isActive);
                     actionsTd.appendChild(toggleBtn);
+
+                    const roleBtn = document.createElement('button');
+                    roleBtn.type = 'button';
+                    roleBtn.className = 'btn-secondary';
+                    roleBtn.textContent = '권한 변경';
+                    roleBtn.onclick = () => openRoleModal(user.id, user.username, user.role);
+                    actionsTd.appendChild(roleBtn);
 
                     const resetBtn = document.createElement('button');
                     resetBtn.type = 'button';
@@ -185,7 +220,7 @@
                 username: document.getElementById('USERNAME').value.trim(),
                 password: document.getElementById('PASSWORD').value,
                 displayName: document.getElementById('DISPLAY_NAME').value.trim() || undefined,
-                isAdmin: document.getElementById('IS_ADMIN').checked,
+                role: document.getElementById('ROLE').value,
             };
 
             if (!payload.username || !payload.password) {
@@ -234,6 +269,36 @@
             }
         }
 
+        function openRoleModal(id, username, currentRole) {
+            roleChangeUserId = id;
+            document.getElementById('role-modal-title').textContent = `권한 변경 — ${username}`;
+            document.getElementById('NEW_ROLE').value = currentRole;
+            openModal('role-modal-overlay');
+        }
+
+        async function submitRoleChange(event) {
+            event.preventDefault();
+            const role = document.getElementById('NEW_ROLE').value;
+
+            try {
+                const response = await fetch('/api/users/setRole', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: roleChangeUserId, role }),
+                });
+                if (!response.ok) {
+                    showToast('권한 변경 실패', 'error');
+                    return;
+                }
+                showToast('권한을 변경했습니다.');
+                closeModal('role-modal-overlay');
+                loadUsers();
+            } catch (error) {
+                console.error('Error:', error.message);
+                showToast('처리 중 오류가 발생했습니다.', 'error');
+            }
+        }
+
         function openResetPasswordModal(id, username) {
             resetPasswordUserId = id;
             document.getElementById('resetpw-modal-title').textContent = `비밀번호 재설정 — ${username}`;
@@ -269,6 +334,7 @@
 
         loadUsers();
         setupModalDismiss('user-modal-overlay');
+        setupModalDismiss('role-modal-overlay');
         setupModalDismiss('resetpw-modal-overlay');
     </script>
 </body>

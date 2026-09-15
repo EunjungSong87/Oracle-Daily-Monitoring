@@ -47,22 +47,22 @@ try {
       await connection.execute(
         `update system.users
             set password_hash = :passwordHash, display_name = :displayName,
-                is_admin = 'Y', is_active = 'Y'
+                role = 'SUPER_ADMIN', is_active = 'Y'
           where id = :id`,
         { id, passwordHash, displayName: displayName ?? null },
         { autoCommit: true }
       );
-      console.log(`기존 계정 "${username}"을 관리자로 갱신했습니다 (id=${id}).`);
+      console.log(`기존 계정 "${username}"을 최고관리자(SUPER_ADMIN)로 갱신했습니다 (id=${id}).`);
     } else {
       const maxRes = await connection.execute<any[]>('select nvl(max(id),0)+1 as nextid from system.users');
       const nextId = maxRes.rows?.[0][0];
       await connection.execute(
-        `insert into system.users (id, username, password_hash, display_name, is_admin, is_active, created_at)
-         values (:id, :username, :passwordHash, :displayName, 'Y', 'Y', TO_CHAR(SYSDATE, 'YYYYMMDDHH24MISS'))`,
+        `insert into system.users (id, username, password_hash, display_name, role, is_active, created_at)
+         values (:id, :username, :passwordHash, :displayName, 'SUPER_ADMIN', 'Y', TO_CHAR(SYSDATE, 'YYYYMMDDHH24MISS'))`,
         { id: nextId, username, passwordHash, displayName: displayName ?? null },
         { autoCommit: true }
       );
-      console.log(`관리자 계정 "${username}"을 생성했습니다 (id=${nextId}).`);
+      console.log(`최고관리자(SUPER_ADMIN) 계정 "${username}"을 생성했습니다 (id=${nextId}).`);
     }
   } finally {
     await connection.close();

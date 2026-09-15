@@ -1,5 +1,5 @@
 import * as usersModel from '../models/usersModel';
-import type { UserSummary, UserBasic, CreateUserInput } from '../models/usersModel';
+import type { UserSummary, UserBasic, CreateUserInput, UserRole } from '../models/usersModel';
 import { verifyPassword } from '../models/passwordUtils';
 
 async function listUsers(): Promise<UserSummary[]> {
@@ -47,6 +47,15 @@ async function setActive(id: number | string, isActive: boolean): Promise<void> 
   }
 }
 
+async function setRole(id: number | string, role: UserRole): Promise<void> {
+  try {
+    await usersModel.setRole(id, role);
+  } catch (error) {
+    console.error('Service : 권한 변경 실패:', error);
+    throw new Error('권한 변경 실패', { cause: error });
+  }
+}
+
 async function resetPassword(id: number | string, newPassword: string): Promise<void> {
   try {
     await usersModel.resetPassword(id, newPassword);
@@ -58,12 +67,12 @@ async function resetPassword(id: number | string, newPassword: string): Promise<
 
 // 로그인 자격 증명 검증 — 계정 존재 여부와 비밀번호 일치 여부를 구분하지 않고
 // 하나의 boolean으로만 반환합니다 (계정 존재 여부 노출 방지는 컨트롤러 응답에서).
-async function verifyCredentials(username: string, password: string): Promise<{ userId: number; isAdmin: boolean } | null> {
+async function verifyCredentials(username: string, password: string): Promise<{ userId: number; role: UserRole } | null> {
   try {
     const user = await usersModel.findByUsername(username);
     if (!user || !user.isActive) return null;
     if (!verifyPassword(password, user.passwordHash)) return null;
-    return { userId: user.id, isAdmin: user.isAdmin };
+    return { userId: user.id, role: user.role };
   } catch (error) {
     console.error('Service : 로그인 검증 실패:', error);
     throw new Error('로그인 검증 실패', { cause: error });
@@ -80,4 +89,14 @@ async function touchLastLogin(username: string): Promise<void> {
   }
 }
 
-export { listUsers, listBasic, findBasicByUsername, createUser, setActive, resetPassword, verifyCredentials, touchLastLogin };
+export {
+  listUsers,
+  listBasic,
+  findBasicByUsername,
+  createUser,
+  setActive,
+  setRole,
+  resetPassword,
+  verifyCredentials,
+  touchLastLogin,
+};

@@ -81,7 +81,27 @@ function injectIconSprite() {
     document.body.appendChild(svg);
 }
 
-// nav 맨 끝에 "로그인 사용자명 ▾ (로그아웃, 관리자면 Users)" 드롭다운을 붙인다.
+// 현재 로그인한 사용자 정보(/auth/me)를 한 번만 fetch해서 재사용한다.
+// 페이지마다 role을 확인해서 DBA 전용 버튼을 숨기는 데 쓴다 (백엔드도 동일 기준으로
+// 403을 주지만, 눌러서 막히는 것보다 애초에 안 보이는 쪽이 낫다는 판단).
+let currentUserPromise = null;
+function getCurrentUser() {
+    if (!currentUserPromise) {
+        currentUserPromise = fetch('/auth/me')
+            .then((response) => (response.ok ? response.json() : null))
+            .catch((error) => {
+                console.error('로그인 사용자 정보 조회 실패:', error);
+                return null;
+            });
+    }
+    return currentUserPromise;
+}
+
+function isDbaOrAbove(user) {
+    return !!user && (user.role === 'DBA' || user.role === 'SUPER_ADMIN');
+}
+
+// nav 맨 끝에 "로그인 사용자명 ▾ (로그아웃, 최고관리자면 Users)" 드롭다운을 붙인다.
 // nav가 없는 페이지(로그인 페이지)에서는 조용히 아무 것도 하지 않는다.
 function buildAccountMenuLink(iconId, label, href, onClick) {
     const itemLi = document.createElement('li');
@@ -117,15 +137,8 @@ async function injectAccountNav() {
     const navList = document.querySelector('nav ul');
     if (!navList || document.getElementById('account-nav-item')) return;
 
-    let me;
-    try {
-        const response = await fetch('/auth/me');
-        if (!response.ok) return;
-        me = await response.json();
-    } catch (error) {
-        console.error('로그인 사용자 정보 조회 실패:', error);
-        return;
-    }
+    const me = await getCurrentUser();
+    if (!me) return;
 
     const li = document.createElement('li');
     li.id = 'account-nav-item';
@@ -155,7 +168,7 @@ async function injectAccountNav() {
     const menu = document.createElement('ul');
     menu.className = 'nav-dropdown-menu';
 
-    if (me.isAdmin) {
+    if (me.role === 'SUPER_ADMIN') {
         menu.appendChild(buildAccountMenuLink('ic-user', 'Users', 'users.html'));
     }
     menu.appendChild(buildAccountMenuLink('ic-logout', '로그아웃', '#', logoutAndRedirect));

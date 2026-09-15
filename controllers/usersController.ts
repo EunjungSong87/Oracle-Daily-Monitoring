@@ -1,5 +1,8 @@
 import type { Request, Response } from 'express';
 import * as usersService from '../services/usersService';
+import type { UserRole } from '../models/usersModel';
+
+const VALID_ROLES: UserRole[] = ['VIEWER', 'DBA', 'SUPER_ADMIN'];
 
 async function listUsers(req: Request, res: Response): Promise<void> {
   try {
@@ -23,11 +26,14 @@ async function listBasic(req: Request, res: Response): Promise<void> {
 
 async function createUser(req: Request, res: Response): Promise<Response | void> {
   try {
-    const { username, password, displayName, isAdmin } = req.body;
+    const { username, password, displayName, role } = req.body;
     if (!username || !password) {
       return res.status(400).json({ message: '아이디와 비밀번호가 필요합니다.' });
     }
-    await usersService.createUser({ username, password, displayName, isAdmin: !!isAdmin });
+    if (role && !VALID_ROLES.includes(role)) {
+      return res.status(400).json({ message: '올바르지 않은 권한입니다.' });
+    }
+    await usersService.createUser({ username, password, displayName, role: role || 'VIEWER' });
     res.json({ message: '사용자를 등록했습니다.' });
   } catch (error) {
     console.error('Controller : 사용자 등록 오류:', error);
@@ -49,6 +55,20 @@ async function setActive(req: Request, res: Response): Promise<Response | void> 
   }
 }
 
+async function setRole(req: Request, res: Response): Promise<Response | void> {
+  try {
+    const { id, role } = req.body;
+    if (!id || !VALID_ROLES.includes(role)) {
+      return res.status(400).json({ message: 'id와 올바른 role 정보가 필요합니다.' });
+    }
+    await usersService.setRole(id, role);
+    res.json({ message: '권한을 변경했습니다.' });
+  } catch (error) {
+    console.error('Controller : 권한 변경 오류:', error);
+    res.status(500).json({ message: '서버 오류 발생' });
+  }
+}
+
 async function resetPassword(req: Request, res: Response): Promise<Response | void> {
   try {
     const { id, newPassword } = req.body;
@@ -63,4 +83,4 @@ async function resetPassword(req: Request, res: Response): Promise<Response | vo
   }
 }
 
-export { listUsers, listBasic, createUser, setActive, resetPassword };
+export { listUsers, listBasic, createUser, setActive, setRole, resetPassword };

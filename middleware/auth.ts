@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import 'express-session';
+import type { UserRole } from '../models/usersModel';
 
 // req.session에 저장하는 값 — 로그인 시점에 한 번 채우고 로그아웃 시 세션 자체를 파기합니다.
 // 세션 저장소는 기본 in-memory MemoryStore를 씁니다: 이 앱은 프로세스 하나짜리
@@ -9,7 +10,7 @@ declare module 'express-session' {
   interface SessionData {
     userId?: number;
     username?: string;
-    isAdmin?: boolean;
+    role?: UserRole;
   }
 }
 
@@ -33,12 +34,21 @@ function requireAuth(req: Request, res: Response, next: NextFunction): void {
   res.redirect(`/login.html?next=${encodeURIComponent(req.originalUrl)}`);
 }
 
-function requireAdmin(req: Request, res: Response, next: NextFunction): void {
-  if (req.session?.isAdmin) {
+// 3단계 권한: VIEWER(로그인만) < DBA(운영 설정 변경) < SUPER_ADMIN(계정 관리 + 향후 최고관리자 전용 화면).
+function requireDba(req: Request, res: Response, next: NextFunction): void {
+  if (req.session?.role === 'DBA' || req.session?.role === 'SUPER_ADMIN') {
     next();
     return;
   }
-  res.status(403).json({ message: '관리자만 접근할 수 있습니다.' });
+  res.status(403).json({ message: 'DBA 이상만 접근할 수 있습니다.' });
 }
 
-export { requireAuth, requireAdmin };
+function requireSuperAdmin(req: Request, res: Response, next: NextFunction): void {
+  if (req.session?.role === 'SUPER_ADMIN') {
+    next();
+    return;
+  }
+  res.status(403).json({ message: '최고관리자만 접근할 수 있습니다.' });
+}
+
+export { requireAuth, requireDba, requireSuperAdmin };
