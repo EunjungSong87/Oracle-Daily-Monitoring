@@ -406,9 +406,25 @@ select {
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
+/* date/time는 history.html, dailyMonitoring.html에서 flex 행 안의 좁은 필드로 쓰여서
+   width:100%를 주지 않습니다(주면 flex-wrap이 한 줄씩 강제로 끊깁니다) — 색만 맞춥니다. */
+input[type="date"],
+input[type="time"] {
+    padding: 9px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-family: var(--font);
+    font-size: 14px;
+    color: var(--text);
+    background-color: var(--surface);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
 input[type="text"]:focus,
 input[type="number"]:focus,
 input[type="password"]:focus,
+input[type="date"]:focus,
+input[type="time"]:focus,
 textarea:focus,
 select:focus {
     outline: none;
@@ -1126,6 +1142,8 @@ table.table {
 :root[data-theme="dark"] input[type="text"],
 :root[data-theme="dark"] input[type="number"],
 :root[data-theme="dark"] input[type="password"],
+:root[data-theme="dark"] input[type="date"],
+:root[data-theme="dark"] input[type="time"],
 :root[data-theme="dark"] textarea,
 :root[data-theme="dark"] select {
     color-scheme: dark;
