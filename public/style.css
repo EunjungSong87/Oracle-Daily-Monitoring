@@ -26,15 +26,15 @@
 :root[data-theme="dark"] {
     --bg: #0f1420;
     --surface: #1a2233;
-    --surface-alt: #202a3d;
-    --border: #3d4a64;
+    --surface-alt: #252f47;
+    --border: rgba(255, 255, 255, 0.16);
     --text: #e5e7eb;
     --text-muted: #9ca3af;
     --header-bg: #10162e;
     --header-bg-hover: #374151;
     --btn-secondary-bg: #2d3748;
     --btn-secondary-bg-hover: #384254;
-    --row-hover: #26314a;
+    --row-hover: #2c3752;
     --shadow: 0 1px 3px rgba(0, 0, 0, 0.55), 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
@@ -901,6 +901,13 @@ table.table {
 
 .table tbody tr:hover {
     background-color: var(--row-hover);
+}
+
+/* 다크 모드에서는 테이블 배경(--surface)과 페이지 배경(--bg)이 둘 다 어두워서
+   box-shadow만으로는 경계가 거의 안 보입니다. 테두리를 명시적으로 둬서 그리드
+   영역 자체를 페이지에서 확실히 분리합니다. */
+:root[data-theme="dark"] table.table {
+    border: 1px solid var(--border);
 }
 
 /* 다크 모드에서는 테두리만으로 행 구분이 잘 안 보여서 줄무늬를 추가로 넣습니다. */
