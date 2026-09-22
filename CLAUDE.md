@@ -4,42 +4,59 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A Node.js/Express web app for daily monitoring of multiple Oracle databases (e.g. AWR/health checks: instance status, tablespace usage, long sessions, RMAN backups, alert logs, etc.). It maintains a registry of target DBMS connections and a library of reusable SQL "monitoring tasks," and lets a user run any task against any registered DB from the browser.
+A Node.js/Express + TypeScript web app ("DB Cockpit") for daily monitoring of multiple Oracle databases (AWR/health checks: instance status, tablespace usage, long sessions, RMAN backups, alert logs, etc.). It maintains a registry of target DBMS connections and a library of reusable SQL "monitoring tasks," runs them on demand or on a schedule, tracks threshold violations as tickets, and gates everything behind login + a 3-tier role system.
 
 ## Running the app
 
 ```
 npm install
-node server.js
+npm start        # tsx server.ts
+npm run dev       # tsx watch server.ts (auto-restart on change)
+npm run typecheck # tsc --noEmit
+npm run lint      # eslint .
+npm test          # vitest run
+npm run test:watch
 ```
 
-There is no build step, bundler, or test suite (`npm test` is a placeholder that exits with an error). There is no linter configured. Verify changes by running the server and exercising the affected page/API in a browser.
+Entry point is `server.ts` (TypeScript, run directly via `tsx` — no separate build step for running; `tsc --noEmit` is typecheck-only, `dist/` is gitignored and not part of the run path).
 
-The server binds to a hardcoded host/port in `server.js` (`172.28.117.30:3000`), not `localhost` — when running locally, either edit that constant or hit the app via that specific address.
+The server binds to a host/port controlled by `APP_HOST`/`APP_PORT` env vars, falling back to hardcoded prod defaults in `server.ts` (`172.28.117.30:3000`) — set `.env` (see `.env.example`) for local runs, e.g. `APP_HOST=localhost`.
+
+Required `.env` values (see `.env.example`): `NODE_ORACLEDB_*` (metadata DB connection), `DBMS_ENCRYPTION_KEY` (AES-256-GCM key for target-DB passwords), `SESSION_SECRET` (signs the login session cookie). Losing/changing `DBMS_ENCRYPTION_KEY` makes existing stored target-DB passwords permanently undecryptable; changing `SESSION_SECRET` logs everyone out.
+
+There is a local Docker Oracle instance for testing: `docker-compose.yml` (`gvenzl/oracle-free:23.4`, pinned below latest — a newer image breaks a downstream Debezium CDC connector's version-detection query), auto-initialized from `docker/initdb/*.sql` (schema + seed data) on first container start.
 
 ## Architecture
 
-**Two-database model** — this is the key thing to understand before touching `models/dbmsModel.js` or `services/dbmsService.js`:
-1. A **metadata/control DB** (`config/database.js`, env vars `NODE_ORACLEDB_*`) stores the app's own tables: `system.monitoring_dbms_list` (registered target databases + credentials) and `system.monitoring_tasks` (reusable SQL checks, keyed by id, with a CLOB `sql_text`). This connection uses a pooled connection (`initializeDB()` in `db.js`).
-2. **Target DBs** — the actual databases being monitored — are connected to on demand, per request, using credentials looked up from `monitoring_dbms_list` (`getDbmsInfo`) and a fresh single connection (`connectDB()` in `db.js`, not pooled).
+**Two-database model** — this is the key thing to understand before touching `models/dbmsModel.ts` or `services/dbmsService.ts`:
+1. A **metadata/control DB** (`config/database.ts`, env vars `NODE_ORACLEDB_*`) stores the app's own tables under the `system` schema: `monitoring_dbms_list` (registered target databases + encrypted credentials), `monitoring_tasks` (reusable SQL checks, keyed by id, with a CLOB `sql_text`), `monitoring_thresholds` (alert rules per task/column), `monitoring_schedule_config` + `auto_schedule` flag on `monitoring_dbms_list` (scheduled runs), `monitoring_run_history` (persisted run results), `monitoring_issues` + `monitoring_issue_comments` (threshold-violation tickets), and `users` (login accounts + role). This connection uses a pooled connection (`initializeDB()` in `db.ts`).
+2. **Target DBs** — the actual databases being monitored — are connected to on demand, per request, using credentials looked up from `monitoring_dbms_list` (`getDbmsInfo`, which decrypts the stored password) and a fresh single connection (`connectDB()` in `db.ts`, not pooled).
 
-So `dbmsService.getMonResult(dbmsid)` works like this: look up the target DB's connection info from the metadata DB → load all active monitoring tasks (`SYSTEM.MONITORING_TASKS` where `is_active = 'Y'`) → for each task, open a connection to the target DB and run its `sql_text` → collect columns/rows per task. There's a special-case skip: tasks whose SQL references `ogg_discard_log` are skipped for DBs whose memo field contains `'VAN'`.
+So `dbmsService.getMonResult(dbmsid, triggerType)` works like this: look up the target DB's connection info from the metadata DB → load all active monitoring tasks and active thresholds → open one connection to the target DB, reused across all tasks → for each task, run its `sql_text`, apply matching thresholds to flag violating cells with `_alerts` → collect columns/rows per task → (best-effort, failures don't affect the response) persist the run to `monitoring_run_history` and sync `monitoring_issues` tickets (new violation → OPEN ticket; no-longer-detected OPEN/ACKNOWLEDGED ticket → auto-RESOLVED; previously-RESOLVED ticket that reappears → reopened with `reopen_count` incremented). There's a special-case skip: tasks whose SQL references `ogg_discard_log` are skipped for DBs whose memo field contains `'VAN'`.
 
-**Layering** (classic Express MVC-ish, no framework beyond that):
-- `server.js` — Express app setup, Oracle Instant Client thick-mode init, static file serving of `public/`, mounts `routers/dbmsRouters.js` at both `/main` and `/api`.
-- `routers/dbmsRouters.js` — route → controller mapping only.
-- `controllers/dbmsController.js` — HTTP request/response handling, input validation, calls services. No SQL or business logic here.
-- `services/dbmsService.js` — business logic layer (e.g. the two-DB orchestration in `getMonResult` described above). Calls models.
-- `models/dbmsModel.js` — all Oracle DB access (`oracledb` calls, `connection.execute`, connection pool/lifecycle). `executeQuery()` is the shared helper that runs a query and converts CLOB columns to strings via `models/clobUtils.js`.
-- `queries/` — a plain object of named SQL strings (`queries/dailyChecks.js`, re-exported via `queries/index.js`). These are Oracle dictionary/AWR-style diagnostic queries (`v$session`, `dba_tablespaces`, `v$rman_status`, etc.), independent of the `monitoring_tasks` DB table — some may overlap conceptually with tasks stored in the DB but this file is a static reference set, not the live source of task SQL.
-- `public/` — plain HTML + vanilla JS pages (no frontend framework/bundler), one HTML file per screen (`index.html`, `addDbms.html`, `modifyDbms.html`, `addScript.html`, `modifyScript.html`, `dailyMonitoring.html`, `monitoringScript.html`, `showMonitor.html`) each paired with inline or sibling `.js` for `fetch()` calls to the `/api` routes.
+**Auth & roles**: `express-session` (in-memory `MemoryStore` — fine for this single-process internal tool, but sessions are lost on restart/`tsx watch` reload) gates every route except `/auth/*` and a small allowlist of public static assets (`login.html`, `style.css`, `common.js`, `favicon.svg`) via `middleware/auth.ts`'s `requireAuth`. Three roles, checked via `requireDba`/`requireSuperAdmin` middleware on specific routes: `VIEWER` (login only — read everything, run manual checks, work Issues tickets), `DBA` (+ manage DBMS registrations, Scripts, Thresholds, schedule config, Table Spec export), `SUPER_ADMIN` (+ manage user accounts). Role changes don't affect already-logged-in sessions until re-login. Login passwords are hashed with `crypto.scryptSync` (`models/passwordUtils.ts`); target-DB passwords are encrypted with AES-256-GCM (`models/cryptoUtils.ts`), separate scheme/key from login hashing.
 
-**Oracle client**: uses `oracledb` in thick mode, initialized against the bundled `instantclient_19_25/` directory (relative path `./instantclient_19_25`, so the process must be started from the repo root). Both `server.js` and `db.js` call `initOracleClient` independently.
+**Layering** (classic Express MVC-ish, no framework beyond that), all TypeScript:
+- `server.ts` — Express app setup, Oracle Instant Client thick-mode init, session middleware, mounts `/auth` (pre-auth-gate) then `requireAuth`, then static file serving of `public/`, then mounts routers at `/main` and `/api`; also kicks off `services/scheduler.ts`.
+- `routers/` — route → controller (+ role middleware) mapping only: `dbmsRouters.ts` (DBMS list/scripts/run/thresholds/schedule/history/issues), `tableSpecRouters.ts`, `authRouters.ts` (login/logout/me), `usersRouters.ts` (account admin).
+- `controllers/` — HTTP request/response handling, input validation, calls services. No SQL or business logic here. (`dbmsController.ts`, `tableSpecController.ts`, `authController.ts`, `usersController.ts`)
+- `middleware/auth.ts` — `requireAuth`, `requireDba`, `requireSuperAdmin`.
+- `services/` — business logic layer: `dbmsService.ts` (the two-DB orchestration + threshold evaluation described above), `historyService.ts`, `issuesService.ts`, `tableSpecService.ts` (also builds the Excel export via `exceljs`), `reportService.ts` (renders a scheduled run into a standalone HTML report), `scheduler.ts` (in-process 1-minute-tick scheduler — no external cron/lib — that runs auto-scheduled DBs at a configured time-of-day and writes reports to `reports/YYYY-MM-DD/<dbname>.html` on disk), `usersService.ts`. Calls models.
+- `models/` — all Oracle DB access (`oracledb` calls, `connection.execute`, connection pool/lifecycle): `dbmsModel.ts` (DBMS list/tasks/thresholds/schedule CRUD, `executeQuery()` shared helper that converts CLOB columns to strings via `clobUtils.ts`), `historyModel.ts`, `issuesModel.ts` (ticket sync/CRUD), `tableSpecModel.ts` (`DBA_*` dictionary queries for schema/table/column/constraint/index/grant/synonym metadata), `usersModel.ts`, `cryptoUtils.ts` (target-DB password AES-256-GCM encrypt/decrypt), `passwordUtils.ts` (login password scrypt hash/verify), `clobUtils.ts`.
+- `queries/` — a plain object of named SQL strings (`queries/dailyChecks.ts`, re-exported via `queries/index.ts`). These are Oracle dictionary/AWR-style diagnostic queries (`v$session`, `dba_tablespaces`, `v$rman_status`, etc.), independent of the `monitoring_tasks` DB table — some may overlap conceptually with tasks stored in the DB but this file is a static reference set, not the live source of task SQL.
+- `public/` — plain HTML + vanilla JS pages (no frontend framework/bundler): `login.html`, `index.html`, `dailyMonitoring.html`, `updateDbms.html` (add/modify DBMS), `monitoringScript.html` (manage tasks), `monitoringThresholds.html`, `showMonitor.html`, `history.html`, `issues.html`, `tableSpec.html`, `users.html`, plus shared `common.js`/`style.css` and a standalone `addDbms.js`. Most pages use inline `<script>` for their `fetch()` calls to `/api`; a couple have sibling `.js` files.
+- Unit tests live alongside the code they test (`*.test.ts`, run via `vitest`): `services/dbmsService.test.ts` (threshold evaluation logic), `services/tableSpecService.test.ts`, `models/cryptoUtils.test.ts`.
 
-**Database credentials**: `config/database.js` reads `NODE_ORACLEDB_USER` / `NODE_ORACLEDB_PASSWORD` / `NODE_ORACLEDB_CONNECTIONSTRING` / `NODE_ORACLEDB_EXTERNALAUTH` env vars, falling back to hardcoded defaults checked into the file. Per-target-DB credentials (for monitored databases, as opposed to the metadata DB) are stored in plaintext in the `system.monitoring_dbms_list` table and returned directly to callers as positional array elements (`dbconfig[0]`..`dbconfig[5]` = username, password, ip, port, sid, memo) — be careful with ordering if touching `getDbmsInfo`/`getMonResult` in `models/dbmsModel.js`.
+**Oracle client**: uses `oracledb` in thick mode, initialized against the bundled `instantclient_19_25/` directory (relative path `./instantclient_19_25`, so the process must be started from the repo root). Both `server.ts` and `db.ts` call `initOracleClient` independently.
+
+**Database credentials**: `config/database.ts` reads `NODE_ORACLEDB_USER` / `NODE_ORACLEDB_PASSWORD` / `NODE_ORACLEDB_CONNECTIONSTRING` / `NODE_ORACLEDB_EXTERNALAUTH` env vars, falling back to hardcoded defaults checked into the file. Per-target-DB credentials (for monitored databases, as opposed to the metadata DB) are stored **AES-256-GCM encrypted** (`models/cryptoUtils.ts`, key from `DBMS_ENCRYPTION_KEY`) in the `system.monitoring_dbms_list` table, decrypted on read, and returned to callers as positional array elements (`dbconfig[0]`..`dbconfig[6]` = username, password, ip, port, sid, memo, dbname) — be careful with ordering if touching `getDbmsInfo`/`getMonResult`/`connectToTarget` in `models/dbmsModel.ts`. A one-time migration script (`scripts/migrate-encrypt-passwords.ts`) exists for converting older plaintext-stored rows.
+
+## Deployment / schema migrations
+
+New environments need, in order (see `scripts/DEPLOY_NOTES.txt` for full detail): apply the SQL scripts in `scripts/` against the metadata DB (`add_monitoring_issues.sql`, `add_users.sql`, then `add_user_roles.sql` — order matters, `add_user_roles.sql` alters the table `add_users.sql` creates), set `SESSION_SECRET` in `.env`, then create the first login account with `npx tsx scripts/create-admin-user.ts <username> <password> [displayName]` (always grants/resets to `SUPER_ADMIN` — also useful for recovering a forgotten admin password). `scripts/TABLE_DBMS_LIST.sql`, `scripts/add_run_history.sql`, `scripts/add_schedule_config.sql`, `scripts/seed_default_thresholds.sql`, `scripts/monitoring_queries_insert.sql` are earlier-generation schema/seed scripts for the base tables and default tasks/thresholds.
 
 ## Notable repo state
 
-- `node_modules/` and `instantclient_19_25/` (Oracle Instant Client binaries) are committed directly to git — there is no `.gitignore`. Don't try to "clean up" by deleting/ignoring them without checking with the user first.
-- The repo root also contains ad hoc SQL scripts (`TABLE_DBMS_LIST.sql` — DDL for `monitoring_dbms_list`/`monitoring_tasks`/`monitoring_thresholds`, `STATS_JOB.sql`, `monitoring_queries_insert.sql`, parfile-generation scripts) and unrelated report/export artifacts (xlsx, pptx, pdf, docx, zip/7z) that are not part of the application runtime.
-- Code comments and log messages are primarily in Korean; several `console.log`/`console.error` calls print full request payloads (including passwords in `addDbms`/`modifyDbms` flows) — be mindful of this when reasoning about logs, and avoid adding more sensitive data to log output.
+- `node_modules/` and `instantclient_19_25/` (Oracle Instant Client binaries) are committed directly to git. A `.gitignore` exists but only excludes `.env` and `/dist/` — don't try to "clean up" node_modules/instantclient by deleting/ignoring them without checking with the user first.
+- The repo root also contains ad hoc SQL/TS scripts (`scripts/`, see above) and unrelated report/export artifacts (xlsx, pptx, pdf, docx, zip/7z) that are not part of the application runtime. `reports/` (scheduler-generated HTML reports) is written to disk at runtime under the repo root.
+- Code comments and log messages are primarily in Korean. Password values (both login and target-DB) are redacted (`'***'`) in the `console.log`/`console.error` calls that touch them — be mindful if adding new log statements involving credentials, and keep redacting.
