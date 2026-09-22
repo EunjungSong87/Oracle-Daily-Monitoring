@@ -208,6 +208,30 @@ async function connectToTarget(dbconfig: any[]): Promise<oracledb.Connection> {
   return db.connectDB(config);
 }
 
+export interface TestConnectionInput {
+  id?: number | string;
+  username: string;
+  password?: string;
+  ip: string;
+  port: string;
+  sid: string;
+}
+
+// Add/Modify DBMS 팝업의 "접속 테스트" 버튼용. 수정 화면에서 비밀번호를 비워둔 채
+// 테스트하면(= 기존 비밀번호를 바꾸지 않는 경우) 저장된 비밀번호를 복호화해서 씁니다.
+// connectToTarget과 동일한 방식(ip:port/sid, EZCONNECT 서비스명 형식)으로 접속을
+// 시도하므로, 실제 점검 실행이 겪게 될 것과 같은 에러(예: ORA-12514)를 그대로 보여줍니다.
+async function testConnection(input: TestConnectionInput): Promise<void> {
+  let password = input.password;
+  if (!password && input.id) {
+    const existing = await getDbmsInfo({ dbmsid: input.id });
+    if (existing) password = existing[1];
+  }
+
+  const connection = await connectToTarget([input.username, password, input.ip, input.port, input.sid]);
+  await connection.close();
+}
+
 async function addDbms(dbmsInfo: DbmsInfo): Promise<number> {
   let connection: oracledb.Connection | undefined;
   try {
@@ -575,6 +599,7 @@ export {
   getAllDbmses,
   getDbmsInfo,
   connectToTarget,
+  testConnection,
   executeQuery,
   addDbms,
   modifyDbms,

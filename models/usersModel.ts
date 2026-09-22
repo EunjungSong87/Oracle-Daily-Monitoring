@@ -146,44 +146,36 @@ async function createUser(input: CreateUserInput): Promise<number> {
   }
 }
 
-async function setActive(id: number | string, isActive: boolean): Promise<void> {
-  let connection: oracledb.Connection | undefined;
-  try {
-    const pool = await db.initializeDB();
-    connection = await pool.getConnection();
-    await connection.execute(
-      `update system.users set is_active = :isActive where id = :id`,
-      { id, isActive: isActive ? 'Y' : 'N' },
-      { autoCommit: true }
-    );
-  } finally {
-    if (connection) await connection.close();
-  }
+export interface UpdateUserInput {
+  id: number | string;
+  displayName?: string | null;
+  role: UserRole;
+  isActive: boolean;
+  newPassword?: string;
 }
 
-async function setRole(id: number | string, role: UserRole): Promise<void> {
+// Users 페이지의 수정 팝업 하나로 표시이름/권한/활성상태/비밀번호를 한번에 저장합니다.
+// newPassword가 비어있으면(변경하지 않으려면 비워두는 UX) password_hash는 건드리지 않습니다.
+async function updateUser(input: UpdateUserInput): Promise<void> {
   let connection: oracledb.Connection | undefined;
   try {
     const pool = await db.initializeDB();
     connection = await pool.getConnection();
-    await connection.execute(
-      `update system.users set role = :role where id = :id`,
-      { id, role },
-      { autoCommit: true }
-    );
-  } finally {
-    if (connection) await connection.close();
-  }
-}
+    const setClauses = ['display_name = :displayName', 'role = :role', 'is_active = :isActive'];
+    const binds: Record<string, any> = {
+      id: input.id,
+      displayName: input.displayName || null,
+      role: input.role,
+      isActive: input.isActive ? 'Y' : 'N',
+    };
+    if (input.newPassword) {
+      setClauses.push('password_hash = :passwordHash');
+      binds.passwordHash = hashPassword(input.newPassword);
+    }
 
-async function resetPassword(id: number | string, newPassword: string): Promise<void> {
-  let connection: oracledb.Connection | undefined;
-  try {
-    const pool = await db.initializeDB();
-    connection = await pool.getConnection();
     await connection.execute(
-      `update system.users set password_hash = :passwordHash where id = :id`,
-      { id, passwordHash: hashPassword(newPassword) },
+      `update system.users set ${setClauses.join(', ')} where id = :id`,
+      binds,
       { autoCommit: true }
     );
   } finally {
@@ -212,8 +204,6 @@ export {
   listUsers,
   listBasic,
   createUser,
-  setActive,
-  setRole,
-  resetPassword,
+  updateUser,
   touchLastLogin,
 };
