@@ -17,6 +17,7 @@ import dbmsRouters from './routers/dbmsRouters'; // 라우터 가져오기
 import tableSpecRouters from './routers/tableSpecRouters';
 import authRouters from './routers/authRouters';
 import usersRouters from './routers/usersRouters';
+import realtimeRouters from './routers/realtimeRouters';
 import { requireAuth } from './middleware/auth';
 import { startScheduler } from './services/scheduler';
 
@@ -102,3 +103,4 @@ app.use('/main', dbmsRouters);
 app.use('/api', dbmsRouters);
 app.use('/api', tableSpecRouters);
 app.use('/api', usersRouters);
+app.use('/api', realtimeRouters);

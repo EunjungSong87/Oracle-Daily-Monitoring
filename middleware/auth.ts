@@ -16,10 +16,26 @@ declare module 'express-session' {
 
 // 로그인 없이 접근 가능한 정적 파일. 로그인 페이지 자체와 그 페이지가 필요로 하는
 // 공통 자산만 허용합니다 — 그 외 모든 .html/.js는 세션이 있어야 서빙됩니다.
-const PUBLIC_STATIC_PATHS = new Set(['/login.html', '/style.css', '/common.js', '/favicon.svg']);
+// /assets/pages/login.js와 /assets/chunks/{vendor,shared}.js는 React로 이관된 로그인
+// 페이지(client/) 자신의 번들 + 공유 청크(vendor.js=react/react-dom, shared.js=공용 컴포넌트/
+// 훅/유틸, 파일명은 client/vite.config.ts의 manualChunks에서 고정)입니다 — 허용하지 않으면
+// 미인증 사용자가 /login.html로 리다이렉트돼도 그 페이지의 JS 번들 자체가 다시 막혀 로그인
+// 폼이 뜨지 않습니다. (다른 인증된 페이지와도 공유되지만 라이브러리/공용 코드일 뿐이라
+// 공개돼도 무해합니다.)
+const PUBLIC_STATIC_PATHS = new Set([
+  '/login.html',
+  '/style.css',
+  '/common.js',
+  '/favicon.svg',
+  '/assets/pages/login.js',
+  '/assets/chunks/vendor.js',
+  '/assets/chunks/shared.js',
+]);
 
 function requireAuth(req: Request, res: Response, next: NextFunction): void {
-  if (PUBLIC_STATIC_PATHS.has(req.path)) {
+  // 로그인 페이지가 쓰는 style.css가 참조하는 웹폰트(@font-face) — 순수 서체 데이터라
+  // 앱 정보를 노출하지 않으므로 통째로 허용한다 (파일이 늘어나도 목록을 계속 안 늘려도 됨).
+  if (PUBLIC_STATIC_PATHS.has(req.path) || req.path.startsWith('/fonts/')) {
     next();
     return;
   }

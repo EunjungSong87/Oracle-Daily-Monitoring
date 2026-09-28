@@ -1,41 +1,124 @@
-/* style.css — 전체 화면 공통 스타일 */
+/* style.css — 전체 화면 공통 스타일
+
+   시각 방향: "인스트루먼트 패널" — DBA가 하루 종일 들여다보는 계기판이라는 실사용
+   맥락에 맞춰, 어디서나 보는 인디고→퍼플 그라데이션 대신 차분한 teal 액센트와
+   IBM Plex Sans/Mono(엔지니어링 제품군 서체 — SID/SQL_ID 같은 식별자와 잘 어울림)로
+   톤을 잡는다. 변수 이름은 그대로 두고 값만 교체해, 이 변수들을 참조하는 모든
+   컴포넌트가 수정 없이 새 톤을 그대로 물려받는다. */
+
+@font-face {
+    font-family: "IBM Plex Sans";
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url("/fonts/IBMPlexSans-400.woff2") format("woff2");
+}
+@font-face {
+    font-family: "IBM Plex Sans";
+    font-style: normal;
+    font-weight: 500;
+    font-display: swap;
+    src: url("/fonts/IBMPlexSans-500.woff2") format("woff2");
+}
+@font-face {
+    font-family: "IBM Plex Sans";
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url("/fonts/IBMPlexSans-600.woff2") format("woff2");
+}
+@font-face {
+    font-family: "IBM Plex Sans";
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url("/fonts/IBMPlexSans-700.woff2") format("woff2");
+}
+@font-face {
+    font-family: "IBM Plex Mono";
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url("/fonts/IBMPlexMono-400.woff2") format("woff2");
+}
+@font-face {
+    font-family: "IBM Plex Mono";
+    font-style: normal;
+    font-weight: 500;
+    font-display: swap;
+    src: url("/fonts/IBMPlexMono-500.woff2") format("woff2");
+}
+@font-face {
+    font-family: "IBM Plex Mono";
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url("/fonts/IBMPlexMono-600.woff2") format("woff2");
+}
 
 :root {
-    --bg: #f4f5f8;
+    --bg: #f1f4f3;
     --surface: #ffffff;
-    --border: #e1e4ea;
-    --text: #1f2430;
-    --text-muted: #6b7280;
-    --header-bg: #1f2937;
-    --header-bg-hover: #374151;
-    --primary: #4f46e5;
-    --primary-hover: #4338ca;
-    --danger: #dc2626;
-    --danger-hover: #b91c1c;
-    --success: #16a34a;
-    --surface-alt: #f3f4f6;
-    --btn-secondary-bg: #e5e7eb;
-    --btn-secondary-bg-hover: #d1d5db;
-    --row-hover: #f8f9fc;
+    --border: #d9e0dd;
+    --text: #12181a;
+    --text-muted: #56655f;
+    --header-bg: #17211f;
+    --header-bg-hover: #223330;
+    --primary: #146b69;
+    --primary-hover: #0e4f4d;
+    --primary-soft: #dcecea;
+    --danger: #ab4237;
+    --danger-hover: #8b362d;
+    --danger-soft: #f8e1de;
+    --success: #2e7d4f;
+    --success-hover: #225f3c;
+    --success-soft: #dff0e6;
+    --warning: #a8721f;
+    --warning-soft: #f6e9d3;
+    --info: #33688a;
+    --info-soft: #dcebf3;
+    --surface-alt: #e8ece9;
+    --btn-secondary-bg: #e3e9e6;
+    --btn-secondary-bg-hover: #d3dbd7;
+    --row-hover: #f4f7f5;
+    --text-secondary: #56655f;
     --radius: 8px;
-    --shadow: 0 1px 3px rgba(16, 24, 40, 0.08), 0 1px 2px rgba(16, 24, 40, 0.04);
-    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", "Malgun Gothic", sans-serif;
+    --shadow: 0 1px 2px rgba(10, 15, 14, 0.07), 0 6px 20px rgba(10, 15, 14, 0.07);
+    --font: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", "Malgun Gothic", sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Code", Consolas, "Noto Sans Mono", monospace;
 }
 
 /* 다크 모드 (common.js의 테마 토글이 <html data-theme="dark">를 설정) */
 :root[data-theme="dark"] {
-    --bg: #0f1420;
-    --surface: #1a2233;
-    --surface-alt: #252f47;
-    --border: rgba(255, 255, 255, 0.16);
-    --text: #e5e7eb;
-    --text-muted: #9ca3af;
-    --header-bg: #10162e;
-    --header-bg-hover: #374151;
-    --btn-secondary-bg: #2d3748;
-    --btn-secondary-bg-hover: #384254;
-    --row-hover: #2c3752;
-    --shadow: 0 1px 3px rgba(0, 0, 0, 0.55), 0 1px 2px rgba(0, 0, 0, 0.4);
+    --bg: #0a0f0e;
+    --surface: #121a19;
+    --surface-alt: #182220;
+    --border: rgba(255, 255, 255, 0.1);
+    --text: #e7eeec;
+    --text-muted: #9fb0ac;
+    --header-bg: #0c1211;
+    --header-bg-hover: #1b2624;
+    --btn-secondary-bg: #1e2a28;
+    --btn-secondary-bg-hover: #26332f;
+    --row-hover: #17211f;
+    /* 다크 모드에서 라이트 모드용 회색을 그대로 쓰면 어두운 배경 위에서
+       대비가 부족해 잘 안 보인다 — --text-muted와 같은 밝기로 맞춘다. */
+    --text-secondary: #9fb0ac;
+    /* 어두운 바탕에서는 라이트용 진한 teal이 묻혀서, 더 밝고 채도 높은 톤으로 바꾼다. */
+    --primary: #3fb8b0;
+    --primary-hover: #6cd0c8;
+    --primary-soft: rgba(63, 184, 176, 0.16);
+    --danger: #e08276;
+    --danger-hover: #eda89f;
+    --danger-soft: rgba(224, 130, 118, 0.14);
+    --success: #4fbd82;
+    --success-hover: #7cd1a3;
+    --success-soft: rgba(79, 189, 130, 0.14);
+    --warning: #d6a34a;
+    --warning-soft: rgba(214, 163, 74, 0.14);
+    --info: #6fa8c9;
+    --info-soft: rgba(111, 168, 201, 0.14);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.55), 0 8px 24px rgba(0, 0, 0, 0.4);
 }
 
 * {
@@ -56,10 +139,25 @@ a {
     color: var(--primary);
 }
 
-/* 상단 헤더 — 왼쪽에 솔루션 이름(브랜드), 오른쪽에 내비게이션을 한 줄로 배치 */
+/* 모니터링 결과/탭 제목(<h3>) 등 클래스 없이 그냥 쓰이는 소제목들은 브라우저 기본
+   스타일(굵고 큰 세리프 톤)로 떨어져 나머지 UI와 어울리지 않았다 — 나머지 타이포그래피와
+   맞춰 톤을 낮춘다. 더 구체적인 규칙(.rt-panel h3, .issue-modal-subheading 등)이 있으면
+   그쪽이 우선한다.*/
+h3 {
+    margin: 0 0 8px;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.005em;
+}
+
+/* 상단 헤더 — 왼쪽에 솔루션 이름(브랜드), 오른쪽에 내비게이션을 한 줄로 배치.
+   예전의 인디고→퍼플 그라데이션 대신, 계기판 패널을 연상시키는 차분한 단색
+   다크 서피스 + 위쪽 얇은 액센트 라인으로 처리한다. */
 .app-header {
-    background: linear-gradient(120deg, #1e1b4b 0%, #241f57 50%, #1e1b4b 100%);
-    box-shadow: 0 4px 18px rgba(15, 12, 41, 0.35);
+    background: var(--header-bg);
+    box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.06), 0 4px 18px rgba(10, 15, 14, 0.35);
+    border-top: 2px solid var(--primary);
     position: relative;
     z-index: 2;
     display: flex;
@@ -96,8 +194,8 @@ a {
     width: 26px;
     height: 26px;
     border-radius: 8px;
-    background: linear-gradient(135deg, #6366f1, #a855f7);
-    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.55);
+    background: linear-gradient(135deg, #3fb8b0, #146b69);
+    box-shadow: 0 2px 8px rgba(20, 107, 105, 0.55);
     flex-shrink: 0;
     display: flex;
     align-items: center;
@@ -185,9 +283,10 @@ nav ul li {
     top: 100%;
     left: 0;
     min-width: 210px;
-    background: linear-gradient(160deg, #241f57 0%, #1e1b4b 100%);
+    background: #101a18;
+    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 12px;
-    box-shadow: 0 16px 32px rgba(15, 12, 41, 0.45);
+    box-shadow: 0 16px 32px rgba(6, 10, 9, 0.5);
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -254,7 +353,7 @@ nav ul li {
 
 nav ul li a {
     text-decoration: none;
-    color: #c7d2fe;
+    color: #a9c2be;
     font-weight: 600;
     font-size: 14px;
     display: inline-flex;
@@ -287,41 +386,56 @@ nav ul li a.current {
     transform: translateY(-1px);
 }
 
-/* 항목별 포인트 컬러 — 호버 & 현재 페이지일 때 입체감 있는 그라데이션 필
+/* 항목별 포인트 컬러 — 예전엔 임의의 무지개색(인디고/시안/퍼플/앰버/에메랄드/로즈/핑크...)을
+   나열해 놓은 느낌이었다. 브랜드 accent(teal)와 실제 의미가 통하는 색(경고=amber,
+   이슈=critical red, 실시간=live cyan)을 우선 배정하고, 나머지는 그 사이 톤으로
+   채워 "고른 팔레트에서 골랐다"는 느낌이 나도록 재구성했다.
    (li 순서가 아니라 링크의 nav-accent-N 클래스에 매여있어, 대분류로 묶거나
    순서를 바꿔도 색이 흐트러지지 않는다) */
 .nav-accent-1:hover, .nav-accent-1.current {
-    background: linear-gradient(135deg, #6366f1, #4f46e5);
-    box-shadow: 0 6px 16px rgba(99, 102, 241, 0.5);
+    /* Databases — 브랜드 accent 그 자체 */
+    background: linear-gradient(135deg, #3fb8b0, #146b69);
+    box-shadow: 0 6px 16px rgba(20, 107, 105, 0.5);
 }
 .nav-accent-2:hover, .nav-accent-2.current {
-    background: linear-gradient(135deg, #22d3ee, #0891b2);
-    box-shadow: 0 6px 16px rgba(6, 182, 212, 0.5);
+    /* Monitoring / Daily Monitoring — accent에서 살짝 밀어낸 청록 */
+    background: linear-gradient(135deg, #4fd1c5, #1f8a8c);
+    box-shadow: 0 6px 16px rgba(31, 138, 140, 0.5);
 }
 .nav-accent-3:hover, .nav-accent-3.current {
-    background: linear-gradient(135deg, #a78bfa, #7c3aed);
-    box-shadow: 0 6px 16px rgba(139, 92, 246, 0.5);
+    /* Scripts — 절제된 보라 그레이 */
+    background: linear-gradient(135deg, #9694c2, #5f5e86);
+    box-shadow: 0 6px 16px rgba(95, 94, 134, 0.5);
 }
 .nav-accent-4:hover, .nav-accent-4.current {
-    background: linear-gradient(135deg, #fbbf24, #d97706);
-    box-shadow: 0 6px 16px rgba(217, 119, 6, 0.5);
+    /* Thresholds — 경고 색과 그대로 연결 */
+    background: linear-gradient(135deg, #d6a34a, #a8721f);
+    box-shadow: 0 6px 16px rgba(168, 114, 31, 0.5);
 }
 .nav-accent-5:hover, .nav-accent-5.current {
-    background: linear-gradient(135deg, #34d399, #059669);
-    box-shadow: 0 6px 16px rgba(5, 150, 105, 0.5);
+    /* Run History — 차분한 세이지 그린 */
+    background: linear-gradient(135deg, #6ba789, #3a6d54);
+    box-shadow: 0 6px 16px rgba(58, 109, 84, 0.5);
 }
 .nav-accent-6:hover, .nav-accent-6.current {
-    background: linear-gradient(135deg, #fb7185, #e11d48);
-    box-shadow: 0 6px 16px rgba(225, 29, 72, 0.5);
+    /* Issues — critical(빨강)과 그대로 연결 */
+    background: linear-gradient(135deg, #c96a5d, #963a31);
+    box-shadow: 0 6px 16px rgba(150, 58, 49, 0.5);
 }
 .nav-accent-7:hover, .nav-accent-7.current {
-    background: linear-gradient(135deg, #f472b6, #db2777);
-    box-shadow: 0 6px 16px rgba(219, 39, 119, 0.5);
+    /* Table Spec / Maintenance — 문서·명세 느낌의 따뜻한 브라운 */
+    background: linear-gradient(135deg, #bb9760, #8c6a3f);
+    box-shadow: 0 6px 16px rgba(140, 106, 63, 0.5);
 }
 /* 계정 메뉴(로그인 사용자명/로그아웃/Users) — 도메인 nav 색과 구분되는 중립 톤 */
 .nav-accent-8:hover, .nav-accent-8.current {
-    background: linear-gradient(135deg, #64748b, #475569);
-    box-shadow: 0 6px 16px rgba(71, 85, 105, 0.5);
+    background: linear-gradient(135deg, #7a8f8a, #56655f);
+    box-shadow: 0 6px 16px rgba(86, 101, 95, 0.5);
+}
+/* Real-Time Monitoring — "라이브" 느낌의 밝은 시안 */
+.nav-accent-9:hover, .nav-accent-9.current {
+    background: linear-gradient(135deg, #4fd8d8, #1f8286);
+    box-shadow: 0 6px 16px rgba(31, 130, 134, 0.5);
 }
 
 /* 다크모드 토글 버튼 (common.js가 nav 맨 끝에 자동으로 삽입) */
@@ -429,7 +543,7 @@ textarea:focus,
 select:focus {
     outline: none;
     border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+    box-shadow: 0 0 0 3px rgba(20, 107, 105, 0.18);
 }
 
 input::placeholder,
@@ -445,11 +559,11 @@ textarea {
 #SQL_TEXT {
     width: 100%;
     height: 320px;
-    font-family: "Cascadia Code", Consolas, Menlo, monospace;
+    font-family: var(--font-mono);
     font-size: 13px;
-    background-color: #0f172a;
-    color: #e2e8f0;
-    border-color: #1e293b;
+    background-color: #0d1413;
+    color: #dfe8e5;
+    border-color: #1b2422;
 }
 
 /* 버튼 */
@@ -491,7 +605,7 @@ button.btn-danger {
 .download-folder-label {
     margin-left: 8px;
     font-size: 0.85em;
-    color: var(--text-secondary, #6b7280);
+    color: var(--text-secondary);
 }
 
 /* 로그인 페이지 */
@@ -580,15 +694,19 @@ button.btn-danger {
     align-items: center;
     gap: 8px;
     margin-bottom: 8px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px 10px;
+    background-color: var(--surface);
 }
 
 .issues-subtitle {
-    color: var(--text-secondary, #6b7280);
+    color: var(--text-secondary);
     margin: 4px 0 12px;
 }
 
 .issues-empty {
-    color: var(--text-secondary, #6b7280);
+    color: var(--text-secondary);
     padding: 24px 0;
 }
 
@@ -614,13 +732,13 @@ button.btn-danger {
 }
 
 .issue-card-error {
-    border-left-color: #dc2626;
-    background-color: #fef2f2;
+    border-left-color: var(--danger);
+    background-color: var(--danger-soft);
 }
 
 .issue-card-warn {
-    border-left-color: #d97706;
-    background-color: #fffbeb;
+    border-left-color: var(--warning);
+    background-color: var(--warning-soft);
 }
 
 .issue-card-header {
@@ -630,21 +748,25 @@ button.btn-danger {
     margin-bottom: 8px;
 }
 
+/* 배지를 꽉 찬 색 필+흰 글자 대신, 옅은 배경+진한 글자의 "칩(chip)" 스타일로 —
+   계기판 판독값 같은 절제된 톤을 낸다. */
 .issue-badge {
+    font-family: var(--font-mono);
     font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.03em;
-    padding: 3px 8px;
-    border-radius: 999px;
-    color: #ffffff;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    padding: 3px 9px;
+    border-radius: 6px;
 }
 
 .issue-badge-error {
-    background-color: #dc2626;
+    background-color: var(--danger-soft);
+    color: var(--danger);
 }
 
 .issue-badge-warn {
-    background-color: #d97706;
+    background-color: var(--warning-soft);
+    color: var(--warning);
 }
 
 .issue-dbname {
@@ -654,7 +776,7 @@ button.btn-danger {
 
 .issue-task {
     font-size: 13px;
-    color: var(--text-secondary, #6b7280);
+    color: var(--text-secondary);
     margin-bottom: 4px;
 }
 
@@ -668,13 +790,13 @@ button.btn-danger {
 
 .issue-message {
     font-size: 13px;
-    color: #7f1d1d;
+    color: var(--danger);
     margin-bottom: 8px;
 }
 
 .issue-runat {
     font-size: 12px;
-    color: var(--text-secondary, #6b7280);
+    color: var(--text-secondary);
     text-align: right;
 }
 
@@ -684,20 +806,23 @@ button.btn-danger {
 }
 
 .issue-badge-status-open {
-    background-color: #2563eb;
+    background-color: var(--info-soft);
+    color: var(--info);
 }
 
 .issue-badge-status-acknowledged {
-    background-color: #7c3aed;
+    background-color: var(--primary-soft);
+    color: var(--primary);
 }
 
 .issue-badge-status-resolved {
-    background-color: var(--success);
+    background-color: var(--success-soft);
+    color: var(--success);
 }
 
 .issue-meta {
     font-size: 12px;
-    color: var(--text-secondary, #6b7280);
+    color: var(--text-secondary);
     margin-bottom: 4px;
 }
 
@@ -711,27 +836,39 @@ button.btn-danger {
     margin: 0;
 }
 
-/* 상태 필터 탭 */
+/* 상태 필터 탭 — 낱개 필/버튼이 아니라 하나로 이어진 세그먼트 컨트롤로 처리한다. */
 .status-tabs {
     display: flex;
-    gap: 6px;
+    gap: 0;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
 }
 
 button.status-tab {
-    background-color: var(--btn-secondary-bg);
-    color: var(--text);
+    background-color: var(--surface);
+    color: var(--text-muted);
     padding: 8px 14px;
     font-size: 13px;
+    font-weight: 600;
     margin: 0;
+    border-radius: 0;
+    border-right: 1px solid var(--border);
+}
+
+button.status-tab:last-child {
+    border-right: none;
 }
 
 button.status-tab:hover {
-    background-color: var(--btn-secondary-bg-hover);
+    background-color: var(--surface-alt);
+    color: var(--text);
 }
 
-button.status-tab-active {
-    background-color: var(--primary);
-    color: #ffffff;
+button.status-tab-active,
+button.status-tab-active:hover {
+    background-color: var(--primary-soft);
+    color: var(--primary);
 }
 
 .issues-toolbar-actions {
@@ -823,7 +960,7 @@ button.status-tab-active {
 }
 
 .comment-empty {
-    color: var(--text-secondary, #6b7280);
+    color: var(--text-secondary);
     font-size: 13px;
 }
 
@@ -840,7 +977,7 @@ button.status-tab-active {
 
 .comment-item-meta {
     font-size: 11px;
-    color: var(--text-secondary, #6b7280);
+    color: var(--text-secondary);
     margin-bottom: 4px;
 }
 
@@ -885,13 +1022,16 @@ button.btn-danger:hover {
 }
 
 /* 테이블 */
+/* 표 대신 "리스트"에 가깝게: 진하게 채운 헤더 바 + 모노스페이스 전면 적용은
+   스프레드시트처럼 딱딱해 보인다는 피드백을 받아, 얇은 테두리 + 옅은 헤더 라벨 +
+   본문 폰트로 톤을 낮췄다. 그림자로 띄우기보다 테두리 하나로만 경계를 준다. */
 table.table {
     width: 92%;
     max-width: 1400px;
     border-collapse: collapse;
     margin: 20px auto;
     background-color: var(--surface);
-    box-shadow: var(--shadow);
+    border: 1px solid var(--border);
     border-radius: var(--radius);
     overflow: hidden;
 }
@@ -899,31 +1039,28 @@ table.table {
 .table td,
 .table th {
     font-family: var(--font);
-    font-weight: 450;
+    font-weight: 400;
     border-bottom: 1px solid var(--border);
-    padding: 10px 14px;
+    padding: 11px 16px;
     white-space: pre-wrap;
-    font-size: 13px;
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
     text-align: left;
 }
 
 .table th {
     font-weight: 600;
-    color: #ffffff;
-    background-color: var(--header-bg);
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    background-color: var(--surface-alt);
     position: sticky;
     top: 0;
 }
 
 .table tbody tr:hover {
     background-color: var(--row-hover);
-}
-
-/* 다크 모드에서는 테이블 배경(--surface)과 페이지 배경(--bg)이 둘 다 어두워서
-   box-shadow만으로는 경계가 거의 안 보입니다. 테두리를 명시적으로 둬서 그리드
-   영역 자체를 페이지에서 확실히 분리합니다. */
-:root[data-theme="dark"] table.table {
-    border: 1px solid var(--border);
 }
 
 /* 다크 모드에서는 테두리만으로 행 구분이 잘 안 보여서 줄무늬를 추가로 넣습니다. */
@@ -970,7 +1107,7 @@ table.table {
 
 .tab-content {
     display: none;
-    padding: 20px;
+    padding: 24px;
 }
 
 .tab-content.active {
@@ -982,7 +1119,7 @@ table.table {
 }
 
 #Run-button:hover {
-    background-color: #15803d;
+    background-color: var(--success-hover);
 }
 
 #monInfo {
@@ -1004,21 +1141,21 @@ table.table {
 
 /* 임계치 위반 강조 표시 */
 .cell-warn {
-    background-color: #fef3c7 !important;
-    color: #92400e;
+    background-color: var(--warning-soft) !important;
+    color: var(--warning);
     font-weight: 700;
 }
 
 .cell-error,
 .cell-crit {
-    background-color: #fee2e2 !important;
-    color: #991b1b;
+    background-color: var(--danger-soft) !important;
+    color: var(--danger);
     font-weight: 700;
 }
 
 .cell-info {
-    background-color: #dbeafe !important;
-    color: #1e40af;
+    background-color: var(--info-soft) !important;
+    color: var(--info);
     font-weight: 700;
 }
 
@@ -1030,7 +1167,7 @@ table.table {
     z-index: 1000;
     padding: 14px 20px;
     border-radius: 8px;
-    background-color: #1f2937;
+    background-color: #17211f;
     color: #ffffff;
     font-size: 14px;
     font-weight: 600;
@@ -1047,18 +1184,18 @@ table.table {
 }
 
 .toast-success {
-    background-color: #16a34a;
+    background-color: var(--success);
 }
 
 .toast-error {
-    background-color: #dc2626;
+    background-color: var(--danger);
 }
 
 /* 모달 (Add/Modify 팝업) */
 .modal-overlay {
     position: fixed;
     inset: 0;
-    background-color: rgba(15, 23, 42, 0.5);
+    background-color: rgba(8, 13, 12, 0.55);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1073,7 +1210,7 @@ table.table {
 .modal {
     background-color: var(--surface);
     border-radius: var(--radius);
-    box-shadow: 0 10px 40px rgba(16, 24, 40, 0.25);
+    box-shadow: 0 10px 40px rgba(10, 15, 14, 0.28);
     width: 100%;
     max-width: 640px;
     max-height: 90vh;
@@ -1126,19 +1263,129 @@ table.table {
     display: none;
 }
 
-/* 다크 모드 보정 — 밝은 배경을 전제로 고정색을 쓴 요소들 */
-:root[data-theme="dark"] .issue-card-error {
-    background-color: rgba(220, 38, 38, 0.14);
+/* 실시간 모니터링 (MaxGauge 스타일 AAS 그래프) */
+.rt-toolbar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 10px 0 4px;
 }
 
-:root[data-theme="dark"] .issue-card-warn {
-    background-color: rgba(217, 119, 6, 0.14);
+.rt-toolbar select {
+    width: auto;
+    min-width: 220px;
 }
 
-:root[data-theme="dark"] .issue-message {
-    color: #fca5a5;
+.rt-status-dot {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background-color: var(--text-muted);
+    margin-right: 6px;
 }
 
+.rt-status-dot.live {
+    background-color: var(--success);
+    box-shadow: 0 0 0 0 rgba(46, 125, 79, 0.6);
+    animation: rt-pulse 1.6s infinite;
+}
+
+@keyframes rt-pulse {
+    0% { box-shadow: 0 0 0 0 rgba(46, 125, 79, 0.55); }
+    70% { box-shadow: 0 0 0 6px rgba(46, 125, 79, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(46, 125, 79, 0); }
+}
+
+.rt-total {
+    font-weight: 700;
+    color: var(--text);
+}
+
+.rt-panel {
+    max-width: 1400px;
+    width: 92%;
+    margin: 16px auto;
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 16px 20px;
+}
+
+.rt-panel h3 {
+    margin: 0 0 10px;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text);
+}
+
+/* 현재 시점 AAS 구성 — 가로 누적 막대 */
+.aas-now {
+    display: flex;
+    width: 100%;
+    height: 26px;
+    border-radius: 6px;
+    overflow: hidden;
+    background-color: var(--surface-alt);
+}
+
+.aas-now-empty {
+    color: var(--text-muted);
+    font-size: 13px;
+    padding: 4px 0;
+}
+
+.aas-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.legend-swatch {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    margin-right: 5px;
+    vertical-align: middle;
+}
+
+/* 최근 N개 스냅샷을 옆으로 흘러가는 wait class별 선 그래프(Chart.js)를 표시 */
+.aas-chart {
+    position: relative;
+    height: 240px;
+    padding: 8px;
+    background-color: var(--surface-alt);
+    border-radius: 6px;
+}
+
+.aas-chart-axis {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+
+.wait-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 999px;
+    color: #ffffff;
+    white-space: nowrap;
+}
+
+/* 다크 모드 보정 — 나머지는 --danger/--warning/--*-soft 토큰 자체가 테마별로
+   갈라지므로(위 :root[data-theme="dark"] 블록) 여기서 더 손댈 게 없다. */
 :root[data-theme="dark"] input[type="text"],
 :root[data-theme="dark"] input[type="number"],
 :root[data-theme="dark"] input[type="password"],
