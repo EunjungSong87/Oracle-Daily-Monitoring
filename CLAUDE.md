@@ -26,6 +26,22 @@ Required `.env` values (see `.env.example`): `NODE_ORACLEDB_*` (metadata DB conn
 
 There is a local Docker Oracle instance for testing: `docker-compose.yml` (`gvenzl/oracle-free:23.4`, pinned below latest — a newer image breaks a downstream Debezium CDC connector's version-detection query), auto-initialized from `docker/initdb/*.sql` (schema + seed data) on first container start.
 
+## Frontend — React (client/)
+
+The entire frontend has been migrated to React + TypeScript, built by Vite as a multi-page app (MPA — one entry/bundle per page, real full-page navigation between them, no client-side router) that lives in `client/`. `public/*.html` and everything under `public/assets/` are **generated build output** — do not hand-edit them; edit `client/src/*` (or the per-page `client/*.html` entry shells) instead and rebuild:
+
+```
+npm run build:client   # or: npm --prefix client run build
+```
+
+Like the rest of the repo, `client/node_modules` and the built output under `public/` are committed to git (no separate install/build step needed to run the app) — after changing `client/src`, rebuild and commit the regenerated `public/` files in the same change. `client/` has its own `package.json`/`tsconfig.json`/`vite.config.ts` and is excluded from the root `tsconfig.json`/`eslint.config.js` (which only whitelist backend directories / ignore `client/**` respectively).
+
+- **Layout**: `client/src/shared/` (`components/` — `AppHeader` takes an `active` prop to highlight the current nav item, `Modal`, `NavIconSprite`, `ToastHost`, `MonitoringResultTable`; `hooks/` — `useCurrentUser`, `useTheme`; `lib/` — `api.ts` (typed fetch wrappers for every backend endpoint), `types.ts`, `toastStore.ts`, `downloadFolder.ts`) is shared across all pages. `client/src/pages/<name>/` (`main.tsx` + `App.tsx`, plus any page-local components like modals) holds one folder per page — `dailyMonitoring`, `databases`, `scripts`, `thresholds`, `history`, `issues`, `tableSpec`, `users`, `realtime`, `login`.
+- **Vite config** (`client/vite.config.ts`): `outDir` points at `../public` with `emptyOutDir: false` (must never wipe sibling pages), `rollupOptions.input` lists every page's entry html explicitly (Vite only auto-detects `index.html`), and output filenames are fixed/non-hashed (`assets/pages/<name>.js`, `assets/chunks/<name>.js`) so rebuilds overwrite in place instead of accumulating orphans — **add a new page to `input` only once its `App.tsx` is real**, since adding it early would overwrite a still-working page with an unfinished one on the next build. `manualChunks` is a function (not the shorthand object form) so shared-chunk names stay deterministic (`vendor` = node_modules, `shared` = `client/src/shared/**`) rather than whatever arbitrary module Rollup picks to split — this matters because `middleware/auth.ts`'s pre-auth allowlist has to name exact file paths (see below). `modulePreload: false` avoids Vite injecting yet another auto-named shared chunk.
+- **login is the one page with no `<AppHeader/>`** (the vanilla version had no `<nav>` either) and the one place this migration touched the backend: `middleware/auth.ts`'s `PUBLIC_STATIC_PATHS` allowlist had to add `/assets/pages/login.js` and `/assets/chunks/{vendor,shared}.js` — the login page's own JS must be reachable *before* authentication, or the redirect-to-login loop breaks. If you ever change what `login`'s bundle imports (e.g. it starts depending on a new shared module that gets its own chunk), re-check this allowlist.
+- Every page consumes the existing Express API as-is (`/api/*`, `/auth/*`) — this migration did not change any router/controller/service/model beyond the one `middleware/auth.ts` allowlist edit above.
+- `public/updateDbms.html`, `public/showMonitor.html`, and `public/addDbms.js` are dead/orphaned files from an earlier iteration (nothing links to them, they call endpoints that no longer exist) — intentionally left as-is, not migrated, not deleted. `public/common.js` is now also fully superseded (every page's equivalent logic was ported into `client/src/shared/`, and none of the new `client/*.html` entries load it) but is likewise left in place rather than deleted, since removing it wasn't asked for.
+
 ## Architecture
 
 **Two-database model** — this is the key thing to understand before touching `models/dbmsModel.ts` or `services/dbmsService.ts`:

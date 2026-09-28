@@ -68,6 +68,7 @@ const NAV_ICON_SPRITE = `
         <g id="ic-table" fill="none"><rect x="2" y="3" width="12" height="10" rx="1.6" stroke="currentColor" stroke-width="1.3"/><line x1="2" y1="6.6" x2="14" y2="6.6" stroke="currentColor" stroke-width="1.1"/><line x1="7.6" y1="6.6" x2="7.6" y2="13" stroke="currentColor" stroke-width="1.1"/></g>
         <g id="ic-user" fill="none"><circle cx="8" cy="5.3" r="2.6" stroke="currentColor" stroke-width="1.3"/><path d="M2.6 13.2c0-3 2.4-5 5.4-5s5.4 2 5.4 5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></g>
         <g id="ic-logout" fill="none"><path d="M6.4 2.6H3.6a1 1 0 0 0-1 1v8.8a1 1 0 0 0 1 1h2.8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.5 5.2 12.8 8l-3.3 2.8M12.8 8H6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></g>
+        <g id="ic-realtime" fill="none"><circle cx="8" cy="8" r="1.4" fill="currentColor"/><circle cx="8" cy="8" r="4" stroke="currentColor" stroke-width="1.2" opacity="0.7"/><circle cx="8" cy="8" r="6.6" stroke="currentColor" stroke-width="1.1" opacity="0.35"/></g>
     </defs>
 `;
 

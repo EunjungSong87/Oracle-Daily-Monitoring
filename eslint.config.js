@@ -3,7 +3,8 @@ const tseslint = require('typescript-eslint');
 
 module.exports = tseslint.config(
   {
-    ignores: ['node_modules/**', 'dist/**', 'public/**', 'instantclient_19_25/**', 'eslint.config.js'],
+    // client/**: React 파일럿(client/)은 자체 tsconfig/toolchain을 쓰는 별도 프로젝트라 여기서 제외.
+    ignores: ['node_modules/**', 'dist/**', 'public/**', 'instantclient_19_25/**', 'eslint.config.js', 'client/**'],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
