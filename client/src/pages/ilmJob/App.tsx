@@ -25,7 +25,7 @@ const ILM_COLUMNS = [
   'MEMO',
 ];
 
-// public/ilmJob.html (vanilla) 포팅. 조회/등록/수정 모두 DBA 이상 (routers/ilmJobRouters.ts와 동일 기준).
+// public/ilmJob.html (vanilla) 포팅. 조회/등록/수정 모두 SUPER_ADMIN 전용 (routers/ilmJobRouters.ts와 동일 기준).
 export function App(): ReactElement {
   const { user, loading: userLoading } = useCurrentUser();
   const canManage = isDbaOrAbove(user);

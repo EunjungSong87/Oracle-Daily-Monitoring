@@ -175,23 +175,25 @@ export function AppHeader({ active }: Props): ReactElement {
                   </a>
                 </li>
                 {user?.role === 'SUPER_ADMIN' && (
-                  <li>
-                    <a href="statsJob.html" className={`nav-accent-7${active === 'statsJob' ? ' current' : ''}`}>
-                      <svg className="nav-icon" viewBox="0 0 16 16">
-                        <use href="#ic-stats" />
-                      </svg>
-                      Stats Job Status
-                    </a>
-                  </li>
+                  <>
+                    <li>
+                      <a href="statsJob.html" className={`nav-accent-7${active === 'statsJob' ? ' current' : ''}`}>
+                        <svg className="nav-icon" viewBox="0 0 16 16">
+                          <use href="#ic-stats" />
+                        </svg>
+                        Stats Job Status
+                      </a>
+                    </li>
+                    <li>
+                      <a href="ilmJob.html" className={`nav-accent-7${active === 'ilmJob' ? ' current' : ''}`}>
+                        <svg className="nav-icon" viewBox="0 0 16 16">
+                          <use href="#ic-archive" />
+                        </svg>
+                        ILM Partition Retention
+                      </a>
+                    </li>
+                  </>
                 )}
-                <li>
-                  <a href="ilmJob.html" className={`nav-accent-7${active === 'ilmJob' ? ' current' : ''}`}>
-                    <svg className="nav-icon" viewBox="0 0 16 16">
-                      <use href="#ic-archive" />
-                    </svg>
-                    ILM Partition Retention
-                  </a>
-                </li>
               </ul>
             </li>
 

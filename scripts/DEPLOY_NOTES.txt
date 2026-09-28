@@ -147,7 +147,7 @@ reports/ 폴더에 쓰기 권한이 있어야 예약 실행 리포트가 저장�
     (빌드 파일명이 해시 없이 고정이라 브라우저 캐시가 남아 있을 수 있음)
   - Databases: 연결 테스트 성공
   - Monitoring > Daily Monitoring 실행, Real-Time 세션 조회
-  - Maintenance > Stats Job Status (SUPER_ADMIN만 메뉴에 보임), ILM Partition Retention (DBA 이상)
+  - Maintenance > Stats Job Status, ILM Partition Retention (둘 다 SUPER_ADMIN만 메뉴에 보임)
 
 
 ============================================================
@@ -155,8 +155,8 @@ reports/ 폴더에 쓰기 권한이 있어야 예약 실행 리포트가 저장�
 ============================================================
   - VIEWER      : 전부 조회 + Issues 티켓 확인/해결/댓글/담당자 지정 + 수동 점검 실행.
   - DBA         : VIEWER + DBMS 등록/수정/삭제, Scripts/Thresholds 관리, 예약실행 설정,
-                  Table Spec 추출, ILM Partition Retention 조회/등록/수정.
-  - SUPER_ADMIN : DBA + 계정 관리(Users), Stats Job Status.
+                  Table Spec 추출.
+  - SUPER_ADMIN : DBA + 계정 관리(Users), Stats Job Status, ILM Partition Retention 조회/등록/수정.
 
 역할을 바꿔도 이미 로그인한 세션에는 바로 반영되지 않습니다 — 다시 로그인해야 적용됩니다.
 
