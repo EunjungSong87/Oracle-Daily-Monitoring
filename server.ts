@@ -15,6 +15,8 @@ import session from 'express-session';
 import oracle from 'oracledb';
 import dbmsRouters from './routers/dbmsRouters'; // 라우터 가져오기
 import tableSpecRouters from './routers/tableSpecRouters';
+import statsJobRouters from './routers/statsJobRouters';
+import ilmJobRouters from './routers/ilmJobRouters';
 import authRouters from './routers/authRouters';
 import usersRouters from './routers/usersRouters';
 import realtimeRouters from './routers/realtimeRouters';
@@ -102,5 +104,7 @@ startScheduler();
 app.use('/main', dbmsRouters);
 app.use('/api', dbmsRouters);
 app.use('/api', tableSpecRouters);
+app.use('/api', statsJobRouters);
+app.use('/api', ilmJobRouters);
 app.use('/api', usersRouters);
 app.use('/api', realtimeRouters);

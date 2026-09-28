@@ -17,8 +17,11 @@ export type ActivePage =
   | 'issues'
   | 'realtime'
   | 'tableSpec'
+  | 'statsJob'
+  | 'ilmJob'
   | 'users';
 
+const MAINTENANCE_GROUP: ActivePage[] = ['tableSpec', 'statsJob', 'ilmJob'];
 const MONITORING_GROUP: ActivePage[] = ['dailyMonitoring', 'scripts', 'thresholds', 'history', 'issues', 'realtime'];
 const DAILY_MONITORING_CHILDREN: ActivePage[] = ['scripts', 'thresholds', 'history', 'issues'];
 
@@ -155,7 +158,7 @@ export function AppHeader({ active }: Props): ReactElement {
             <li className="nav-dropdown">
               <a
                 href="tableSpec.html"
-                className={`nav-accent-7 nav-dropdown-trigger${active === 'tableSpec' ? ' nav-group-active' : ''}`}
+                className={`nav-accent-7 nav-dropdown-trigger${MAINTENANCE_GROUP.includes(active) ? ' nav-group-active' : ''}`}
               >
                 <svg className="nav-icon" viewBox="0 0 16 16">
                   <use href="#ic-wrench" />
@@ -169,6 +172,24 @@ export function AppHeader({ active }: Props): ReactElement {
                       <use href="#ic-table" />
                     </svg>
                     Table Spec
+                  </a>
+                </li>
+                {user?.role === 'SUPER_ADMIN' && (
+                  <li>
+                    <a href="statsJob.html" className={`nav-accent-7${active === 'statsJob' ? ' current' : ''}`}>
+                      <svg className="nav-icon" viewBox="0 0 16 16">
+                        <use href="#ic-stats" />
+                      </svg>
+                      Stats Job Status
+                    </a>
+                  </li>
+                )}
+                <li>
+                  <a href="ilmJob.html" className={`nav-accent-7${active === 'ilmJob' ? ' current' : ''}`}>
+                    <svg className="nav-icon" viewBox="0 0 16 16">
+                      <use href="#ic-archive" />
+                    </svg>
+                    ILM Partition Retention
                   </a>
                 </li>
               </ul>

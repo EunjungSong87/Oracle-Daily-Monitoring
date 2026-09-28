@@ -25,3 +25,7 @@ export function useCurrentUser(): { user: CurrentUser | null; loading: boolean }
 export function isDbaOrAbove(user: CurrentUser | null): boolean {
   return !!user && (user.role === 'DBA' || user.role === 'SUPER_ADMIN');
 }
+
+export function isSuperAdmin(user: CurrentUser | null): boolean {
+  return !!user && user.role === 'SUPER_ADMIN';
+}

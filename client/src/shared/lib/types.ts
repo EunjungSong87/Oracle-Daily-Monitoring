@@ -240,3 +240,45 @@ export interface RealtimeSnapshot {
   timestamp: string;
   sessions: SessionRow[];
 }
+
+// POST /api/statsJob/status 한 행 (DBA_SCHEDULER_JOBS + 최근 실행 이력, models/statsJobModel.ts 기준).
+export type StatsJobRow = Record<string, unknown> & {
+  JOB_NAME: string;
+  STATE?: string | null;
+  STATUS?: string | null;
+  ACTUAL_START_DATE?: string | null;
+};
+
+// POST /api/ilmJob/list 한 행 (PGDBA.DEL_JOB_TABLE_LIST 기준).
+export type IlmRetentionRow = Record<string, unknown> & {
+  TABLE_OWNER: string;
+  TABLE_NAME: string;
+};
+
+// /api/statsJob/run, /api/ilmJob/add|update 응답 — 실패도 200 + success:false로 내려온다.
+export interface JobActionResult {
+  success: boolean;
+  message: string;
+}
+
+export interface IlmRetentionUpdatePayload {
+  dbmsid: string | number;
+  tableOwner: string;
+  tableName: string;
+  workGroup: string | null;
+  deleteCycle: string | null;
+  oggSyncYn: string | null;
+  status: string | null;
+  comments: string | null;
+  memo: string | null;
+}
+
+export interface IlmRetentionAddPayload extends IlmRetentionUpdatePayload {
+  stdColumn: string | null;
+  rangeType: string | null;
+  partitionYn: string | null;
+  partitionType: string | null;
+  startHighvalue: string | null;
+  endHighvalue: string | null;
+  stdDate: string | null;
+}
