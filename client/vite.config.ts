@@ -41,6 +41,8 @@ export default defineConfig({
         issues: fileURLToPath(new URL('./issues.html', import.meta.url)),
         tableSpec: fileURLToPath(new URL('./tableSpec.html', import.meta.url)),
         realtime: fileURLToPath(new URL('./realtimeMonitoring.html', import.meta.url)),
+        statsJob: fileURLToPath(new URL('./statsJob.html', import.meta.url)),
+        ilmJob: fileURLToPath(new URL('./ilmJob.html', import.meta.url)),
       },
       output: {
         manualChunks(id) {

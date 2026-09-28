@@ -2,9 +2,13 @@ import type {
   CurrentUser,
   DbmsFormPayload,
   DbmsListResponse,
+  IlmRetentionAddPayload,
+  IlmRetentionRow,
+  IlmRetentionUpdatePayload,
   IssueDetail,
   IssueRow,
   IssueStatus,
+  JobActionResult,
   MonitoringTaskResult,
   RealtimeSnapshot,
   RunHistoryDetail,
@@ -12,6 +16,7 @@ import type {
   ScheduleConfig,
   ScriptFormPayload,
   ScriptListResponse,
+  StatsJobRow,
   TableSpecSchemas,
   TestConnectionResult,
   ThresholdFormPayload,
@@ -251,4 +256,30 @@ export async function downloadTableSpec(
 // ── Realtime ─────────────────────────────────────────────────────────────────
 export function pollSessions(dbmsid: string | number): Promise<RealtimeSnapshot> {
   return postJson('/api/realtime/sessions', { dbmsid });
+}
+
+// ── Stats Job ────────────────────────────────────────────────────────────────
+export function getStatsJobStatus(dbmsid: string | number): Promise<StatsJobRow[]> {
+  return postJson('/api/statsJob/status', { dbmsid });
+}
+
+export function getStaleStats(dbmsid: string | number, thresholdDays: number): Promise<Record<string, unknown>[]> {
+  return postJson('/api/statsJob/staleStats', { dbmsid, thresholdDays });
+}
+
+export function runStatsJob(dbmsid: string | number, jobName: string): Promise<JobActionResult> {
+  return postJson('/api/statsJob/run', { dbmsid, jobName });
+}
+
+// ── ILM Partition Retention ──────────────────────────────────────────────────
+export function getIlmRetentionList(dbmsid: string | number): Promise<IlmRetentionRow[]> {
+  return postJson('/api/ilmJob/list', { dbmsid });
+}
+
+export function addIlmRetention(payload: IlmRetentionAddPayload): Promise<JobActionResult> {
+  return postJson('/api/ilmJob/add', payload);
+}
+
+export function updateIlmRetention(payload: IlmRetentionUpdatePayload): Promise<JobActionResult> {
+  return postJson('/api/ilmJob/update', payload);
 }

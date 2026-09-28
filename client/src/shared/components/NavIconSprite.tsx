@@ -88,6 +88,22 @@ export function NavIconSprite(): ReactElement {
           <line x1={2} y1={6.6} x2={14} y2={6.6} stroke="currentColor" strokeWidth={1.1} />
           <line x1={7.6} y1={6.6} x2={7.6} y2={13} stroke="currentColor" strokeWidth={1.1} />
         </g>
+        <g id="ic-stats" fill="none">
+          <line x1={1.8} y1={13.4} x2={14.2} y2={13.4} stroke="currentColor" strokeWidth={1.2} strokeLinecap="round" />
+          <rect x={3} y={8.6} width={2.6} height={4.8} rx={0.5} stroke="currentColor" strokeWidth={1.2} />
+          <rect x={6.9} y={5.4} width={2.6} height={8} rx={0.5} stroke="currentColor" strokeWidth={1.2} />
+          <rect x={10.8} y={2.6} width={2.6} height={10.8} rx={0.5} stroke="currentColor" strokeWidth={1.2} />
+        </g>
+        <g id="ic-archive" fill="none">
+          <rect x={2} y={2.6} width={12} height={2.8} rx={0.6} stroke="currentColor" strokeWidth={1.2} />
+          <path
+            d="M2.9 5.4v6.4a1.4 1.4 0 0 0 1.4 1.4h7.4a1.4 1.4 0 0 0 1.4-1.4V5.4"
+            stroke="currentColor"
+            strokeWidth={1.2}
+            strokeLinejoin="round"
+          />
+          <line x1={6.3} y1={8} x2={9.7} y2={8} stroke="currentColor" strokeWidth={1.2} strokeLinecap="round" />
+        </g>
         <g id="ic-user" fill="none">
           <circle cx={8} cy={5.3} r={2.6} stroke="currentColor" strokeWidth={1.3} />
           <path
