@@ -46,6 +46,9 @@ export default defineConfig({
       },
       output: {
         manualChunks(id) {
+          // Chart.js는 Real-Time 페이지만 쓰므로 vendor에 섞지 않고 따로 뺀다 — 안 그러면
+          // 로그인 페이지를 포함한 모든 페이지가 차트 라이브러리까지 내려받게 된다.
+          if (id.includes('node_modules/chart.js') || id.includes('node_modules/@kurkle/color')) return 'chart';
           if (id.includes('node_modules')) return 'vendor';
           if (id.includes('/src/shared/')) return 'shared';
           return undefined;

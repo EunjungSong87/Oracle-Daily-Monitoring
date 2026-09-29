@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react';
+import Chart from 'chart.js/auto';
+import type { TooltipItem } from 'chart.js';
 import { AppHeader } from '../../shared/components/AppHeader';
 import { ToastHost } from '../../shared/components/ToastHost';
 import { useTheme } from '../../shared/hooks/useTheme';
@@ -7,19 +9,16 @@ import { showToast } from '../../shared/lib/toastStore';
 import type { DbmsRow, SessionRow } from '../../shared/lib/types';
 import { colorFor, WAIT_CLASS_ORDER } from './waitClasses';
 
-// Chart.js는 client/realtimeMonitoring.html의 <head>에서 CDN <script>로 로드된 전역이다
-// (원본과 동일한 로딩 방식 유지 — 번들에 포함하지 않음). 타입은 원본도 plain JS라
-// 안전성이 없었던 것과 동등한 수준으로 최소한만 선언한다.
-declare global {
-  interface Window {
-    Chart: new (canvas: HTMLCanvasElement, config: unknown) => {
-      data: { labels: string[]; datasets: { label: string; data: number[]; hidden: boolean }[] };
-      options: { scales: { x: { grid: { color: string }; ticks: { color: string } }; y: { grid: { color: string }; ticks: { color: string }; suggestedMax: number } } };
-      update: (mode?: string) => void;
-      destroy: () => void;
-    };
-  }
-}
+// Chart.js는 번들에 포함한다 (vite.config.ts에서 별도 'chart' 청크로 분리).
+// 예전처럼 CDN에서 받으면 인터넷이 안 되는 내부망에서 window.Chart가 없어 페이지 전체가 죽는다.
+// 아래 타입은 이 파일에서 실제로 건드리는 필드만 좁혀서 선언한 것 — Chart.js 자체 타입은
+// datasets/scales가 차트 종류별 유니언이라 그대로 쓰면 필드 접근마다 좁히기가 필요하다.
+type ChartInstance = {
+  data: { labels: string[]; datasets: { label: string; data: number[]; hidden: boolean }[] };
+  options: { scales: { x: { grid: { color: string }; ticks: { color: string } }; y: { grid: { color: string }; ticks: { color: string }; suggestedMax: number } } };
+  update: (mode?: 'none') => void;
+  destroy: () => void;
+};
 
 const POLL_INTERVAL_MS = 2000;
 const MAX_SAMPLES = 60; // 2초 * 60 = 최근 2분
@@ -37,7 +36,7 @@ function buildChartOptions(theme: 'light' | 'dark') {
     responsive: true,
     maintainAspectRatio: false,
     animation: { duration: 250 },
-    interaction: { mode: 'index', intersect: false },
+    interaction: { mode: 'index' as const, intersect: false },
     scales: {
       x: {
         grid: { color: gridColor },
@@ -53,8 +52,12 @@ function buildChartOptions(theme: 'light' | 'dark') {
       legend: { display: false }, // 위쪽 "현재 구성" 범례를 공용으로 씀
       tooltip: {
         callbacks: {
-          label: (ctx: { parsed: { y: number }; dataset: { label: string } }) =>
-            ctx.parsed.y > 0 ? `${ctx.dataset.label}: ${ctx.parsed.y}` : null,
+          // 값이 0인 항목은 null을 돌려 툴팁에서 숨긴다. Chart.js는 undefined일 때만 기본 라벨로
+          // 대체하고 null은 그대로 쓰지만, 타입 선언에는 null이 빠져 있어 캐스팅한다.
+          label: ((ctx: TooltipItem<'line'>) =>
+            (ctx.parsed.y ?? 0) > 0 ? `${ctx.dataset.label}: ${ctx.parsed.y}` : null) as (
+            ctx: TooltipItem<'line'>,
+          ) => string,
         },
       },
     },
@@ -74,7 +77,7 @@ export function App(): ReactElement {
   const [sessions, setSessions] = useState<SessionRow[]>([]);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const chartRef = useRef<InstanceType<Window['Chart']> | null>(null);
+  const chartRef = useRef<ChartInstance | null>(null);
   const historyRef = useRef<HistorySample[]>([]);
 
   function updateChart(): void {
@@ -94,7 +97,7 @@ export function App(): ReactElement {
   // 차트는 마운트 시 한 번만 만들고, 언마운트 시 정리한다.
   useEffect(() => {
     if (!canvasRef.current) return;
-    const chart = new window.Chart(canvasRef.current, {
+    const chart = new Chart(canvasRef.current, {
       type: 'line',
       data: {
         labels: [],
@@ -113,7 +116,7 @@ export function App(): ReactElement {
       },
       options: buildChartOptions(theme),
     });
-    chartRef.current = chart;
+    chartRef.current = chart as unknown as ChartInstance;
     return () => {
       chart.destroy();
       chartRef.current = null;
