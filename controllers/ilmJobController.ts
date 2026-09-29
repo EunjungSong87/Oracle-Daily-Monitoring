@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import type { Request, Response } from 'express';
 import * as ilmJobService from '../services/ilmJobService';
 
@@ -14,7 +15,7 @@ async function getPartitionRetentionList(req: Request, res: Response): Promise<R
     const rows = await ilmJobService.getPartitionRetentionList({ dbmsid });
     res.status(200).json(rows);
   } catch (error) {
-    console.error('Controller : 파티션 보관주기(ILM) 목록 조회 오류:', error);
+    logger.error('ILM', '파티션 보관주기(ILM) 목록 조회 오류', error);
     res.status(500).json({ message: '서버 오류 발생' });
   }
 }
@@ -44,7 +45,7 @@ async function updatePartitionRetention(req: Request, res: Response): Promise<Re
     }
     res.status(200).json({ success: true, message: '수정되었습니다.' });
   } catch (error) {
-    console.error('Controller : 파티션 보관주기(ILM) 수정 오류:', error);
+    logger.error('ILM', '파티션 보관주기(ILM) 수정 오류', error);
     res.status(200).json({ success: false, message: errMsg(error) });
   }
 }
@@ -94,7 +95,7 @@ async function addPartitionRetention(req: Request, res: Response): Promise<Respo
     });
     res.status(200).json({ success: true, message: '등록되었습니다.' });
   } catch (error) {
-    console.error('Controller : 파티션 보관주기(ILM) 등록 오류:', error);
+    logger.error('ILM', '파티션 보관주기(ILM) 등록 오류', error);
     res.status(200).json({ success: false, message: errMsg(error) });
   }
 }

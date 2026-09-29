@@ -40,9 +40,6 @@ async function getSchemas(dbmsid: DbmsIdParam): Promise<string[]> {
     `;
     const result = await connection.execute<Record<string, any>>(query, {}, { outFormat: oracledb.OUT_FORMAT_OBJECT });
     return (result.rows ?? []).map((row) => row.OWNER);
-  } catch (err) {
-    console.error('스키마 목록 조회 오류:', err);
-    throw err;
   } finally {
     if (connection) await connection.close();
   }
@@ -55,9 +52,6 @@ async function getTables(dbmsid: DbmsIdParam, owner: string): Promise<string[]> 
     const query = `SELECT TABLE_NAME FROM DBA_TABLES WHERE OWNER = :owner ORDER BY TABLE_NAME`;
     const result = await connection.execute<Record<string, any>>(query, { owner }, { outFormat: oracledb.OUT_FORMAT_OBJECT });
     return (result.rows ?? []).map((row) => row.TABLE_NAME);
-  } catch (err) {
-    console.error('테이블 목록 조회 오류:', err);
-    throw err;
   } finally {
     if (connection) await connection.close();
   }
@@ -174,9 +168,6 @@ async function getTableSpec(dbmsid: DbmsIdParam, owner: string, tableNames: stri
       grants: grantsResult.rows ?? [],
       synonyms: synonymsResult.rows ?? [],
     };
-  } catch (err) {
-    console.error('테이블 명세 조회 오류:', err);
-    throw err;
   } finally {
     if (connection) await connection.close();
   }

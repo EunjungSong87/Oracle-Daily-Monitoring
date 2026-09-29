@@ -10,29 +10,26 @@ import type {
 } from '../models/dbmsModel';
 import * as historyModel from '../models/historyModel';
 import * as issuesModel from '../models/issuesModel';
+import { logger } from '../utils/logger';
 
 function errMsg(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-// 사용자 목록 가져오기
+// DBMS 목록 가져오기
 async function getAllDbmses(): Promise<QueryResult> {
   try {
-    console.log('getAllDbmses Services ');
     return await dbmsList.getAllDbmses();
   } catch (error) {
-    console.error('Service : 사용자 목록 조회 실패:', error);
-    throw new Error('사용자 목록 조회 실패', { cause: error });
+    throw new Error('DBMS 목록 조회 실패', { cause: error });
   }
 }
 
 // <-- 모니터링 스크립트 정보 가져오기
 async function getScripts(): Promise<QueryResult> {
   try {
-    console.log('getScripts Service!! ');
     return await dbmsList.getScripts();
   } catch (error) {
-    console.error('Service : 스크립트 목록 조회 실패:', error);
     throw new Error('스크립트 목록 조회 실패', { cause: error });
   }
 }
@@ -41,7 +38,6 @@ async function getDbmsInfo(dbmsid: DbmsIdParam): Promise<any[] | null> {
   try {
     return await dbmsList.getDbmsInfo(dbmsid);
   } catch (error) {
-    console.error('Service : DBMS 정보 가져오기 실패:', error);
     throw new Error('DBMS 정보 가져오기 실패', { cause: error });
   }
 }
@@ -49,20 +45,16 @@ async function getDbmsInfo(dbmsid: DbmsIdParam): Promise<any[] | null> {
 async function getSqlText(scriptid: { id: number | string }): Promise<string | null> {
   try {
     const sql = await dbmsList.getSqlText(scriptid);
-    console.log('Get SQL TEXT', sql);
     return sql;
   } catch (error) {
-    console.error('Service : script 정보 가져오기 실패:', error);
     throw new Error('script 정보 가져오기 실패', { cause: error });
   }
 }
 
 async function listTasks(): Promise<any> {
   try {
-    console.log('system.listTasks 서비스 함수');
     return await dbmsList.listTasks();
   } catch (error) {
-    console.error('Service : Tasks 가져오기 실패:', error);
     throw new Error('Tasks 가져오기 실패', { cause: error });
   }
 }
@@ -151,7 +143,6 @@ async function getMonResult(
     tasks = await listTasks();
     thresholds = await dbmsList.getActiveThresholds();
   } catch (error) {
-    console.error('Service : Monitoring Result 가져오기 실패:', error);
     throw new Error('Monitoring Result 가져오기 실패', { cause: error });
   }
 
@@ -171,7 +162,6 @@ async function getMonResult(
   try {
     targetConnection = await dbmsList.connectToTarget(dbconfig);
   } catch (error) {
-    console.error('Service : 대상 DB 접속 실패:', error);
     throw new Error('대상 DB 접속 실패', { cause: error });
   }
 
@@ -196,7 +186,7 @@ async function getMonResult(
           success: true,
         });
       } catch (error) {
-        console.error(`Service : 태스크(${id}:${checkName}) 실행 실패:`, error);
+        logger.warn('Monitor', `[${dbconfig[6]}] 태스크 ${id}(${checkName}) 실행 실패`, error);
         results.push({
           task_id: id,
           task_name: checkName,
@@ -218,10 +208,10 @@ async function getMonResult(
     try {
       await issuesModel.syncIssues(dbmsid.dbmsid, dbname, runHistoryId, results);
     } catch (error) {
-      console.error('Service : 이슈 동기화 실패 (점검 결과는 정상 반환):', error);
+      logger.warn('Monitor', `[${dbname}] 이슈 동기화 실패 (점검 결과는 정상 반환)`, error);
     }
   } catch (error) {
-    console.error('Service : 실행 이력 저장 실패 (점검 결과는 정상 반환):', error);
+    logger.warn('Monitor', `[${dbconfig[6]}] 실행 이력 저장 실패 (점검 결과는 정상 반환)`, error);
   }
 
   return results;
@@ -237,8 +227,7 @@ async function addDbms(dbmsInfo: DbmsInfo): Promise<number> {
   try {
     return await dbmsList.addDbms(dbmsInfo);
   } catch (error) {
-    console.error('Service : DBMS 등록 실패:', error);
-    throw new Error('Service : DBMS 등록 실패', { cause: error });
+    throw new Error('DBMS 등록 실패', { cause: error });
   }
 }
 
@@ -246,8 +235,7 @@ async function modifyDbms(dbmsInfo: DbmsInfo): Promise<number> {
   try {
     return await dbmsList.modifyDbms(dbmsInfo);
   } catch (error) {
-    console.error('Service : DBMS 수정 실패:', error);
-    throw new Error('Service : DBMS 수정 실패', { cause: error });
+    throw new Error('DBMS 수정 실패', { cause: error });
   }
 }
 
@@ -255,8 +243,7 @@ async function modifyScript(scriptInfo: ScriptInfo): Promise<number> {
   try {
     return await dbmsList.modifyScript(scriptInfo);
   } catch (error) {
-    console.error('Service : 스크립트 수정 실패:', error);
-    throw new Error('Service : 스크립트 수정 실패', { cause: error });
+    throw new Error('스크립트 수정 실패', { cause: error });
   }
 }
 
@@ -264,8 +251,7 @@ async function deleteDbms(dbmsId: Record<string, any>): Promise<number> {
   try {
     return await dbmsList.deleteDbms(dbmsId);
   } catch (error) {
-    console.error('Service : DBMS 삭제 실패:', error);
-    throw new Error('Service : DBMS 삭제 실패', { cause: error });
+    throw new Error('DBMS 삭제 실패', { cause: error });
   }
 }
 
@@ -273,8 +259,7 @@ async function addScript(scriptInfo: ScriptInfo): Promise<number> {
   try {
     return await dbmsList.addScript(scriptInfo);
   } catch (error) {
-    console.error('Service : 스크립트 등록 실패:', error);
-    throw new Error('Service : 스크립트 등록 실패', { cause: error });
+    throw new Error('스크립트 등록 실패', { cause: error });
   }
 }
 
@@ -282,8 +267,7 @@ async function deleteScript(scriptId: Record<string, any>): Promise<number> {
   try {
     return await dbmsList.deleteScript(scriptId);
   } catch (error) {
-    console.error('Service : 스크립트 삭제 실패:', error);
-    throw new Error('Service : 스크립트 삭제 실패', { cause: error });
+    throw new Error('스크립트 삭제 실패', { cause: error });
   }
 }
 
@@ -291,7 +275,6 @@ async function getThresholds(): Promise<QueryResult> {
   try {
     return await dbmsList.getThresholds();
   } catch (error) {
-    console.error('Service : 임계치 목록 조회 실패:', error);
     throw new Error('임계치 목록 조회 실패', { cause: error });
   }
 }
@@ -300,8 +283,7 @@ async function addThreshold(thresholdInfo: ThresholdInfo): Promise<number> {
   try {
     return await dbmsList.addThreshold(thresholdInfo);
   } catch (error) {
-    console.error('Service : 임계치 등록 실패:', error);
-    throw new Error('Service : 임계치 등록 실패', { cause: error });
+    throw new Error('임계치 등록 실패', { cause: error });
   }
 }
 
@@ -309,8 +291,7 @@ async function modifyThreshold(thresholdInfo: ThresholdInfo): Promise<number> {
   try {
     return await dbmsList.modifyThreshold(thresholdInfo);
   } catch (error) {
-    console.error('Service : 임계치 수정 실패:', error);
-    throw new Error('Service : 임계치 수정 실패', { cause: error });
+    throw new Error('임계치 수정 실패', { cause: error });
   }
 }
 
@@ -318,8 +299,7 @@ async function deleteThreshold(thresholdId: Record<string, any>): Promise<number
   try {
     return await dbmsList.deleteThreshold(thresholdId);
   } catch (error) {
-    console.error('Service : 임계치 삭제 실패:', error);
-    throw new Error('Service : 임계치 삭제 실패', { cause: error });
+    throw new Error('임계치 삭제 실패', { cause: error });
   }
 }
 
@@ -327,7 +307,6 @@ async function getScheduleConfig(): Promise<ScheduleConfig> {
   try {
     return await dbmsList.getScheduleConfig();
   } catch (error) {
-    console.error('Service : 예약 실행 설정 조회 실패:', error);
     throw new Error('예약 실행 설정 조회 실패', { cause: error });
   }
 }
@@ -337,7 +316,6 @@ async function saveScheduleConfig(config: ScheduleConfig, dbmsIds: (number | str
     await dbmsList.saveScheduleConfig(config);
     await dbmsList.setAutoScheduleTargets(dbmsIds);
   } catch (error) {
-    console.error('Service : 예약 실행 설정 저장 실패:', error);
     throw new Error('예약 실행 설정 저장 실패', { cause: error });
   }
 }

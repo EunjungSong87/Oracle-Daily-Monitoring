@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import * as tableSpecService from '../services/tableSpecService';
+import { logger } from '../utils/logger';
 
 async function getSchemas(req: Request, res: Response): Promise<Response | void> {
   try {
@@ -10,7 +11,7 @@ async function getSchemas(req: Request, res: Response): Promise<Response | void>
     const schemas = await tableSpecService.getSchemas({ dbmsid });
     res.status(200).json(schemas);
   } catch (error) {
-    console.error('Controller : 스키마 목록 조회 오류:', error);
+    logger.error('TableSpec', '스키마 목록 조회 오류', error);
     res.status(500).json({ message: '서버 오류 발생' });
   }
 }
@@ -24,7 +25,7 @@ async function getTables(req: Request, res: Response): Promise<Response | void> 
     const tables = await tableSpecService.getTables({ dbmsid }, owner);
     res.status(200).json(tables);
   } catch (error) {
-    console.error('Controller : 테이블 목록 조회 오류:', error);
+    logger.error('TableSpec', '테이블 목록 조회 오류', error);
     res.status(500).json({ message: '서버 오류 발생' });
   }
 }
@@ -46,7 +47,7 @@ async function downloadTableSpec(req: Request, res: Response): Promise<Response 
     await workbook.xlsx.write(res);
     res.end();
   } catch (error) {
-    console.error('Controller : 테이블 명세서 다운로드 오류:', error);
+    logger.error('TableSpec', '테이블 명세서 다운로드 오류', error);
     res.status(500).json({ message: '서버 오류 발생' });
   }
 }

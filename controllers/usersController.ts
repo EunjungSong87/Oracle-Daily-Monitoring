@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import * as usersService from '../services/usersService';
 import type { UserRole } from '../models/usersModel';
+import { logger } from '../utils/logger';
 
 const VALID_ROLES: UserRole[] = ['VIEWER', 'DBA', 'SUPER_ADMIN'];
 
@@ -9,7 +10,7 @@ async function listUsers(req: Request, res: Response): Promise<void> {
     const users = await usersService.listUsers();
     res.json(users);
   } catch (error) {
-    console.error('Controller : 사용자 목록 조회 오류:', error);
+    logger.error('Users', '사용자 목록 조회 오류', error);
     res.status(500).json({ message: '서버 오류 발생' });
   }
 }
@@ -19,7 +20,7 @@ async function listBasic(req: Request, res: Response): Promise<void> {
     const users = await usersService.listBasic();
     res.json(users);
   } catch (error) {
-    console.error('Controller : 사용자 목록 조회 오류:', error);
+    logger.error('Users', '사용자 목록 조회 오류', error);
     res.status(500).json({ message: '서버 오류 발생' });
   }
 }
@@ -36,7 +37,7 @@ async function createUser(req: Request, res: Response): Promise<Response | void>
     await usersService.createUser({ username, password, displayName, role: role || 'VIEWER' });
     res.json({ message: '사용자를 등록했습니다.' });
   } catch (error) {
-    console.error('Controller : 사용자 등록 오류:', error);
+    logger.error('Users', '사용자 등록 오류', error);
     res.status(500).json({ message: '서버 오류 발생 (아이디가 이미 존재할 수 있습니다)' });
   }
 }
@@ -52,7 +53,7 @@ async function updateUser(req: Request, res: Response): Promise<Response | void>
     await usersService.updateUser({ id, displayName, role, isActive, newPassword: newPassword || undefined });
     res.json({ message: '사용자 정보를 수정했습니다.' });
   } catch (error) {
-    console.error('Controller : 사용자 정보 수정 오류:', error);
+    logger.error('Users', '사용자 정보 수정 오류', error);
     res.status(500).json({ message: '서버 오류 발생' });
   }
 }

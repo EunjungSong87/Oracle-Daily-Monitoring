@@ -7,7 +7,6 @@ async function getSchemas(dbmsid: DbmsIdParam): Promise<string[]> {
   try {
     return await tableSpecModel.getSchemas(dbmsid);
   } catch (error) {
-    console.error('Service : 스키마 목록 조회 실패:', error);
     throw new Error('스키마 목록 조회 실패', { cause: error });
   }
 }
@@ -16,7 +15,6 @@ async function getTables(dbmsid: DbmsIdParam, owner: string): Promise<string[]> 
   try {
     return await tableSpecModel.getTables(dbmsid, owner);
   } catch (error) {
-    console.error('Service : 테이블 목록 조회 실패:', error);
     throw new Error('테이블 목록 조회 실패', { cause: error });
   }
 }
@@ -239,7 +237,6 @@ async function buildTableSpecWorkbook(
 
     return workbook;
   } catch (error) {
-    console.error('Service : 테이블 명세서 생성 실패:', error);
     throw new Error('테이블 명세서 생성 실패', { cause: error });
   }
 }

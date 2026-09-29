@@ -6,7 +6,6 @@ async function listUsers(): Promise<UserSummary[]> {
   try {
     return await usersModel.listUsers();
   } catch (error) {
-    console.error('Service : 사용자 목록 조회 실패:', error);
     throw new Error('사용자 목록 조회 실패', { cause: error });
   }
 }
@@ -15,7 +14,6 @@ async function listBasic(): Promise<UserBasic[]> {
   try {
     return await usersModel.listBasic();
   } catch (error) {
-    console.error('Service : 사용자 목록 조회 실패:', error);
     throw new Error('사용자 목록 조회 실패', { cause: error });
   }
 }
@@ -24,7 +22,6 @@ async function findBasicByUsername(username: string): Promise<UserBasic | null> 
   try {
     return await usersModel.findBasicByUsername(username);
   } catch (error) {
-    console.error('Service : 사용자 조회 실패:', error);
     throw new Error('사용자 조회 실패', { cause: error });
   }
 }
@@ -33,7 +30,6 @@ async function createUser(input: CreateUserInput): Promise<number> {
   try {
     return await usersModel.createUser(input);
   } catch (error) {
-    console.error('Service : 사용자 등록 실패:', error);
     throw new Error('사용자 등록 실패', { cause: error });
   }
 }
@@ -42,7 +38,6 @@ async function updateUser(input: UpdateUserInput): Promise<void> {
   try {
     await usersModel.updateUser(input);
   } catch (error) {
-    console.error('Service : 사용자 정보 수정 실패:', error);
     throw new Error('사용자 정보 수정 실패', { cause: error });
   }
 }
@@ -56,7 +51,6 @@ async function verifyCredentials(username: string, password: string): Promise<{ 
     if (!verifyPassword(password, user.passwordHash)) return null;
     return { userId: user.id, role: user.role };
   } catch (error) {
-    console.error('Service : 로그인 검증 실패:', error);
     throw new Error('로그인 검증 실패', { cause: error });
   }
 }
@@ -65,7 +59,6 @@ async function touchLastLogin(username: string): Promise<void> {
   try {
     await usersModel.touchLastLogin(username);
   } catch (error) {
-    console.error('Service : 마지막 로그인 시각 갱신 실패:', error);
     // 로그인 자체를 막을 이유는 아니므로 호출하는 쪽에서 흡수합니다.
     throw new Error('마지막 로그인 시각 갱신 실패', { cause: error });
   }

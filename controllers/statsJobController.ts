@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import type { Request, Response } from 'express';
 import * as statsJobService from '../services/statsJobService';
 
@@ -14,7 +15,7 @@ async function getJobStatus(req: Request, res: Response): Promise<Response | voi
     const jobs = await statsJobService.getJobStatus({ dbmsid });
     res.status(200).json(jobs);
   } catch (error) {
-    console.error('Controller : 통계 잡 현황 조회 오류:', error);
+    logger.error('StatsJob', '통계 잡 현황 조회 오류', error);
     res.status(500).json({ message: '서버 오류 발생' });
   }
 }
@@ -32,7 +33,7 @@ async function getStaleStats(req: Request, res: Response): Promise<Response | vo
     const rows = await statsJobService.getStaleStats({ dbmsid }, days);
     res.status(200).json(rows);
   } catch (error) {
-    console.error('Controller : 통계 미수집 테이블 조회 오류:', error);
+    logger.error('StatsJob', '통계 미수집 테이블 조회 오류', error);
     res.status(500).json({ message: '서버 오류 발생' });
   }
 }
@@ -48,7 +49,7 @@ async function runJob(req: Request, res: Response): Promise<Response | void> {
     await statsJobService.runJob({ dbmsid }, jobName);
     return res.status(200).json({ success: true, message: '잡을 실행했습니다.' });
   } catch (error) {
-    console.error('Controller : 통계 잡 수동 실행 오류:', error);
+    logger.error('StatsJob', '통계 잡 수동 실행 오류', error);
     return res.status(200).json({ success: false, message: errMsg(error) });
   }
 }

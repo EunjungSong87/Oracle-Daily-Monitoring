@@ -1,13 +1,13 @@
 import oracle from 'oracledb';
 import dbConfig from './config/database';
+import { logger } from './utils/logger';
 
 // Database 연결 Thick mode 활성화
 try {
   // Oracle Instant Client의 경로 설정
   oracle.initOracleClient({ libDir: './instantclient_19_25' });
-  console.log('Thick mode initialized');
 } catch (err) {
-  console.error('Error initializing Oracle client:', err);
+  logger.error('DB', 'Oracle Instant Client(Thick mode) 초기화 실패', err);
 }
 
 interface TargetDbConfig {
@@ -16,20 +16,14 @@ interface TargetDbConfig {
   connectString: string;
 }
 
+// 접속 실패는 여기서 로그를 찍지 않고 그대로 던집니다 — 호출한 쪽(controller)이 한 번만 찍고,
+// 접속 테스트 버튼처럼 실패가 정상 결과인 경우엔 아예 에러 로그를 남기지 않기 위해서입니다.
 async function connectDB(config: TargetDbConfig): Promise<oracle.Connection> {
-  console.log('db.js connectDB : ', { ...config, password: config.password ? '***' : config.password });
-  try {
-    const connection = await oracle.getConnection({
-      user: config.user,
-      password: config.password,
-      connectString: config.connectString,
-    });
-    console.log('환경에서 DB에 성공적으로 연결되었습니다.');
-    return connection;
-  } catch (err) {
-    console.error('DB 연결 실패:', err);
-    throw err;
-  }
+  return oracle.getConnection({
+    user: config.user,
+    password: config.password,
+    connectString: config.connectString,
+  });
 }
 
 // 커넥션 풀 생성, DB 연결 함수
@@ -52,11 +46,11 @@ function initializeDB(): Promise<oracle.Pool> {
       ),
     ])
       .then((pool) => {
-        console.log('Oracle connection pool created');
+        logger.info('DB', `메타데이터 DB 커넥션 풀 생성: ${dbConfig.connectString}`);
         return pool;
       })
       .catch((err) => {
-        console.error('Error creating connection pool:', err);
+        logger.error('DB', '메타데이터 DB 커넥션 풀 생성 실패', err);
         poolPromise = null; // 다음 호출에서 재시도 가능하도록 초기화
         throw err;
       });
@@ -68,15 +62,15 @@ function initializeDB(): Promise<oracle.Pool> {
 async function closeDB(): Promise<void> {
   process.on('SIGINT', async () => {
     try {
-      console.log('\nClosing Oracle connection pool...');
+      logger.info('DB', '커넥션 풀 종료 중...');
       if (poolPromise) {
         const pool = await poolPromise;
         await pool.close(10); // 최대 10초 대기 후 연결 닫기
       }
-      console.log('Oracle connection pool closed');
+      logger.info('DB', '커넥션 풀 종료 완료');
       process.exit(0);
     } catch (err) {
-      console.error('Error closing pool:', err);
+      logger.error('DB', '커넥션 풀 종료 실패', err);
       process.exit(1);
     }
   });

@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import type { Request, Response } from 'express';
 import * as realtimeService from '../services/realtimeService';
 
@@ -14,7 +15,7 @@ async function getSessions(req: Request, res: Response): Promise<Response | void
     const sessions = await realtimeService.getSessions({ dbmsid });
     res.json({ timestamp: new Date().toISOString(), sessions });
   } catch (error) {
-    console.error('Controller : 실시간 세션 조회 오류:', error);
+    logger.error('Realtime', `실시간 세션 조회 오류 (dbmsid=${req.body?.dbmsid})`, error);
     res.status(500).json({ message: '서버 오류 발생', error: errMsg(error) });
   }
 }

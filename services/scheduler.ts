@@ -8,6 +8,7 @@ import path from 'path';
 import * as dbmsList from '../models/dbmsModel';
 import * as dbmsService from './dbmsService';
 import { renderReportHtml } from './reportService';
+import { logger } from '../utils/logger';
 
 const REPORTS_DIR = path.join(process.cwd(), 'reports');
 const CHECK_INTERVAL_MS = 60 * 1000;
@@ -38,7 +39,7 @@ async function runScheduledReports(): Promise<{ dbname: string; ok: boolean }[]>
       await fs.writeFile(path.join(dayDir, `${dbname}.html`), html, 'utf-8');
       outcomes.push({ dbname, ok: true });
     } catch (err) {
-      console.error(`[Scheduler] 리포트 생성 실패 (${dbname}):`, err);
+      logger.error('Scheduler', `[${dbname}] 리포트 생성 실패`, err);
       outcomes.push({ dbname, ok: false });
     }
   }
@@ -56,19 +57,19 @@ async function tick(): Promise<void> {
 
     if (nowHHMM === config.runTime && lastRunDate !== today) {
       lastRunDate = today;
-      console.log(`[Scheduler] 예약된 일일점검 실행 시작 (${config.runTime})`);
+      logger.info('Scheduler', `예약 일일점검 시작 (설정 시각 ${config.runTime})`);
       const outcomes = await runScheduledReports();
       const okCount = outcomes.filter((o) => o.ok).length;
-      console.log(`[Scheduler] 완료: ${okCount}/${outcomes.length} 성공, 저장 위치: ${path.join(REPORTS_DIR, today)}`);
+      logger.info('Scheduler', `예약 일일점검 완료: ${okCount}/${outcomes.length} 성공, 저장 위치 ${path.join(REPORTS_DIR, today)}`);
     }
   } catch (err) {
-    console.error('[Scheduler] 오류:', err);
+    logger.error('Scheduler', '예약 실행 확인 중 오류', err);
   }
 }
 
 function startScheduler(): void {
   setInterval(tick, CHECK_INTERVAL_MS);
-  console.log('[Scheduler] 시작됨 (1분 간격으로 예약 시각 확인)');
+  logger.info('Scheduler', '시작됨 (1분 간격으로 예약 시각 확인)');
 }
 
 export { startScheduler, runScheduledReports, REPORTS_DIR };

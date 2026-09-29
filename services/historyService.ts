@@ -5,7 +5,6 @@ async function listRunHistory(dbmsId: number | string, fromDate?: string, toDate
   try {
     return await historyModel.listRunHistory(dbmsId, fromDate, toDate);
   } catch (error) {
-    console.error('Service : 실행 이력 목록 조회 실패:', error);
     throw new Error('실행 이력 목록 조회 실패', { cause: error });
   }
 }
@@ -14,7 +13,6 @@ async function getRunHistoryDetail(id: number | string): Promise<RunHistoryDetai
   try {
     return await historyModel.getRunHistoryDetail(id);
   } catch (error) {
-    console.error('Service : 실행 이력 상세 조회 실패:', error);
     throw new Error('실행 이력 상세 조회 실패', { cause: error });
   }
 }

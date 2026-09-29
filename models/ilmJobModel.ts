@@ -54,9 +54,6 @@ async function getPartitionRetentionList(dbmsid: DbmsIdParam): Promise<Partition
       { outFormat: oracledb.OUT_FORMAT_OBJECT }
     );
     return (result.rows ?? []) as PartitionRetentionRow[];
-  } catch (err) {
-    console.error('파티션 보관주기(ILM) 목록 조회 오류:', err);
-    throw err;
   } finally {
     if (connection) await connection.close();
   }
@@ -103,9 +100,6 @@ async function updatePartitionRetention(input: PartitionRetentionUpdate): Promis
       { autoCommit: true }
     );
     return result.rowsAffected ?? 0;
-  } catch (err) {
-    console.error('파티션 보관주기(ILM) 수정 오류:', err);
-    throw err;
   } finally {
     if (connection) await connection.close();
   }
@@ -173,9 +167,6 @@ async function addPartitionRetention(input: PartitionRetentionAdd): Promise<numb
       { autoCommit: true }
     );
     return result.rowsAffected ?? 0;
-  } catch (err) {
-    console.error('파티션 보관주기(ILM) 등록 오류:', err);
-    throw err;
   } finally {
     if (connection) await connection.close();
   }

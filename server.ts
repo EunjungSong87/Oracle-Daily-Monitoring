@@ -22,6 +22,7 @@ import usersRouters from './routers/usersRouters';
 import realtimeRouters from './routers/realtimeRouters';
 import { requireAuth } from './middleware/auth';
 import { startScheduler } from './services/scheduler';
+import { logger } from './utils/logger';
 
 // Express 애플리케이션을 생성합니다.
 const app = express();
@@ -30,9 +31,8 @@ const app = express();
 try {
   // Oracle Instant Client의 경로 설정
   oracle.initOracleClient({ libDir: './instantclient_19_25' });
-  console.log('Thick mode initialized');
 } catch (err) {
-  console.error('Error initializing Oracle client:', err);
+  logger.error('Server', 'Oracle Instant Client(Thick mode) 초기화 실패', err);
 }
 
 // 서버를 위한 포트를 설정합니다.
@@ -90,7 +90,7 @@ app.use(express.static('public'));
 // 서버 시작
 async function startServer(): Promise<void> {
   app.listen(Number(port), host, () => {
-    console.log(`Server is running on http://${host}:${port}`);
+    logger.info('Server', `서버 시작: http://${host}:${port}`);
   });
 }
 

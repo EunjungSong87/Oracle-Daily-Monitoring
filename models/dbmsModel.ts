@@ -56,31 +56,26 @@ async function executeQuery(
   query: string,
   params: oracledb.BindParameters = []
 ): Promise<QueryResult> {
-  try {
-    const result = await connection.execute<Record<string, any>>(query, params, {
-      outFormat: oracledb.OUT_FORMAT_OBJECT, // 객체 형식으로 반환
-    });
+  const result = await connection.execute<Record<string, any>>(query, params, {
+    outFormat: oracledb.OUT_FORMAT_OBJECT, // 객체 형식으로 반환
+  });
 
-    for (const row of result.rows ?? []) {
-      for (const key of Object.keys(row)) {
-        const val = row[key];
-        // row data가 LOB 데이턴지 확인
-        if (val instanceof Duplex) {
-          // Lob은 실제로 Duplex를 상속하지만 구조적으로는 다른 인터페이스라 명시적으로 캐스팅합니다.
-          row[key] = await readClobAsString(val as unknown as oracledb.Lob);
-        }
+  for (const row of result.rows ?? []) {
+    for (const key of Object.keys(row)) {
+      const val = row[key];
+      // row data가 LOB 데이턴지 확인
+      if (val instanceof Duplex) {
+        // Lob은 실제로 Duplex를 상속하지만 구조적으로는 다른 인터페이스라 명시적으로 캐스팅합니다.
+        row[key] = await readClobAsString(val as unknown as oracledb.Lob);
       }
     }
-
-    // 컬럼명과 데이터 반환
-    return {
-      columns: (result.metaData ?? []).map((col) => col.name),
-      rows: result.rows ?? [],
-    };
-  } catch (err) {
-    console.error(err);
-    throw err;
   }
+
+  // 컬럼명과 데이터 반환
+  return {
+    columns: (result.metaData ?? []).map((col) => col.name),
+    rows: result.rows ?? [],
+  };
 }
 
 async function getAllDbmses(): Promise<QueryResult> {
@@ -91,9 +86,6 @@ async function getAllDbmses(): Promise<QueryResult> {
     const query =
       'select ID, DBNAME, USERNAME, SID, IP, PORT, MEMO, CREATETIME, UPDATETIME, AUTO_SCHEDULE from system.monitoring_dbms_list order by ID';
     return await executeQuery(connection, query);
-  } catch (err) {
-    console.error('Error:', err);
-    throw err;
   } finally {
     if (connection) {
       await connection.close();
@@ -109,9 +101,6 @@ async function getScripts(): Promise<QueryResult> {
     const query =
       'select id, name, category, description, schedule, is_active, CREATED_AT, UPDATED_AT from SYSTEM.MONITORING_TASKS';
     return await executeQuery(connection, query);
-  } catch (err) {
-    console.error('Error:', err);
-    throw err;
   } finally {
     if (connection) {
       await connection.close();
@@ -126,22 +115,17 @@ async function getDbmsInfo(dbmsid: DbmsIdParam): Promise<any[] | null> {
     connection = await pool.getConnection();
 
     const { dbmsid: id } = dbmsid;
-    console.log('dbmsid 값', id);
     // dbname은 맨 뒤에 추가: 기존 코드가 dbconfig[0]~[5]를 위치로 접근하므로 순서를 바꾸면 안 됨.
     const query =
       'select username, password, ip, port, sid, memo, dbname from system.monitoring_dbms_list where id = :id ';
     const result = await connection.execute<any[]>(query, { id });
 
     // 4. 결과 반환
-    console.log('getDbmsInfo 수행', result.rows?.length, '건');
     // 조회 결과 반환 (결과가 없으면 undefined 반환), 비밀번호는 복호화해서 반환
     if (!result.rows || result.rows.length === 0) return null;
     const row = result.rows[0];
     row[1] = decrypt(row[1]);
     return row;
-  } catch (err) {
-    console.error('DB 조회 오류:', err);
-    throw err;
   } finally {
     if (connection) {
       await connection.close();
@@ -156,17 +140,12 @@ async function getSqlText(scriptid: { id: number | string }): Promise<string | n
     connection = await pool.getConnection();
 
     const id = scriptid.id;
-    console.log('scriptid 값', id);
     const query = 'select id, name, sql_text from system.MONITORING_TASKS where id = :id ';
     const result = await connection.execute<any[]>(query, { id }, { fetchInfo: { SQL_TEXT: { type: oracledb.STRING } } });
 
     // 결과 반환 (결과가 없으면 null 반환)
     if (!result.rows || result.rows.length === 0) return null;
-    console.log('getSqlText Model 함수 결과값', result.rows[0][2]);
     return result.rows[0][2];
-  } catch (err) {
-    console.error('Model SQL TEST 갖고 오기 오류:', err);
-    throw err;
   } finally {
     if (connection) {
       await connection.close();
@@ -186,9 +165,6 @@ async function listTasks(): Promise<oracledb.Result<any[]> | []> {
 
     // 조회 결과 반환 (결과가 없으면 undefined 반환)
     return result || [];
-  } catch (err) {
-    console.error('DB 조회 오류:', err);
-    throw err;
   } finally {
     if (connection) {
       await connection.close();
@@ -199,7 +175,6 @@ async function listTasks(): Promise<oracledb.Result<any[]> | []> {
 // 대상 DBMS에 접속합니다. 체크를 여러 개 돌릴 때는 태스크마다 새로 열지 말고
 // 이 커넥션 하나를 재사용한 뒤 호출한 쪽에서 한 번만 닫아야 합니다.
 async function connectToTarget(dbconfig: any[]): Promise<oracledb.Connection> {
-  console.log('Model 함수 안 dbconfig:', dbconfig[0], dbconfig[2] + ':' + dbconfig[3] + '/' + dbconfig[4]);
   const config = {
     user: dbconfig[0],
     password: dbconfig[1],
@@ -239,16 +214,11 @@ async function addDbms(dbmsInfo: DbmsInfo): Promise<number> {
     connection = await pool.getConnection();
     const sql =
       'INSERT INTO system.monitoring_dbms_list (id, dbname, username, password, sid, ip, port, memo, createtime, updatetime) VALUES (seq_monitoring_dbms_list.nextval, :dbname, :username, :password, :sid, :ip, :port, :memo, sysdate, sysdate) ';
-    console.log('MODEL : dbmsInfo:', { ...dbmsInfo, password: '***' });
     const bindParams = { ...dbmsInfo, password: encrypt(dbmsInfo.password) };
 
     const result = await connection.execute(sql, bindParams, { autoCommit: true });
 
-    console.log('Insert Success:', result.rowsAffected);
     return result.rowsAffected ?? 0;
-  } catch (err) {
-    console.error('Error:', err);
-    throw err;
   } finally {
     if (connection) {
       await connection.close();
@@ -274,17 +244,12 @@ async function modifyDbms(dbmsInfo: DbmsInfo): Promise<number> {
                  ip = :ip, port = :port, memo = :memo, updatetime = sysdate
              where id = :id `;
 
-    console.log('MODEL : dbmsInfo:', { ...dbmsInfo, password: '***' });
     const { password, ...withoutPassword } = dbmsInfo;
     const bindParams = hasNewPassword ? { ...dbmsInfo, password: encrypt(dbmsInfo.password) } : withoutPassword;
 
     const result = await connection.execute(sql, bindParams, { autoCommit: true }); // bind 묶음 넣기
 
-    console.log('Update Success:', result.rowsAffected);
     return result.rowsAffected ?? 0;
-  } catch (err) {
-    console.error('Error:', err);
-    throw err;
   } finally {
     if (connection) {
       await connection.close();
@@ -298,15 +263,10 @@ async function deleteDbms(dbmsId: Record<string, any>): Promise<number> {
     const pool = await db.initializeDB();
     connection = await pool.getConnection();
     const sql = 'delete from system.monitoring_dbms_list where id = :dbmsId';
-    console.log('MODEL : dbmsInfo:', dbmsId);
 
     const result = await connection.execute(sql, dbmsId, { autoCommit: true });
 
-    console.log('Delete Success:', result.rowsAffected);
     return result.rowsAffected ?? 0;
-  } catch (err) {
-    console.error('Error:', err);
-    throw err;
   } finally {
     if (connection) {
       await connection.close();
@@ -326,11 +286,7 @@ async function modifyScript(scriptInfo: ScriptInfo): Promise<number> {
 
     const result = await connection.execute(sql, scriptInfo as unknown as oracledb.BindParameters, { autoCommit: true }); // bind 묶음 넣기
 
-    console.log('Update Success:', result.rowsAffected);
     return result.rowsAffected ?? 0;
-  } catch (err) {
-    console.error('Error:', err);
-    throw err;
   } finally {
     if (connection) {
       await connection.close();
@@ -346,15 +302,10 @@ async function addScript(scriptInfo: ScriptInfo): Promise<number> {
     const sql = `INSERT INTO system.MONITORING_TASKS (id, name, category, description, sql_text, schedule, is_active, CREATED_AT, UPDATED_AT)
                    VALUES (:id, :name, :category, :description, :sql_text, :schedule, :is_active, sysdate, sysdate) `;
 
-    console.log('MODEL : scriptInfo:', scriptInfo);
 
     const result = await connection.execute(sql, scriptInfo as unknown as oracledb.BindParameters, { autoCommit: true });
 
-    console.log('Insert Success:', result.rowsAffected);
     return result.rowsAffected ?? 0;
-  } catch (err) {
-    console.error('Error:', err);
-    throw err;
   } finally {
     if (connection) {
       await connection.close();
@@ -368,15 +319,10 @@ async function deleteScript(scriptId: Record<string, any>): Promise<number> {
     const pool = await db.initializeDB();
     connection = await pool.getConnection();
     const sql = 'delete from SYSTEM.MONITORING_TASKS where id = :scriptId';
-    console.log('MODEL : dbmsInfo:', scriptId);
 
     const result = await connection.execute(sql, scriptId, { autoCommit: true });
 
-    console.log('Delete Success:', result.rowsAffected);
     return result.rowsAffected ?? 0;
-  } catch (err) {
-    console.error('Error:', err);
-    throw err;
   } finally {
     if (connection) {
       await connection.close();
@@ -395,9 +341,6 @@ async function getThresholds(): Promise<QueryResult> {
                        join system.monitoring_tasks m on m.id = t.task_id
                       order by t.id`;
     return await executeQuery(connection, query);
-  } catch (err) {
-    console.error('Error:', err);
-    throw err;
   } finally {
     if (connection) {
       await connection.close();
@@ -416,9 +359,6 @@ async function getActiveThresholds(): Promise<Record<string, any>[]> {
                       where is_active = 'Y'`;
     const result = await executeQuery(connection, query);
     return result.rows;
-  } catch (err) {
-    console.error('Error:', err);
-    throw err;
   } finally {
     if (connection) {
       await connection.close();
@@ -436,16 +376,11 @@ async function addThreshold(thresholdInfo: ThresholdInfo): Promise<number> {
     const sql = `insert into system.monitoring_thresholds
                       (id, task_id, column_name, condition_type, operator, threshold, clevel, message, is_active, created_at)
                    values (:id, :task_id, :column_name, :condition_type, :operator, :threshold, :clevel, :message, :is_active, sysdate)`;
-    console.log('MODEL : thresholdInfo:', thresholdInfo);
     const bindParams = { id: nextId, ...thresholdInfo };
 
     const result = await connection.execute(sql, bindParams, { autoCommit: true });
 
-    console.log('Threshold Insert Success:', result.rowsAffected);
     return result.rowsAffected ?? 0;
-  } catch (err) {
-    console.error('Error:', err);
-    throw err;
   } finally {
     if (connection) {
       await connection.close();
@@ -463,15 +398,10 @@ async function modifyThreshold(thresholdInfo: ThresholdInfo): Promise<number> {
                           operator = :operator, threshold = :threshold, clevel = :clevel,
                           message = :message, is_active = :is_active
                     where id = :id`;
-    console.log('MODEL : thresholdInfo:', thresholdInfo);
 
     const result = await connection.execute(sql, thresholdInfo as unknown as oracledb.BindParameters, { autoCommit: true });
 
-    console.log('Threshold Update Success:', result.rowsAffected);
     return result.rowsAffected ?? 0;
-  } catch (err) {
-    console.error('Error:', err);
-    throw err;
   } finally {
     if (connection) {
       await connection.close();
@@ -485,15 +415,10 @@ async function deleteThreshold(thresholdId: Record<string, any>): Promise<number
     const pool = await db.initializeDB();
     connection = await pool.getConnection();
     const sql = 'delete from system.monitoring_thresholds where id = :thresholdId';
-    console.log('MODEL : thresholdId:', thresholdId);
 
     const result = await connection.execute(sql, thresholdId, { autoCommit: true });
 
-    console.log('Threshold Delete Success:', result.rowsAffected);
     return result.rowsAffected ?? 0;
-  } catch (err) {
-    console.error('Error:', err);
-    throw err;
   } finally {
     if (connection) {
       await connection.close();
@@ -514,9 +439,6 @@ async function getScheduleConfig(): Promise<ScheduleConfig> {
     }
     const [enabled, runTime] = result.rows[0];
     return { enabled, runTime };
-  } catch (err) {
-    console.error('Error:', err);
-    throw err;
   } finally {
     if (connection) {
       await connection.close();
@@ -534,9 +456,6 @@ async function saveScheduleConfig(config: ScheduleConfig): Promise<number> {
                   where id = 1`;
     const result = await connection.execute(sql, config as unknown as oracledb.BindParameters, { autoCommit: true });
     return result.rowsAffected ?? 0;
-  } catch (err) {
-    console.error('Error:', err);
-    throw err;
   } finally {
     if (connection) {
       await connection.close();
@@ -567,9 +486,6 @@ async function setAutoScheduleTargets(dbmsIds: (number | string)[]): Promise<voi
     }
 
     await connection.commit();
-  } catch (err) {
-    console.error('Error:', err);
-    throw err;
   } finally {
     if (connection) {
       await connection.close();
@@ -585,9 +501,6 @@ async function getAutoScheduleDbmses(): Promise<QueryResult> {
     connection = await pool.getConnection();
     const query = "select ID, DBNAME from system.monitoring_dbms_list where auto_schedule = 'Y' order by ID";
     return await executeQuery(connection, query);
-  } catch (err) {
-    console.error('Error:', err);
-    throw err;
   } finally {
     if (connection) {
       await connection.close();

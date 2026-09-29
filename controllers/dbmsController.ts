@@ -4,6 +4,7 @@ import * as historyService from '../services/historyService';
 import * as issuesService from '../services/issuesService';
 import type { IssueStatus } from '../models/issuesModel';
 import * as usersService from '../services/usersService';
+import { logger } from '../utils/logger';
 
 function errMsg(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -15,7 +16,7 @@ async function getAllDbmses(req: Request, res: Response): Promise<void> {
     const dbmses = await dbmsService.getAllDbmses(); // 서비스 호출
     res.status(200).json(dbmses); // JSON 형식으로 응답
   } catch (error) {
-    console.error('Controller : DBMS 목록 조회 오류:', error);
+    logger.error('DBMS', 'DBMS 목록 조회 오류', error);
     res.status(500).json({ error: errMsg(error) });
   }
 }
@@ -23,11 +24,10 @@ async function getAllDbmses(req: Request, res: Response): Promise<void> {
 // <--! 모니터링 스크립트 가져오기 -->
 async function getScripts(req: Request, res: Response): Promise<void> {
   try {
-    console.log('getScripts Controller !!!!!');
     const scripts = await dbmsService.getScripts(); // 서비스 호출
     res.status(200).json(scripts); // JSON 형식으로 응답
   } catch (error) {
-    console.error('Controller : 스크립트 목록 조회 오류:', error);
+    logger.error('Script', '스크립트 목록 조회 오류', error);
     res.status(500).json({ error: errMsg(error) });
   }
 }
@@ -45,7 +45,7 @@ async function getMonResult(req: Request, res: Response): Promise<Response | voi
 
     res.json(queryResults);
   } catch (error) {
-    console.error('DBMS 조회 중 오류:', error);
+    logger.error('Monitor', `점검 실행 오류 (dbmsid=${req.body?.dbmsid})`, error);
     res.status(500).json({ message: '서버 오류 발생' });
   }
 }
@@ -55,13 +55,11 @@ async function addDbms(req: Request, res: Response): Promise<Response | void> {
     const { dbname, username, password, sid, ip, port, memo } = req.body;
 
     const dbmsInfo = { dbname, username, password, sid, ip, port, memo }; // JSON 변수로 서비스에 전달
-    console.log('Controller :dbmsInfo:', { ...dbmsInfo, password: '***' });
     const queryResults = await dbmsService.addDbms(dbmsInfo);
-    console.log('Controller : result  ', queryResults);
 
     return res.json(queryResults);
   } catch (error) {
-    console.error('Controller : DB등록 오류:', error);
+    logger.error('DBMS', 'DBMS 등록 오류', error);
     res.status(500).json({ message: 'Controller : 서버 오류 발생' });
   }
 }
@@ -70,13 +68,11 @@ async function modifyDbms(req: Request, res: Response): Promise<Response | void>
   try {
     const { id, dbname, username, password, sid, ip, port, memo } = req.body;
     const dbmsInfo = { id, dbname, username, password, sid, ip, port, memo };
-    console.log('Controller :dbmsInfo:', { ...dbmsInfo, password: '***' });
     const queryResults = await dbmsService.modifyDbms(dbmsInfo);
-    console.log('Controller : result  ', queryResults);
 
     return res.json(queryResults);
   } catch (error) {
-    console.error('Controller : DB등록 오류:', error);
+    logger.error('DBMS', 'DBMS 수정 오류', error);
     res.status(500).json({ message: 'Controller : 서버 오류 발생' });
   }
 }
@@ -85,13 +81,11 @@ async function deleteDbms(req: Request, res: Response): Promise<Response | void>
   try {
     const dbmsId = req.body;
 
-    console.error('Controller :dbmsInfo:', dbmsId);
     const queryResults = await dbmsService.deleteDbms(dbmsId);
-    console.log('Controller : result  ', queryResults);
 
     return res.json(queryResults);
   } catch (error) {
-    console.error('Controller : DB등록 오류:', error);
+    logger.error('DBMS', 'DBMS 삭제 오류', error);
     res.status(500).json({ message: 'Controller : 서버 오류 발생' });
   }
 }
@@ -119,13 +113,11 @@ async function modifyScript(req: Request, res: Response): Promise<Response | voi
     const { id, name, category, description, sql_text, schedule, is_active } = req.body;
     const scriptInfo = { id, name, category, description, sql_text, schedule, is_active };
 
-    console.log('Controller : ScriptInfo:', scriptInfo);
     const queryResults = await dbmsService.modifyScript(scriptInfo);
-    console.log('Controller : Script result  ', queryResults);
 
     return res.json(queryResults);
   } catch (error) {
-    console.error('Controller : 스크립트 수정 오류:', error);
+    logger.error('Script', '스크립트 수정 오류', error);
     res.status(500).json({ message: 'Controller : 서버 오류 발생' });
   }
 }
@@ -133,7 +125,6 @@ async function modifyScript(req: Request, res: Response): Promise<Response | voi
 async function getSqlText(req: Request, res: Response): Promise<Response | void> {
   try {
     const { id, name } = req.body;
-    console.log(name);
     // 필수 데이터 유효성 검사
     if (!id || !name) {
       return res.status(400).json({ message: 'Script 정보가 필요합니다.' });
@@ -148,7 +139,7 @@ async function getSqlText(req: Request, res: Response): Promise<Response | void>
     // 조회된 사용자 정보를 클라이언트로 응답
     res.status(200).json({ message: 'Script 조회 성공', scriptconfig });
   } catch (error) {
-    console.error('Script 조회 중 오류:', error);
+    logger.error('Script', '스크립트 SQL 조회 오류', error);
     res.status(500).json({ message: '서버 오류 발생' });
   }
 }
@@ -158,13 +149,11 @@ async function addScript(req: Request, res: Response): Promise<Response | void> 
     const { id, name, category, description, sql_text, schedule, is_active } = req.body;
 
     const scriptInfo = { id, name, category, description, sql_text, schedule, is_active }; // JSON 변수로 서비스에 전달
-    console.error('Controller :dbmsInfo:', scriptInfo);
     const queryResults = await dbmsService.addScript(scriptInfo);
-    console.log('Controller : result  ', queryResults);
 
     return res.json(queryResults);
   } catch (error) {
-    console.error('Controller : 스크립트 등록 오류:', error);
+    logger.error('Script', '스크립트 등록 오류', error);
     res.status(500).json({ message: 'Controller : 서버 오류 발생' });
   }
 }
@@ -173,13 +162,11 @@ async function deleteScript(req: Request, res: Response): Promise<Response | voi
   try {
     const scriptId = req.body;
 
-    console.error('Controller :scriptId :', scriptId);
     const queryResults = await dbmsService.deleteScript(scriptId);
-    console.log('Controller : result  ', queryResults);
 
     return res.json(queryResults);
   } catch (error) {
-    console.error('Controller : 스크립트 삭제 오류:', error);
+    logger.error('Script', '스크립트 삭제 오류', error);
     res.status(500).json({ message: 'Controller : 서버 오류 발생' });
   }
 }
@@ -189,7 +176,7 @@ async function getThresholds(req: Request, res: Response): Promise<void> {
     const thresholds = await dbmsService.getThresholds();
     res.status(200).json(thresholds);
   } catch (error) {
-    console.error('Controller : 임계치 목록 조회 오류:', error);
+    logger.error('Threshold', '임계치 목록 조회 오류', error);
     res.status(500).json({ error: errMsg(error) });
   }
 }
@@ -198,11 +185,10 @@ async function addThreshold(req: Request, res: Response): Promise<Response | voi
   try {
     const { task_id, column_name, condition_type, operator, threshold, clevel, message, is_active } = req.body;
     const thresholdInfo = { task_id, column_name, condition_type, operator, threshold, clevel, message, is_active };
-    console.log('Controller : thresholdInfo:', thresholdInfo);
     const queryResults = await dbmsService.addThreshold(thresholdInfo);
     return res.json(queryResults);
   } catch (error) {
-    console.error('Controller : 임계치 등록 오류:', error);
+    logger.error('Threshold', '임계치 등록 오류', error);
     res.status(500).json({ message: 'Controller : 서버 오류 발생' });
   }
 }
@@ -211,11 +197,10 @@ async function modifyThreshold(req: Request, res: Response): Promise<Response | 
   try {
     const { id, task_id, column_name, condition_type, operator, threshold, clevel, message, is_active } = req.body;
     const thresholdInfo = { id, task_id, column_name, condition_type, operator, threshold, clevel, message, is_active };
-    console.log('Controller : thresholdInfo:', thresholdInfo);
     const queryResults = await dbmsService.modifyThreshold(thresholdInfo);
     return res.json(queryResults);
   } catch (error) {
-    console.error('Controller : 임계치 수정 오류:', error);
+    logger.error('Threshold', '임계치 수정 오류', error);
     res.status(500).json({ message: 'Controller : 서버 오류 발생' });
   }
 }
@@ -223,11 +208,10 @@ async function modifyThreshold(req: Request, res: Response): Promise<Response | 
 async function deleteThreshold(req: Request, res: Response): Promise<Response | void> {
   try {
     const thresholdId = req.body;
-    console.log('Controller : thresholdId:', thresholdId);
     const queryResults = await dbmsService.deleteThreshold(thresholdId);
     return res.json(queryResults);
   } catch (error) {
-    console.error('Controller : 임계치 삭제 오류:', error);
+    logger.error('Threshold', '임계치 삭제 오류', error);
     res.status(500).json({ message: 'Controller : 서버 오류 발생' });
   }
 }
@@ -237,7 +221,7 @@ async function getScheduleConfig(req: Request, res: Response): Promise<void> {
     const config = await dbmsService.getScheduleConfig();
     res.json(config);
   } catch (error) {
-    console.error('Controller : 예약 실행 설정 조회 오류:', error);
+    logger.error('Schedule', '예약 실행 설정 조회 오류', error);
     res.status(500).json({ message: 'Controller : 서버 오류 발생' });
   }
 }
@@ -251,7 +235,7 @@ async function saveScheduleConfig(req: Request, res: Response): Promise<Response
     await dbmsService.saveScheduleConfig({ enabled, runTime }, Array.isArray(dbmsIds) ? dbmsIds : []);
     res.json({ message: '예약 실행 설정이 저장되었습니다.' });
   } catch (error) {
-    console.error('Controller : 예약 실행 설정 저장 오류:', error);
+    logger.error('Schedule', '예약 실행 설정 저장 오류', error);
     res.status(500).json({ message: 'Controller : 서버 오류 발생' });
   }
 }
@@ -265,7 +249,7 @@ async function getRunHistoryList(req: Request, res: Response): Promise<Response 
     const history = await historyService.listRunHistory(dbmsid, fromDate, toDate);
     res.json(history);
   } catch (error) {
-    console.error('Controller : 실행 이력 목록 조회 오류:', error);
+    logger.error('History', '실행 이력 목록 조회 오류', error);
     res.status(500).json({ message: 'Controller : 서버 오류 발생' });
   }
 }
@@ -282,7 +266,7 @@ async function getRunHistoryDetail(req: Request, res: Response): Promise<Respons
     }
     res.json(detail);
   } catch (error) {
-    console.error('Controller : 실행 이력 상세 조회 오류:', error);
+    logger.error('History', '실행 이력 상세 조회 오류', error);
     res.status(500).json({ message: 'Controller : 서버 오류 발생' });
   }
 }
@@ -304,7 +288,7 @@ async function listIssues(req: Request, res: Response): Promise<void> {
     const issues = await issuesService.listIssues(statuses);
     res.json(issues);
   } catch (error) {
-    console.error('Controller : 이슈 목록 조회 오류:', error);
+    logger.error('Issue', '이슈 목록 조회 오류', error);
     res.status(500).json({ message: 'Controller : 서버 오류 발생' });
   }
 }
@@ -321,7 +305,7 @@ async function getIssueDetail(req: Request, res: Response): Promise<Response | v
     }
     res.json(detail);
   } catch (error) {
-    console.error('Controller : 이슈 상세 조회 오류:', error);
+    logger.error('Issue', '이슈 상세 조회 오류', error);
     res.status(500).json({ message: 'Controller : 서버 오류 발생' });
   }
 }
@@ -337,7 +321,7 @@ async function acknowledgeIssue(req: Request, res: Response): Promise<Response |
     await issuesService.acknowledgeIssue(id, req.session.username);
     res.json({ message: '이슈를 확인 처리했습니다.' });
   } catch (error) {
-    console.error('Controller : 이슈 확인 처리 오류:', error);
+    logger.error('Issue', '이슈 확인 처리 오류', error);
     res.status(500).json({ message: 'Controller : 서버 오류 발생' });
   }
 }
@@ -351,7 +335,7 @@ async function resolveIssue(req: Request, res: Response): Promise<Response | voi
     await issuesService.resolveIssue(id, req.session.username);
     res.json({ message: '이슈를 해결 처리했습니다.' });
   } catch (error) {
-    console.error('Controller : 이슈 해결 처리 오류:', error);
+    logger.error('Issue', '이슈 해결 처리 오류', error);
     res.status(500).json({ message: 'Controller : 서버 오류 발생' });
   }
 }
@@ -365,7 +349,7 @@ async function reopenIssue(req: Request, res: Response): Promise<Response | void
     await issuesService.reopenIssue(id, req.session.username);
     res.json({ message: '이슈를 재오픈했습니다.' });
   } catch (error) {
-    console.error('Controller : 이슈 재오픈 오류:', error);
+    logger.error('Issue', '이슈 재오픈 오류', error);
     res.status(500).json({ message: 'Controller : 서버 오류 발생' });
   }
 }
@@ -385,7 +369,7 @@ async function assignIssue(req: Request, res: Response): Promise<Response | void
     await issuesService.assignIssue(id, assignee);
     res.json({ message: '담당자를 지정했습니다.' });
   } catch (error) {
-    console.error('Controller : 담당자 지정 오류:', error);
+    logger.error('Issue', '담당자 지정 오류', error);
     res.status(500).json({ message: 'Controller : 서버 오류 발생' });
   }
 }
@@ -399,7 +383,7 @@ async function addIssueComment(req: Request, res: Response): Promise<Response | 
     await issuesService.addComment(issueId, req.session.username, text);
     res.json({ message: '댓글이 등록되었습니다.' });
   } catch (error) {
-    console.error('Controller : 댓글 등록 오류:', error);
+    logger.error('Issue', '댓글 등록 오류', error);
     res.status(500).json({ message: 'Controller : 서버 오류 발생' });
   }
 }

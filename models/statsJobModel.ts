@@ -102,9 +102,6 @@ async function getJobStatus(dbmsid: DbmsIdParam): Promise<JobStatus[]> {
         ERRORS: run?.ERRORS ?? null,
       };
     });
-  } catch (err) {
-    console.error('통계 잡 현황 조회 오류:', err);
-    throw err;
   } finally {
     if (connection) await connection.close();
   }
@@ -126,9 +123,6 @@ async function getStaleStats(dbmsid: DbmsIdParam, thresholdDays: number): Promis
       { outFormat: oracledb.OUT_FORMAT_OBJECT }
     );
     return (result.rows ?? []) as StaleStatsRow[];
-  } catch (err) {
-    console.error('통계 미수집 테이블 조회 오류:', err);
-    throw err;
   } finally {
     if (connection) await connection.close();
   }
@@ -154,9 +148,6 @@ async function runJob(dbmsid: DbmsIdParam, jobName: string): Promise<void> {
       [],
       { autoCommit: true }
     );
-  } catch (err) {
-    console.error('통계 잡 수동 실행 오류:', err);
-    throw err;
   } finally {
     if (connection) await connection.close();
   }

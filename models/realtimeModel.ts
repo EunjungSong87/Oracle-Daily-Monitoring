@@ -75,9 +75,6 @@ async function getSessions(dbmsid: DbmsIdParam): Promise<SessionRow[]> {
       logonTime: row.LOGON_TIME,
       lastCallEt: row.LAST_CALL_ET,
     }));
-  } catch (err) {
-    console.error('실시간 세션 조회 오류:', err);
-    throw err;
   } finally {
     if (connection) await connection.close();
   }

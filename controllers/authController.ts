@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import * as usersService from '../services/usersService';
+import { logger } from '../utils/logger';
 
 async function login(req: Request, res: Response): Promise<Response | void> {
   try {
@@ -21,12 +22,12 @@ async function login(req: Request, res: Response): Promise<Response | void> {
     try {
       await usersService.touchLastLogin(username);
     } catch (error) {
-      console.error('Controller : 마지막 로그인 시각 갱신 실패 (로그인은 정상 처리):', error);
+      logger.warn('Auth', `마지막 로그인 시각 갱신 실패 (로그인은 정상 처리): ${username}`, error);
     }
 
     res.json({ username, role: result.role });
   } catch (error) {
-    console.error('Controller : 로그인 오류:', error);
+    logger.error('Auth', '로그인 오류', error);
     res.status(500).json({ message: '서버 오류 발생' });
   }
 }
@@ -34,7 +35,7 @@ async function login(req: Request, res: Response): Promise<Response | void> {
 function logout(req: Request, res: Response): void {
   req.session.destroy((error) => {
     if (error) {
-      console.error('Controller : 로그아웃 오류:', error);
+      logger.error('Auth', '로그아웃 오류', error);
       res.status(500).json({ message: '서버 오류 발생' });
       return;
     }
