@@ -16,13 +16,6 @@ export interface JobStatus {
   ERRORS: string | null;
 }
 
-export interface StaleStatsRow {
-  OWNER: string;
-  TABLE_NAME: string;
-  LAST_ANALYZED: string | null;
-  NUM_ROWS: number | null;
-}
-
 // 대상 DBMS에 접속합니다 (tableSpecModel과 동일한 방식).
 async function connectTarget(dbmsid: DbmsIdParam): Promise<oracledb.Connection> {
   const dbconfig = await dbmsModel.getDbmsInfo(dbmsid);
@@ -107,27 +100,6 @@ async function getJobStatus(dbmsid: DbmsIdParam): Promise<JobStatus[]> {
   }
 }
 
-async function getStaleStats(dbmsid: DbmsIdParam, thresholdDays: number): Promise<StaleStatsRow[]> {
-  let connection: oracledb.Connection | undefined;
-  try {
-    connection = await connectTarget(dbmsid);
-    const result = await connection.execute<Record<string, any>>(
-      `SELECT s.OWNER, s.TABLE_NAME, s.LAST_ANALYZED, s.NUM_ROWS
-         FROM DBA_TAB_STATISTICS s
-         JOIN DBA_USERS u ON u.USERNAME = s.OWNER
-        WHERE u.ORACLE_MAINTAINED = 'N'
-          AND s.OBJECT_TYPE = 'TABLE'
-          AND (s.LAST_ANALYZED IS NULL OR s.LAST_ANALYZED < SYSDATE - :thresholdDays)
-        ORDER BY s.LAST_ANALYZED NULLS FIRST, s.OWNER, s.TABLE_NAME`,
-      { thresholdDays },
-      { outFormat: oracledb.OUT_FORMAT_OBJECT }
-    );
-    return (result.rows ?? []) as StaleStatsRow[];
-  } finally {
-    if (connection) await connection.close();
-  }
-}
-
 // jobName을 PL/SQL 블록에 바로 넣기 전에, 바인드 변수로 먼저 실제 존재하는 잡인지 확인합니다
 // (식별자는 바인드로 못 넘기므로, 카탈로그에서 검증된 값만 문자열로 조립 — SQL 인젝션 방지).
 async function runJob(dbmsid: DbmsIdParam, jobName: string): Promise<void> {
@@ -153,4 +125,4 @@ async function runJob(dbmsid: DbmsIdParam, jobName: string): Promise<void> {
   }
 }
 
-export { getJobStatus, getStaleStats, runJob };
+export { getJobStatus, runJob };

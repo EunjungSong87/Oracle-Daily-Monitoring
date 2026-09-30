@@ -105,8 +105,7 @@ Databases 화면에 등록된 대상 DB 접속 계정에 아래 권한이 있어
 SYSTEM 등 DBA 계정으로 등록돼 있다면 대부분 이미 있습니다.
 
   - Real-Time        : V$SESSION 조회
-  - Stats Job Status : DBA_SCHEDULER_JOBS, DBA_SCHEDULER_JOB_RUN_DETAILS,
-                       DBA_TAB_STATISTICS, DBA_USERS 조회.
+  - Stats Job Status : DBA_SCHEDULER_JOBS, DBA_SCHEDULER_JOB_RUN_DETAILS 조회.
                        "지금 실행"은 다른 스키마 소유 잡을 실행하므로 CREATE ANY JOB 등
                        잡 실행 권한이 추가로 필요.
   - ILM Partition    : 해당 DB에 PGDBA.DEL_JOB_TABLE_LIST 테이블이 있어야 하고,
@@ -172,6 +171,8 @@ reports/ 폴더에 쓰기 권한이 있어야 예약 실행 리포트가 저장�
   - Real-Time 화면이 내부망에서 안 뜨던 문제 수정: 그래프 라이브러리(Chart.js)를 인터넷
     CDN에서 받던 것을 빌드에 포함(public/assets/chunks/chart.js)하도록 변경. 이제 외부
     인터넷 접속이 전혀 필요 없음. 반영 후 브라우저 강력 새로고침(Ctrl+F5).
+  - Stats Job Status 화면에서 "통계 미수집 / 오래된 테이블" 그리드(와 기준일 입력칸)를 제거.
+    이제 대상 DB 계정에 DBA_TAB_STATISTICS, DBA_USERS 조회 권한은 필요 없음.
 2026-09-28
   - 프론트엔드 전체 React 전환 + 새 디자인 (client/ 소스, public/은 빌드 결과물)
   - Monitoring > Real-Time (실시간 세션 모니터링)

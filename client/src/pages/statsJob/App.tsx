@@ -2,12 +2,11 @@ import { useCallback, useEffect, useRef, useState, type ReactElement } from 'rea
 import { AppHeader } from '../../shared/components/AppHeader';
 import { ToastHost } from '../../shared/components/ToastHost';
 import { isSuperAdmin, useCurrentUser } from '../../shared/hooks/useCurrentUser';
-import { getDbmsList, getStaleStats, getStatsJobStatus, runStatsJob } from '../../shared/lib/api';
+import { getDbmsList, getStatsJobStatus, runStatsJob } from '../../shared/lib/api';
 import { showToast } from '../../shared/lib/toastStore';
 import type { DbmsRow, StatsJobRow } from '../../shared/lib/types';
 
 const JOB_COLUMNS = ['OWNER', 'JOB_NAME', 'ENABLED', 'STATE', 'STATUS', 'ACTUAL_START_DATE', 'RUN_DURATION', 'NEXT_RUN_DATE'];
-const STALE_COLUMNS = ['OWNER', 'TABLE_NAME', 'LAST_ANALYZED', 'NUM_ROWS'];
 
 // RUN_JOB(use_current_session=FALSE)는 비동기라 호출이 바로 반환되므로, 완료 여부는
 // 잡 현황을 따로 폴링해서 확인한다. 약 60초 넘게 안 끝나면 폴링을 포기한다.
@@ -26,9 +25,7 @@ export function App(): ReactElement {
 
   const [dbmsRows, setDbmsRows] = useState<DbmsRow[]>([]);
   const [dbmsId, setDbmsId] = useState('');
-  const [thresholdDays, setThresholdDays] = useState(14);
   const [jobs, setJobs] = useState<StatsJobRow[] | null>(null);
-  const [staleRows, setStaleRows] = useState<Record<string, unknown>[] | null>(null);
   // 버튼 렌더링용 state와, 폴링 콜백 안에서 최신 값을 읽기 위한 ref를 같이 둔다.
   const [runningJobNames, setRunningJobNames] = useState<Set<string>>(new Set());
   const runningJobsRef = useRef<Record<string, RunningJob>>({});
@@ -89,26 +86,13 @@ export function App(): ReactElement {
     }
   }, [dbmsId, checkRunningJobsCompletion]);
 
-  async function loadStaleStats(id: string, days: number): Promise<void> {
-    if (!id) return;
-    try {
-      setStaleRows(await getStaleStats(id, days));
-    } catch (error) {
-      console.error('Error loading stale stats:', error);
-      showToast(error instanceof Error ? error.message : '통계 미수집 테이블 조회 실패', 'error');
-    }
-  }
-
   // DBMS가 바뀌면 이전 DB에서 걸어둔 실행 추적은 의미가 없으므로 정리하고 다시 조회한다.
-  // thresholdDays는 일부러 의존성에 넣지 않는다 — 기준일은 입력할 때마다가 아니라 재조회 버튼으로만 반영한다.
   useEffect(() => {
     if (!dbmsId) return;
     runningJobsRef.current = {};
     syncRunningState();
     setJobs(null);
-    setStaleRows(null);
     loadJobStatus();
-    loadStaleStats(dbmsId, thresholdDays);
   }, [dbmsId, loadJobStatus, syncRunningState]);
 
   // 실행 중인 잡이 있는 동안만 폴링한다.
@@ -161,22 +145,6 @@ export function App(): ReactElement {
                 </option>
               ))}
             </select>
-
-            <label htmlFor="THRESHOLD_DAYS">통계 미수집 기준(일):</label>
-            <input
-              type="number"
-              id="THRESHOLD_DAYS"
-              min={1}
-              style={{ maxWidth: 120 }}
-              value={thresholdDays}
-              onChange={(e) => setThresholdDays(Number(e.target.value))}
-            />
-
-            <div style={{ marginTop: 16 }}>
-              <button type="button" className="btn-secondary" onClick={() => loadStaleStats(dbmsId, thresholdDays)}>
-                통계 미수집 테이블 재조회
-              </button>
-            </div>
           </form>
 
           <div style={{ marginTop: 24 }}>
@@ -199,11 +167,6 @@ export function App(): ReactElement {
                 );
               }}
             />
-          </div>
-
-          <div style={{ marginTop: 24 }}>
-            <label style={{ marginBottom: 0 }}>통계 미수집 / 오래된 테이블</label>
-            <ResultTable columns={STALE_COLUMNS} rows={staleRows} />
           </div>
         </>
       )}

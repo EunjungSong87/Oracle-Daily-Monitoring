@@ -9,7 +9,6 @@ const router = express.Router();
 // (tableSpecRouters.ts, dbmsRouters.ts와 동일한 이유).
 // 이 화면은 최고관리자 전용으로 두기로 했으므로(Table Spec의 DBA 이상보다 더 좁음) 전부 requireSuperAdmin.
 router.post('/statsJob/status', requireSuperAdmin, statsJobController.getJobStatus);
-router.post('/statsJob/staleStats', requireSuperAdmin, statsJobController.getStaleStats);
 router.post('/statsJob/run', requireSuperAdmin, statsJobController.runJob);
 
 export default router;

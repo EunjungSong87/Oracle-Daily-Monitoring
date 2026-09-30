@@ -20,24 +20,6 @@ async function getJobStatus(req: Request, res: Response): Promise<Response | voi
   }
 }
 
-async function getStaleStats(req: Request, res: Response): Promise<Response | void> {
-  try {
-    const { dbmsid, thresholdDays } = req.body;
-    if (!dbmsid) {
-      return res.status(400).json({ message: 'dbmsid 정보가 필요합니다.' });
-    }
-    const days = Number(thresholdDays);
-    if (!Number.isFinite(days) || days <= 0) {
-      return res.status(400).json({ message: 'thresholdDays는 양수여야 합니다.' });
-    }
-    const rows = await statsJobService.getStaleStats({ dbmsid }, days);
-    res.status(200).json(rows);
-  } catch (error) {
-    logger.error('StatsJob', '통계 미수집 테이블 조회 오류', error);
-    res.status(500).json({ message: '서버 오류 발생' });
-  }
-}
-
 // 접속 테스트와 동일한 이유로 200 + {success,message}로 응답합니다 — 잡 실행 실패(예: 이미 실행중)는
 // 서버 오류가 아니라 정상적으로 발생할 수 있는 결과이기 때문입니다.
 async function runJob(req: Request, res: Response): Promise<Response | void> {
@@ -54,4 +36,4 @@ async function runJob(req: Request, res: Response): Promise<Response | void> {
   }
 }
 
-export { getJobStatus, getStaleStats, runJob };
+export { getJobStatus, runJob };

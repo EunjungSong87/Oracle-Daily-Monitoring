@@ -263,10 +263,6 @@ export function getStatsJobStatus(dbmsid: string | number): Promise<StatsJobRow[
   return postJson('/api/statsJob/status', { dbmsid });
 }
 
-export function getStaleStats(dbmsid: string | number, thresholdDays: number): Promise<Record<string, unknown>[]> {
-  return postJson('/api/statsJob/staleStats', { dbmsid, thresholdDays });
-}
-
 export function runStatsJob(dbmsid: string | number, jobName: string): Promise<JobActionResult> {
   return postJson('/api/statsJob/run', { dbmsid, jobName });
 }
