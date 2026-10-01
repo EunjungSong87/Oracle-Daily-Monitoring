@@ -282,3 +282,43 @@ export interface IlmRetentionAddPayload extends IlmRetentionUpdatePayload {
   endHighvalue: string | null;
   stdDate: string | null;
 }
+
+// ── Object Compare (/api/objectCompare/*) ────────────────────────────────────
+export type CompareResultKind = 'SAME' | 'DIFF' | 'ONLY_SOURCE' | 'ONLY_TARGET';
+
+export interface CompareSide {
+  dbmsid: string | number;
+  schema: string;
+}
+
+// info=true면 참고용(예: 테이블스페이스 크기)이라 "다름" 판정에는 들어가지 않는다.
+export interface CompareDiffRow {
+  item: string;
+  attribute: string;
+  source: string | null;
+  target: string | null;
+  info?: boolean;
+}
+
+export interface CompareItem {
+  type: string;
+  name: string;
+  result: CompareResultKind;
+  summary: string;
+  diffs: CompareDiffRow[];
+  hasSourceDiff: boolean;
+}
+
+export interface CompareResponse {
+  source: CompareSide & { dbname: string };
+  target: CompareSide & { dbname: string };
+  types: string[];
+  items: CompareItem[];
+}
+
+export interface SourceDiffLine {
+  op: 'same' | 'del' | 'add';
+  text: string;
+  sourceLine: number | null;
+  targetLine: number | null;
+}

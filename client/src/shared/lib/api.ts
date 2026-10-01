@@ -5,6 +5,9 @@ import type {
   IlmRetentionAddPayload,
   IlmRetentionRow,
   IlmRetentionUpdatePayload,
+  CompareResponse,
+  CompareSide,
+  SourceDiffLine,
   IssueDetail,
   IssueRow,
   IssueStatus,
@@ -278,4 +281,22 @@ export function addIlmRetention(payload: IlmRetentionAddPayload): Promise<JobAct
 
 export function updateIlmRetention(payload: IlmRetentionUpdatePayload): Promise<JobActionResult> {
   return postJson('/api/ilmJob/update', payload);
+}
+
+// ── Object Compare ───────────────────────────────────────────────────────────
+export function getCompareSchemas(dbmsid: string | number): Promise<string[]> {
+  return postJson('/api/objectCompare/schemas', { dbmsid });
+}
+
+export function runObjectCompare(
+  source: CompareSide,
+  target: CompareSide,
+  types: string[],
+  ignoreTablespace: boolean
+): Promise<CompareResponse> {
+  return postJson('/api/objectCompare/run', { source, target, types, ignoreTablespace });
+}
+
+export function getSourceDiff(source: CompareSide, target: CompareSide, type: string, name: string): Promise<SourceDiffLine[]> {
+  return postJson('/api/objectCompare/sourceDiff', { source, target, type, name });
 }

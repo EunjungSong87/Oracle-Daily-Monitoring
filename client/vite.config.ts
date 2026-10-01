@@ -43,6 +43,7 @@ export default defineConfig({
         realtime: fileURLToPath(new URL('./realtimeMonitoring.html', import.meta.url)),
         statsJob: fileURLToPath(new URL('./statsJob.html', import.meta.url)),
         ilmJob: fileURLToPath(new URL('./ilmJob.html', import.meta.url)),
+        objectCompare: fileURLToPath(new URL('./objectCompare.html', import.meta.url)),
       },
       output: {
         manualChunks(id) {

@@ -104,6 +104,14 @@ export function NavIconSprite(): ReactElement {
           />
           <line x1={6.3} y1={8} x2={9.7} y2={8} stroke="currentColor" strokeWidth={1.2} strokeLinecap="round" />
         </g>
+        <g id="ic-compare" fill="none">
+          <rect x={1.8} y={2.8} width={4.8} height={10.4} rx={1} stroke="currentColor" strokeWidth={1.2} />
+          <rect x={9.4} y={2.8} width={4.8} height={10.4} rx={1} stroke="currentColor" strokeWidth={1.2} />
+          <line x1={3.4} y1={6} x2={5} y2={6} stroke="currentColor" strokeWidth={1.1} strokeLinecap="round" />
+          <line x1={3.4} y1={8.6} x2={5} y2={8.6} stroke="currentColor" strokeWidth={1.1} strokeLinecap="round" />
+          <line x1={11} y1={6} x2={12.6} y2={6} stroke="currentColor" strokeWidth={1.1} strokeLinecap="round" />
+          <line x1={11} y1={11} x2={12.6} y2={11} stroke="currentColor" strokeWidth={1.1} strokeLinecap="round" />
+        </g>
         <g id="ic-user" fill="none">
           <circle cx={8} cy={5.3} r={2.6} stroke="currentColor" strokeWidth={1.3} />
           <path

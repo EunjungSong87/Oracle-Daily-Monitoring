@@ -19,9 +19,10 @@ export type ActivePage =
   | 'tableSpec'
   | 'statsJob'
   | 'ilmJob'
+  | 'objectCompare'
   | 'users';
 
-const MAINTENANCE_GROUP: ActivePage[] = ['tableSpec', 'statsJob', 'ilmJob'];
+const MAINTENANCE_GROUP: ActivePage[] = ['tableSpec', 'statsJob', 'ilmJob', 'objectCompare'];
 const MONITORING_GROUP: ActivePage[] = ['dailyMonitoring', 'scripts', 'thresholds', 'history', 'issues', 'realtime'];
 const DAILY_MONITORING_CHILDREN: ActivePage[] = ['scripts', 'thresholds', 'history', 'issues'];
 
@@ -190,6 +191,14 @@ export function AppHeader({ active }: Props): ReactElement {
                           <use href="#ic-archive" />
                         </svg>
                         ILM Partition Retention
+                      </a>
+                    </li>
+                    <li>
+                      <a href="objectCompare.html" className={`nav-accent-7${active === 'objectCompare' ? ' current' : ''}`}>
+                        <svg className="nav-icon" viewBox="0 0 16 16">
+                          <use href="#ic-compare" />
+                        </svg>
+                        Object Compare
                       </a>
                     </li>
                   </>

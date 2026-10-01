@@ -1395,3 +1395,296 @@ table.table {
 :root[data-theme="dark"] select {
     color-scheme: dark;
 }
+
+/* ── Object Compare (objectCompare.html) ─────────────────────────────────── */
+.oc-sides {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 16px;
+    align-items: center;
+}
+
+.oc-side {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px 16px;
+    background-color: var(--surface-alt);
+}
+
+.oc-side label {
+    margin-top: 10px;
+}
+
+.oc-side-title {
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--text);
+}
+
+.oc-sides-arrow {
+    font-size: 22px;
+    color: var(--text-muted);
+}
+
+.oc-types-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 18px;
+}
+
+.oc-types-header button.btn-secondary {
+    padding: 5px 10px;
+    font-size: 12px;
+}
+
+.oc-field-label {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-right: 6px;
+}
+
+.oc-types {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    margin-top: 10px;
+}
+
+/* 전역 label 규칙(block/대문자/굵게)을 체크박스 한 줄짜리에 맞게 되돌린다. */
+label.oc-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    font-weight: 400;
+    font-size: 13px;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--text);
+    cursor: pointer;
+}
+
+.oc-hint {
+    color: var(--text-muted);
+    font-size: 12.5px;
+    margin: 10px 0 12px;
+}
+
+.oc-actions {
+    margin-top: 16px;
+}
+
+.oc-subtle {
+    color: var(--text-muted);
+    font-weight: 400;
+    font-size: 13px;
+    margin-left: 6px;
+}
+
+.rt-panel table.table.oc-summary-table,
+.rt-panel table.table.oc-items-table,
+table.table.oc-detail-table {
+    width: 100%;
+    max-width: none;
+    margin: 8px 0 0;
+}
+
+.oc-summary-table td:not(:first-child),
+.oc-summary-table th:not(:first-child) {
+    text-align: right;
+    width: 130px;
+}
+
+button.oc-link {
+    background: none;
+    color: var(--primary);
+    padding: 0;
+    margin: 0;
+    font-size: inherit;
+    font-weight: 600;
+    border-radius: 0;
+    box-shadow: none;
+}
+
+button.oc-link:hover {
+    background: none;
+    text-decoration: underline;
+}
+
+button.oc-count-DIFF { color: var(--warning); }
+button.oc-count-ONLY_SOURCE { color: var(--info); }
+button.oc-count-ONLY_TARGET { color: var(--danger); }
+button.oc-count-SAME { color: var(--success); }
+
+.oc-none {
+    color: var(--text-muted);
+    opacity: 0.7;
+}
+
+.oc-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 4px;
+}
+
+.oc-filters select,
+.oc-filters input[type="text"] {
+    width: auto;
+    min-width: 180px;
+    padding: 8px 10px;
+}
+
+.oc-item-row {
+    cursor: pointer;
+}
+
+.oc-name {
+    font-family: var(--font-mono);
+    font-size: 13px;
+}
+
+.oc-caret {
+    display: inline-block;
+    width: 16px;
+    color: var(--text-muted);
+}
+
+.oc-badge-SAME { background-color: var(--success-soft); color: var(--success); }
+.oc-badge-DIFF { background-color: var(--warning-soft); color: var(--warning); }
+.oc-badge-ONLY_SOURCE { background-color: var(--info-soft); color: var(--info); }
+.oc-badge-ONLY_TARGET { background-color: var(--danger-soft); color: var(--danger); }
+
+/* 펼친 상세 행은 hover/줄무늬 배경을 받지 않게 고정한다. */
+.table tbody tr.oc-detail-row,
+.table tbody tr.oc-detail-row:hover,
+:root[data-theme="dark"] .table tbody tr.oc-detail-row > td {
+    background-color: var(--bg);
+}
+
+.oc-detail {
+    padding: 4px 4px 8px 20px;
+}
+
+.oc-detail-note {
+    color: var(--text-muted);
+    font-size: 13px;
+    margin: 6px 0;
+}
+
+.oc-value {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    word-break: break-word;
+}
+
+.oc-info-row td {
+    color: var(--text-muted);
+}
+
+.oc-info-tag {
+    margin-left: 6px;
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background-color: var(--surface-alt);
+    color: var(--text-muted);
+}
+
+.oc-diff-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin: 10px 0 8px;
+}
+
+.oc-diff-legend {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 4px;
+    margin-right: 8px;
+}
+
+.oc-diff {
+    max-height: 520px;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background-color: var(--surface);
+}
+
+.oc-diff table {
+    border-collapse: collapse;
+    width: 100%;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.5;
+}
+
+/* 목록 표(.table) 안에 중첩되므로 .table td의 글꼴/여백/밑줄/줄무늬를 여기서 다시 덮어쓴다. */
+.oc-diff table td {
+    padding: 0 8px;
+    white-space: pre;
+    vertical-align: top;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    border-bottom: none;
+}
+
+:root[data-theme="dark"] .table tbody .oc-diff tr td {
+    background-color: transparent;
+}
+
+.oc-diff-no {
+    width: 1%;
+    text-align: right;
+    color: var(--text-muted);
+    user-select: none;
+    border-right: 1px solid var(--border);
+}
+
+.oc-diff-mark {
+    width: 1%;
+    user-select: none;
+    font-weight: 700;
+}
+
+.oc-diff-text {
+    width: 98%;
+}
+
+.oc-diff-del { background-color: var(--danger-soft); }
+.oc-diff-del .oc-diff-mark, span.oc-diff-del { color: var(--danger); }
+.oc-diff-add { background-color: var(--success-soft); }
+.oc-diff-add .oc-diff-mark, span.oc-diff-add { color: var(--success); }
+
+.oc-diff table .oc-diff-gap td {
+    text-align: center;
+    color: var(--text-muted);
+    background-color: var(--surface-alt);
+    font-family: var(--font);
+    font-size: 12px;
+    padding: 3px 8px;
+}
+
+@media (max-width: 800px) {
+    .oc-sides {
+        grid-template-columns: 1fr;
+    }
+    .oc-sides-arrow {
+        text-align: center;
+    }
+}
+
+/* 배지 글자가 한글이라 .issue-badge의 고정폭 글꼴 대신 본문 글꼴을 쓴다. */
+.oc-items-table .issue-badge {
+    font-family: var(--font);
+    white-space: nowrap;
+}
