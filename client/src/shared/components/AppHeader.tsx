@@ -20,9 +20,11 @@ export type ActivePage =
   | 'statsJob'
   | 'ilmJob'
   | 'objectCompare'
+  | 'parameterCompare'
   | 'users';
 
-const MAINTENANCE_GROUP: ActivePage[] = ['tableSpec', 'statsJob', 'ilmJob', 'objectCompare'];
+const MAINTENANCE_GROUP: ActivePage[] = ['tableSpec', 'statsJob', 'ilmJob'];
+const COMPARE_GROUP: ActivePage[] = ['objectCompare', 'parameterCompare'];
 const MONITORING_GROUP: ActivePage[] = ['dailyMonitoring', 'scripts', 'thresholds', 'history', 'issues', 'realtime'];
 const DAILY_MONITORING_CHILDREN: ActivePage[] = ['scripts', 'thresholds', 'history', 'issues'];
 
@@ -193,18 +195,43 @@ export function AppHeader({ active }: Props): ReactElement {
                         ILM Partition Retention
                       </a>
                     </li>
-                    <li>
-                      <a href="objectCompare.html" className={`nav-accent-7${active === 'objectCompare' ? ' current' : ''}`}>
-                        <svg className="nav-icon" viewBox="0 0 16 16">
-                          <use href="#ic-compare" />
-                        </svg>
-                        Object Compare
-                      </a>
-                    </li>
                   </>
                 )}
               </ul>
             </li>
+
+            {/* 두 DB를 나란히 놓고 비교하는 화면 모음 — 전부 최고관리자 전용이라 메뉴 자체를 숨긴다. */}
+            {user?.role === 'SUPER_ADMIN' && (
+              <li className="nav-dropdown">
+                <a
+                  href="objectCompare.html"
+                  className={`nav-accent-10 nav-dropdown-trigger${COMPARE_GROUP.includes(active) ? ' nav-group-active' : ''}`}
+                >
+                  <svg className="nav-icon" viewBox="0 0 16 16">
+                    <use href="#ic-compare" />
+                  </svg>
+                  Compare <span className="nav-caret">&#9662;</span>
+                </a>
+                <ul className="nav-dropdown-menu">
+                  <li>
+                    <a href="objectCompare.html" className={`nav-accent-10${active === 'objectCompare' ? ' current' : ''}`}>
+                      <svg className="nav-icon" viewBox="0 0 16 16">
+                        <use href="#ic-table" />
+                      </svg>
+                      Object Compare
+                    </a>
+                  </li>
+                  <li>
+                    <a href="parameterCompare.html" className={`nav-accent-10${active === 'parameterCompare' ? ' current' : ''}`}>
+                      <svg className="nav-icon" viewBox="0 0 16 16">
+                        <use href="#ic-sliders" />
+                      </svg>
+                      Parameter Compare
+                    </a>
+                  </li>
+                </ul>
+              </li>
+            )}
 
             {user && (
               <li className="nav-dropdown" id="account-nav-item">

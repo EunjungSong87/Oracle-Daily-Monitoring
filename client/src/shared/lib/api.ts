@@ -7,6 +7,7 @@ import type {
   IlmRetentionUpdatePayload,
   CompareResponse,
   CompareSide,
+  ParameterCompareResponse,
   SourceDiffLine,
   IssueDetail,
   IssueRow,
@@ -299,4 +300,9 @@ export function runObjectCompare(
 
 export function getSourceDiff(source: CompareSide, target: CompareSide, type: string, name: string): Promise<SourceDiffLine[]> {
   return postJson('/api/objectCompare/sourceDiff', { source, target, type, name });
+}
+
+// ── Parameter Compare ────────────────────────────────────────────────────────
+export function runParameterCompare(sourceDbmsId: string | number, targetDbmsId: string | number): Promise<ParameterCompareResponse> {
+  return postJson('/api/parameterCompare/run', { sourceDbmsId, targetDbmsId });
 }

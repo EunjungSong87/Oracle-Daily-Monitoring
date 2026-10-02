@@ -1,5 +1,5 @@
 내부망 등 이미 예전 버전이 돌고 있는 환경을 최신 main으로 올릴 때 필요한 작업 순서입니다.
-위에서부터 순서대로 진행하세요. (마지막 갱신: 2026-09-30, Object Compare 화면 추가)
+위에서부터 순서대로 진행하세요. (마지막 갱신: 2026-10-02, Compare 메뉴 + Parameter Compare 화면 추가)
 
 내부망에 어느 시점 버전이 깔려 있는지 모르면, 2번의 스키마 스크립트는 전부 순서대로 실행해도
 됩니다 — 이미 반영된 것은 "이미 존재" 에러만 나고 아무 영향이 없습니다.
@@ -115,6 +115,11 @@ SYSTEM 등 DBA 계정으로 등록돼 있다면 대부분 이미 있습니다.
                        DBA_TABLES, DBA_TAB_COLUMNS, DBA_INDEXES, DBA_IND_COLUMNS,
                        DBA_IND_EXPRESSIONS, DBA_VIEWS, DBA_MVIEWS, DBA_SEQUENCES,
                        DBA_SYNONYMS, DBA_SOURCE, DBA_OBJECTS
+  - Parameter Compare: 비교하는 양쪽 DB 모두에서 V$PARAMETER, V$INSTANCE 조회.
+                       hidden(_) 파라미터까지 전부 비교하려면 각 DB에서 SYS로
+                       scripts/grant_hidden_parameter_views.sql <접속계정> 을 1회 실행
+                       (X$KSPPI/X$KSPPCV 래퍼 뷰 2개 생성 + SELECT 권한 부여, CDB면 해당 PDB에서).
+                       안 해도 화면은 동작하며, 그때는 직접 설정한 hidden만 비교됩니다.
 
 
 ============================================================
@@ -151,7 +156,8 @@ reports/ 폴더에 쓰기 권한이 있어야 예약 실행 리포트가 저장�
     (빌드 파일명이 해시 없이 고정이라 브라우저 캐시가 남아 있을 수 있음)
   - Databases: 연결 테스트 성공
   - Monitoring > Daily Monitoring 실행, Real-Time 세션 조회
-  - Maintenance > Stats Job Status, ILM Partition Retention, Object Compare (셋 다 SUPER_ADMIN만 메뉴에 보임)
+  - Maintenance > Stats Job Status, ILM Partition Retention (SUPER_ADMIN만 메뉴에 보임)
+  - Compare > Object Compare, Parameter Compare (Compare 메뉴 자체가 SUPER_ADMIN에게만 보임)
 
 
 ============================================================
@@ -161,7 +167,7 @@ reports/ 폴더에 쓰기 권한이 있어야 예약 실행 리포트가 저장�
   - DBA         : VIEWER + DBMS 등록/수정/삭제, Scripts/Thresholds 관리, 예약실행 설정,
                   Table Spec 추출.
   - SUPER_ADMIN : DBA + 계정 관리(Users), Stats Job Status, ILM Partition Retention 조회/등록/수정,
-                  Object Compare.
+                  Compare(Object / Parameter Compare).
 
 역할을 바꿔도 이미 로그인한 세션에는 바로 반영되지 않습니다 — 다시 로그인해야 적용됩니다.
 
@@ -169,6 +175,10 @@ reports/ 폴더에 쓰기 권한이 있어야 예약 실행 리포트가 저장�
 ============================================================
 참고: 버전별 주요 변경 (스키마/설정 변경 없는 코드 변경)
 ============================================================
+2026-10-02
+  - 상단에 Compare 메뉴 신설 (SUPER_ADMIN 전용). Object Compare를 Maintenance에서 이리로 옮김.
+  - Compare > Parameter Compare 추가: 두 DB의 초기화 파라미터를 hidden(_) 파라미터까지 비교.
+    hidden 전체 비교에는 대상 DB별 1회 권한 작업 필요 (4번의 Parameter Compare 참고).
 2026-09-30
   - Maintenance > Object Compare 추가 (SUPER_ADMIN 전용): 두 DB(또는 같은 DB의 두 스키마)의
     오브젝트를 비교. 테이블스페이스 → 테이블(컬럼 유무/타입/길이/NULL/기본값) → 인덱스 →

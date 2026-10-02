@@ -432,6 +432,11 @@ nav ul li a.current {
     background: linear-gradient(135deg, #7a8f8a, #56655f);
     box-shadow: 0 6px 16px rgba(86, 101, 95, 0.5);
 }
+/* Compare (Object / Parameter Compare) — 나란히 놓고 대조하는 느낌의 슬레이트 블루 */
+.nav-accent-10:hover, .nav-accent-10.current {
+    background: linear-gradient(135deg, #7d9cc4, #45648c);
+    box-shadow: 0 6px 16px rgba(69, 100, 140, 0.5);
+}
 /* Real-Time Monitoring — "라이브" 느낌의 밝은 시안 */
 .nav-accent-9:hover, .nav-accent-9.current {
     background: linear-gradient(135deg, #4fd8d8, #1f8286);
@@ -1687,4 +1692,56 @@ button.oc-count-SAME { color: var(--success); }
 .oc-items-table .issue-badge {
     font-family: var(--font);
     white-space: nowrap;
+}
+
+/* ── Parameter Compare (parameterCompare.html) — 나머지는 oc-* 클래스를 같이 씀 ── */
+.pc-side-summary {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 12px;
+}
+
+.pc-side-meta {
+    color: var(--text-muted);
+    font-size: 12.5px;
+    margin: 4px 0 8px;
+}
+
+.pc-side-summary .issue-badge {
+    font-family: var(--font);
+}
+
+.pc-warning {
+    background-color: var(--warning-soft);
+    color: var(--warning);
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-size: 13px;
+    margin: 0 0 12px;
+}
+
+.pc-options {
+    margin: 8px 0 4px;
+}
+
+.pc-description {
+    color: var(--text-muted);
+    font-size: 12px;
+    margin-top: 2px;
+}
+
+.pc-table td:first-child {
+    width: 34%;
+}
+
+.pc-value-diff {
+    color: var(--warning);
+    font-weight: 600;
+}
+
+@media (max-width: 800px) {
+    .pc-side-summary {
+        grid-template-columns: 1fr;
+    }
 }

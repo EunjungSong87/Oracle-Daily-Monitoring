@@ -322,3 +322,35 @@ export interface SourceDiffLine {
   sourceLine: number | null;
   targetLine: number | null;
 }
+
+// ── Parameter Compare (/api/parameterCompare/run) ────────────────────────────
+export interface ParameterSideValue {
+  value: string | null;
+  displayValue: string | null;
+  isDefault: boolean;
+}
+
+export interface ParameterItem {
+  name: string;
+  result: CompareResultKind;
+  envSpecific: boolean;
+  hidden: boolean;
+  description: string | null;
+  source: ParameterSideValue | null;
+  target: ParameterSideValue | null;
+}
+
+export interface ParameterCompareSide {
+  dbmsid: string | number;
+  dbname: string;
+  instance: { instanceName: string; hostName: string; version: string } | null;
+  source: 'X$' | 'X_$_VIEW' | 'V$PARAMETER';
+  hiddenIncluded: boolean;
+}
+
+export interface ParameterCompareResponse {
+  source: ParameterCompareSide;
+  target: ParameterCompareSide;
+  hiddenFullyCompared: boolean;
+  items: ParameterItem[];
+}

@@ -44,6 +44,7 @@ export default defineConfig({
         statsJob: fileURLToPath(new URL('./statsJob.html', import.meta.url)),
         ilmJob: fileURLToPath(new URL('./ilmJob.html', import.meta.url)),
         objectCompare: fileURLToPath(new URL('./objectCompare.html', import.meta.url)),
+        parameterCompare: fileURLToPath(new URL('./parameterCompare.html', import.meta.url)),
       },
       output: {
         manualChunks(id) {
