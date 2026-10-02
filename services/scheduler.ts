@@ -9,6 +9,7 @@ import * as dbmsList from '../models/dbmsModel';
 import * as dbmsService from './dbmsService';
 import { renderReportHtml } from './reportService';
 import { logger } from '../utils/logger';
+import { syncRunning as syncDataPumpHistory } from './dataPumpHistoryService';
 
 const REPORTS_DIR = path.join(process.cwd(), 'reports');
 const CHECK_INTERVAL_MS = 60 * 1000;
@@ -47,6 +48,8 @@ async function runScheduledReports(): Promise<{ dbname: string; ok: boolean }[]>
 }
 
 async function tick(): Promise<void> {
+  // 화면을 아무도 안 보고 있어도 끝난 Data Pump 작업의 이력(결과/수행 시간)을 채운다. 실패는 그 안에서 흡수한다.
+  void syncDataPumpHistory(null);
   try {
     const config = await dbmsList.getScheduleConfig();
     if (config.enabled !== 'Y' || !config.runTime) return;

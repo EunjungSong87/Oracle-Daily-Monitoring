@@ -45,6 +45,7 @@ export default defineConfig({
         ilmJob: fileURLToPath(new URL('./ilmJob.html', import.meta.url)),
         objectCompare: fileURLToPath(new URL('./objectCompare.html', import.meta.url)),
         parameterCompare: fileURLToPath(new URL('./parameterCompare.html', import.meta.url)),
+        dataPump: fileURLToPath(new URL('./dataPump.html', import.meta.url)),
       },
       output: {
         manualChunks(id) {

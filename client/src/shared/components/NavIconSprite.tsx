@@ -120,6 +120,10 @@ export function NavIconSprite(): ReactElement {
           <circle cx={5.5} cy={8} r={1.5} fill="currentColor" />
           <circle cx={11} cy={11.5} r={1.5} fill="currentColor" />
         </g>
+        <g id="ic-transfer" fill="none">
+          <path d="M2.5 5.2h9.5M9.5 2.7 12 5.2 9.5 7.7" stroke="currentColor" strokeWidth={1.3} strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M13.5 10.8H4M6.5 8.3 4 10.8l2.5 2.5" stroke="currentColor" strokeWidth={1.3} strokeLinecap="round" strokeLinejoin="round" />
+        </g>
         <g id="ic-user" fill="none">
           <circle cx={8} cy={5.3} r={2.6} stroke="currentColor" strokeWidth={1.3} />
           <path

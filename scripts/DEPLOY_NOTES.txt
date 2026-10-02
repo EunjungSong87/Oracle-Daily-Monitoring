@@ -1,5 +1,5 @@
 내부망 등 이미 예전 버전이 돌고 있는 환경을 최신 main으로 올릴 때 필요한 작업 순서입니다.
-위에서부터 순서대로 진행하세요. (마지막 갱신: 2026-10-02, Real-Time SQL 경과시간 산점도 / 세션 상세 추가)
+위에서부터 순서대로 진행하세요. (마지막 갱신: 2026-10-02, Maintenance > Data Pump 추가)
 
 내부망에 어느 시점 버전이 깔려 있는지 모르면, 3번의 스키마 스크립트는 전부 순서대로 실행해도
 됩니다 — 이미 반영된 것은 "이미 존재" 에러만 나고 아무 영향이 없습니다.
@@ -73,11 +73,13 @@ SESSION_SECRET은 나중에 바꾸면 그 순간 전원 로그아웃됩니다.
   3) scripts/add_monitoring_issues.sql   -> 티켓 (monitoring_issues, monitoring_issue_comments)
   4) scripts/add_users.sql               -> 로그인 계정 (users)
   5) scripts/add_user_roles.sql          -> users에 role(VIEWER/DBA/SUPER_ADMIN) 추가
+  6) scripts/add_datapump_history.sql    -> Data Pump 작업 이력 (datapump_job_history) — 2026-10-02 추가
 
 5)는 반드시 4) 다음에 실행해야 합니다 — users 테이블이 있어야 ALTER할 수 있고, 기존
 is_admin 컬럼을 role로 바꿔치기(추가 후 삭제)하기 때문입니다.
 
-2026-09-28 이후 변경(React 전환, Real-Time, Stats Job, ILM, Compare, 로그 정리 등)으로 추가된 메타데이터 DB 스키마는 없습니다.
+2026-09-28 이후 변경 중 메타데이터 DB 스키마가 추가된 것은 6)뿐입니다. 6)을 빠뜨려도 앱은 돌아가지만
+Data Pump 작업 이력/예상 시간이 비고, 서버 로그에 "작업 이력 테이블이 없어..." 경고가 한 번 남습니다.
 
 주의: docker/initdb/*.sql은 로컬 Docker 테스트 DB 전용입니다. 내부망에서는 실행하지 마세요
 (03_ilm_partition_retention.sql은 PGDBA 계정과 샘플 파티션 테이블을, 04_object_compare_sample.sql은
@@ -136,6 +138,17 @@ SYSTEM 등 DBA 계정으로 등록돼 있다면 대부분 이미 있습니다.
                        값은 인스턴스 기준(V$SYSTEM_PARAMETER와 같음)으로 비교합니다.
                        안 해도 화면은 동작하며, 그때는 직접 설정한 hidden만 비교됩니다.
 
+  - Data Pump        : (Maintenance > Data Pump, 대상 DB 쪽) 접속 계정에
+                       DATAPUMP_EXP_FULL_DATABASE / DATAPUMP_IMP_FULL_DATABASE 롤 (DBA 롤에 포함),
+                       쓸 DIRECTORY에 대한 READ/WRITE 권한(덤프/로그 생성 + 화면에서 로그 읽기 +
+                       parfile을 DB 서버에 바로 저장), UTL_FILE 실행 권한(보통 PUBLIC에 있음 —
+                       보안 설정으로 회수된 DB라면 GRANT EXECUTE ON UTL_FILE TO <접속계정>),
+                       DBA_DIRECTORIES, DBA_SEGMENTS, DBA_LOBS, DBA_TABLES, DBA_DATAPUMP_JOBS,
+                       V$SESSION_LONGOPS, V$DATABASE, V$VERSION 조회.
+                       덤프/로그 파일은 DB 서버의 DIRECTORY 경로에 생깁니다 (앱이 도는 PC가 아님) —
+                       디스크 여유 공간 확인. PARALLEL 2 이상은 Enterprise Edition에서만 됩니다
+                       (Standard/Free는 화면에서 1로 고정).
+
     hidden 파라미터용 뷰 — sqlplus 대신 Orange 등 SQL 툴로 실행할 때:
     SYS를 SYSDBA 권한으로 접속한 뒤 아래를 "스크립트 실행"(전체 실행)으로 돌립니다.
     접속계정 자리에는 Databases 화면에 등록된 그 DB의 접속 계정(예: SYSTEM)을 넣습니다.
@@ -190,7 +203,8 @@ reports/ 폴더에 쓰기 권한이 있어야 예약 실행 리포트가 저장�
   - Real-Time: "SQL 경과 시간" 산점도에 점이 찍히는지 (안 나오고 "ASH를 조회하지 못해…"가 뜨면
     4번의 ASH 권한/Diagnostics Pack 확인), 세션 목록 더블클릭 시 세션 상세 창이 뜨는지
   - VIEWER/DBA 계정으로도 Real-Time 화면이 조회되는지 (이번에 고친 권한 버그)
-  - Maintenance > Stats Job Status, ILM Partition Retention (SUPER_ADMIN만 메뉴에 보임)
+  - Maintenance > Stats Job Status, ILM Partition Retention, Data Pump (SUPER_ADMIN만 메뉴에 보임)
+    Data Pump는 작은 스키마로 "분할 계획 만들기" → parfile 보기까지만 먼저 확인 (실행은 운영 영향 고려)
   - Compare > Object Compare, Parameter Compare (Compare 메뉴 자체가 SUPER_ADMIN에게만 보임)
     Parameter Compare 결과 상단에 "hidden 포함 (X_$ 뷰)"가 나오면 hidden 뷰 작업이 된 것
 
@@ -202,15 +216,29 @@ reports/ 폴더에 쓰기 권한이 있어야 예약 실행 리포트가 저장�
   - DBA         : VIEWER + DBMS 등록/수정/삭제, Scripts/Thresholds 관리, 예약실행 설정,
                   Table Spec 추출.
   - SUPER_ADMIN : DBA + 계정 관리(Users), Stats Job Status, ILM Partition Retention 조회/등록/수정,
-                  Compare(Object / Parameter Compare).
+                  Compare(Object / Parameter Compare), Data Pump(EXPDP/IMPDP).
 
 역할을 바꿔도 이미 로그인한 세션에는 바로 반영되지 않습니다 — 다시 로그인해야 적용됩니다.
 
 
 ============================================================
-참고: 버전별 주요 변경 (스키마/설정 변경 없는 코드 변경)
+참고: 버전별 주요 변경 (스키마 변경은 3번에도 적혀 있음)
 ============================================================
 2026-10-02
+  - Maintenance > Data Pump 추가 (SUPER_ADMIN 전용): EXPDP/IMPDP를 DBMS_DATAPUMP로 DB 서버에서 실행하거나
+    같은 설정의 parfile/명령어를 생성. Export는 스키마 선택 또는 "OWNER.TABLE" 목록을 올리면 테이블 크기
+    (DBA_SEGMENTS)를 보고 작업 하나당 최대 크기(기본 1TB) 이하로 자동 분할하고 (기준 이하 스키마들은 한 작업
+    SCHEMAS=A,B,…로 묶고, 혼자 기준을 넘는 스키마만 큰 테이블을 떼어 냄), 작업마다 FILESIZE를
+    "작업 크기 ÷ PARALLEL"로 자동 계산. 전체 실행 시 모든 작업이 같은 SCN. Import는 REMAP_SCHEMA/
+    REMAP_TABLESPACE 지원, TABLE_EXISTS_ACTION 기본 SKIP (APPEND/TRUNCATE/REPLACE는 대상 DB명을 입력해야
+    실행). 작업 현황(진행률/취소)과 로그 보기 포함. 누가 어떤 작업을 시작/취소했는지 서버 로그에 남음.
+    parfile(+ 순서대로 돌리는 run_all.sh)은 내 PC로 받거나 DB 서버 DIRECTORY에 바로 저장 가능 (같은 이름이
+    있으면 덮어쓸지 확인). 스키마 선택은 검색되는 드롭다운.
+  - Data Pump 작업 이력: 이 화면에서 시작한 작업을 메타데이터 DB(datapump_job_history, 3번 6))에 기록.
+    작업이 끝나면(화면 조회 시 또는 스케줄러가 1분마다) 로그를 읽어 결과(성공/에러 있음/실패/취소),
+    수행 시간, 덤프 실제 크기를 채움. 작업 현황 탭 아래 "작업 이력" 표에서 시작한 사람/결과/로그 확인.
+    작업 현황의 실행 중 작업에 지난 시간/남은 시간(어림)/끝날 예상 시각 표시. Export 분할 계획에
+    작업별/합계 예상 시간 표시 (이 DB의 지난 export 평균 속도 기준, 이력이 쌓여야 보임).
   - Real-Time: "SQL 경과 시간" 산점도 추가 (MaxGauge 방식 — 끝난 SQL 실행 하나 = 점 하나,
     가로 = 끝난 시각, 세로 = 걸린 시간, ASH 기준). 점 클릭 = 그 실행의 상세,
     드래그로 영역 선택 = 그 안의 실행 목록. 세션 목록 더블클릭 = 세션 상세

@@ -456,3 +456,153 @@ export interface ParameterCompareResponse {
   hiddenFullyCompared: boolean;
   items: ParameterItem[];
 }
+
+// ── Data Pump (/api/dataPump/*) ──────────────────────────────────────────────
+export interface DataPumpTarget {
+  dbname: string;
+  user: string;
+  host: string;
+  port: string;
+  sid: string;
+}
+
+export interface DataPumpMeta {
+  target: DataPumpTarget;
+  // Data Pump PARALLEL(2 이상)은 Enterprise Edition에서만 된다 (Standard/Free는 ORA-39094).
+  edition: { banner: string; parallelSupported: boolean };
+  directories: { name: string; path: string }[];
+  schemas: string[];
+}
+
+export type DataPumpContent = 'ALL' | 'METADATA_ONLY' | 'DATA_ONLY';
+export type TableExistsAction = 'SKIP' | 'APPEND' | 'TRUNCATE' | 'REPLACE';
+
+export interface DataPumpRequest {
+  operation: 'EXPORT' | 'IMPORT';
+  mode: 'SCHEMA' | 'TABLE' | 'FULL';
+  schemas?: string[];
+  tableOwner?: string | null;
+  tables?: string[];
+  excludeTables?: string[];
+  directory: string;
+  dumpfile: string;
+  logfile: string;
+  jobName?: string | null;
+  parallel?: number;
+  filesize?: string | null;
+  content?: DataPumpContent;
+  excludeStatistics?: boolean;
+  reuseDumpfiles?: boolean;
+  flashbackConsistent?: boolean;
+  flashbackScn?: string | null;
+  tableExistsAction?: TableExistsAction;
+  remapSchemas?: { from: string; to: string }[];
+  remapTablespaces?: { from: string; to: string }[];
+}
+
+export interface ExportSplitOptions {
+  directory: string;
+  filePrefix: string;
+  chunkSize: string; // 예: 1T, 500G, NONE
+  parallel: number;
+  filesizeMode: 'AUTO' | 'NONE' | 'CUSTOM';
+  customFilesize?: string | null;
+  content?: DataPumpContent;
+  excludeStatistics?: boolean;
+  flashbackConsistent?: boolean;
+  reuseDumpfiles?: boolean;
+}
+
+export interface TableSizeRow {
+  owner: string;
+  name: string;
+  bytes: number;
+}
+
+export interface ExportGroup {
+  no: number;
+  owners: string[]; // SCHEMA 작업은 여러 스키마를 묶을 수 있음, TABLE 작업은 소유자 하나
+  mode: 'SCHEMA' | 'TABLE';
+  tables: TableSizeRow[];
+  excludedTables: string[];
+  bytes: number;
+  oversize: boolean;
+  filesize: string | null;
+  expectedFiles: number;
+  request: DataPumpRequest;
+  jobName: string;
+  parfile: string;
+  parfileName: string;
+  command: string;
+}
+
+export interface ExportPlanResponse {
+  totalBytes: number;
+  chunkBytes: number | null;
+  missing: string[];
+  groups: ExportGroup[];
+}
+
+export interface ParfilePreview {
+  jobName: string;
+  parfile: string;
+  parfileName: string;
+  command: string;
+}
+
+export interface DataPumpJob {
+  owner: string;
+  jobName: string;
+  operation: string;
+  jobMode: string;
+  state: string;
+  degree: number;
+  attachedSessions: number;
+  progressPct: number | null;
+  progressMessage: string | null;
+  elapsedSec: number | null; // V$SESSION_LONGOPS — 작업 초반에는 없을 수 있음
+  remainingSec: number | null; // 지금까지의 속도로 오라클이 계산한 남은 시간
+  doneMb: number | null;
+  totalMb: number | null;
+}
+
+export interface DataPumpLog {
+  exists: boolean;
+  text: string;
+  truncated: boolean;
+}
+
+export type DataPumpHistoryStatus = 'RUNNING' | 'COMPLETED' | 'COMPLETED_WITH_ERRORS' | 'FAILED' | 'CANCELLED' | 'UNKNOWN';
+
+// 메타데이터 DB에 남는 Data Pump 작업 이력 (system.datapump_job_history)
+export interface DataPumpHistoryRow {
+  id: number;
+  dbmsId: number;
+  dbname: string | null;
+  jobOwner: string | null;
+  jobName: string;
+  operation: string;
+  jobMode: string;
+  targetDesc: string | null;
+  directory: string;
+  dumpfile: string;
+  logfile: string;
+  parallel: number | null;
+  tableExistsAction: string | null;
+  estimatedBytes: number | null;
+  dumpBytes: number | null;
+  startedBy: string | null;
+  startedAt: string | null; // 'YYYY-MM-DD HH24:MI:SS'
+  status: DataPumpHistoryStatus;
+  finishedAt: string | null;
+  elapsedSec: number | null;
+  errorCount: number | null;
+  resultMessage: string | null;
+}
+
+export interface DataPumpHistory {
+  available: boolean; // 이력 테이블(scripts/add_datapump_history.sql)이 없으면 false
+  rows: DataPumpHistoryRow[];
+  // 그 DB에서 최근에 끝난 export들의 평균 처리 속도 (예상 크기 기준 바이트/초). 이력이 없으면 null.
+  throughput: { exportBytesPerSec: number | null; samples: number };
+}

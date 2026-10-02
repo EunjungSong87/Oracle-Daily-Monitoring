@@ -10,6 +10,14 @@ import type {
   AshTimeRange,
   SessionDetailResult,
   ParameterCompareResponse,
+  DataPumpHistory,
+  DataPumpJob,
+  DataPumpLog,
+  DataPumpMeta,
+  DataPumpRequest,
+  ExportPlanResponse,
+  ExportSplitOptions,
+  ParfilePreview,
   SourceDiffLine,
   IssueDetail,
   IssueRow,
@@ -323,4 +331,63 @@ export function getSourceDiff(source: CompareSide, target: CompareSide, type: st
 // ── Parameter Compare ────────────────────────────────────────────────────────
 export function runParameterCompare(sourceDbmsId: string | number, targetDbmsId: string | number): Promise<ParameterCompareResponse> {
   return postJson('/api/parameterCompare/run', { sourceDbmsId, targetDbmsId });
+}
+
+// ── Data Pump ────────────────────────────────────────────────────────────────
+export function getDataPumpMeta(dbmsid: string | number): Promise<DataPumpMeta> {
+  return postJson('/api/dataPump/meta', { dbmsid });
+}
+
+// 스키마(schemas) 또는 "OWNER.TABLE" 목록 텍스트(tableList) 중 하나로 분할 계획을 만든다.
+export function planDataPumpExport(
+  dbmsid: string | number,
+  source: { schemas?: string[]; tableList?: string },
+  options: ExportSplitOptions
+): Promise<ExportPlanResponse> {
+  return postJson('/api/dataPump/exportPlan', { dbmsid, ...source, options });
+}
+
+export async function getDataPumpScn(dbmsid: string | number): Promise<string> {
+  const { scn } = await postJson<{ scn: string }>('/api/dataPump/currentScn', { dbmsid });
+  return scn;
+}
+
+export function previewDataPump(dbmsid: string | number, request: DataPumpRequest): Promise<ParfilePreview> {
+  return postJson('/api/dataPump/preview', { dbmsid, request });
+}
+
+// estimatedBytes: 분할 계획의 예상 크기 — 이력에 같이 남겨 둔다.
+export function startDataPump(
+  dbmsid: string | number,
+  request: DataPumpRequest,
+  confirmDbname?: string,
+  estimatedBytes?: number
+): Promise<{ jobName: string }> {
+  return postJson('/api/dataPump/start', { dbmsid, request, confirmDbname, estimatedBytes });
+}
+
+export function getDataPumpHistory(dbmsid: string | number): Promise<DataPumpHistory> {
+  return postJson('/api/dataPump/history', { dbmsid });
+}
+
+export function getDataPumpJobs(dbmsid: string | number): Promise<DataPumpJob[]> {
+  return postJson('/api/dataPump/jobs', { dbmsid });
+}
+
+export function cancelDataPumpJob(dbmsid: string | number, owner: string, jobName: string): Promise<unknown> {
+  return postJson('/api/dataPump/cancel', { dbmsid, owner, jobName });
+}
+
+export function readDataPumpLog(dbmsid: string | number, directory: string, logfile: string): Promise<DataPumpLog> {
+  return postJson('/api/dataPump/log', { dbmsid, directory, logfile });
+}
+
+// parfile/실행 스크립트를 DB 서버 DIRECTORY에 저장. overwrite가 아니면 이미 있는 파일은 skipped로 돌아온다.
+export function saveDataPumpFiles(
+  dbmsid: string | number,
+  directory: string,
+  files: { name: string; content: string }[],
+  overwrite: boolean
+): Promise<{ written: string[]; skipped: string[] }> {
+  return postJson('/api/dataPump/saveFiles', { dbmsid, directory, files, overwrite });
 }

@@ -1952,3 +1952,272 @@ button.rt-sql-chip-active {
     color: #dfe8e5;
     border-radius: 6px;
 }
+
+/* ── Data Pump (dataPump.html) — 나머지는 oc-, rt- 접두어 클래스를 같이 씀 ── */
+.dp-inline {
+    display: inline-flex;
+    margin-bottom: 12px;
+}
+
+.dp-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 8px 0;
+}
+
+.dp-row input[type="text"] {
+    width: auto;
+    min-width: 160px;
+    flex: 1 1 160px;
+}
+
+.dp-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 4px 20px;
+}
+
+.dp-grid input + input,
+.dp-grid select + input {
+    margin-top: 6px;
+}
+
+.dp-hint-line {
+    color: var(--text-muted);
+    font-size: 12px;
+    margin-top: 4px;
+    word-break: break-all;
+}
+
+textarea.dp-table-list {
+    min-height: 160px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+}
+
+.dp-groups td {
+    vertical-align: middle;
+}
+
+.dp-actions {
+    white-space: nowrap;
+}
+
+.dp-actions button,
+.dp-actions .issue-badge {
+    margin: 0 0 0 6px;
+}
+
+.dp-actions button {
+    padding: 6px 12px;
+    font-size: 13px;
+}
+
+.dp-table-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.dp-chip {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background-color: var(--surface-alt);
+    border: 1px solid var(--border);
+}
+
+.dp-chip em {
+    font-style: normal;
+    color: var(--text-muted);
+    margin-left: 4px;
+}
+
+.dp-label {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--text-muted);
+    margin: 12px 0 6px;
+}
+
+.dp-code-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.dp-code-row pre {
+    flex: 1;
+}
+
+.dp-command {
+    max-height: none;
+}
+
+.dp-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.dp-log {
+    max-height: 60vh;
+}
+
+.dp-summary {
+    margin: 6px 0 4px 18px;
+    padding: 0;
+    font-size: 13px;
+}
+
+.dp-progress-cell {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 160px;
+}
+
+.dp-progress-cell .rt-event-track {
+    flex: 1;
+}
+
+.dp-progress-fill {
+    background-color: var(--primary);
+}
+
+/* 검색 가능한 다중 선택 드롭다운 (Data Pump 스키마 선택) */
+.dp-multiselect {
+    position: relative;
+}
+
+.dp-multiselect-box {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    min-height: 42px;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background-color: var(--surface);
+    cursor: text;
+}
+
+.dp-multiselect-box:focus-within {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(20, 107, 105, 0.18);
+}
+
+.dp-multiselect-box input[type="text"] {
+    flex: 1 1 180px;
+    width: auto;
+    min-width: 180px;
+    border: none;
+    padding: 4px;
+    box-shadow: none;
+    background: transparent;
+}
+
+.dp-multiselect-box input[type="text"]:focus {
+    box-shadow: none;
+}
+
+.dp-chip-selected {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background-color: var(--primary-soft);
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+.dp-chip-selected button {
+    background: none;
+    color: inherit;
+    padding: 0 2px;
+    margin: 0;
+    font-size: 14px;
+    line-height: 1;
+    border-radius: 3px;
+}
+
+.dp-multiselect-menu {
+    position: absolute;
+    z-index: 20;
+    left: 0;
+    right: 0;
+    top: calc(100% + 4px);
+    max-height: 320px;
+    overflow-y: auto;
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: var(--shadow);
+}
+
+.dp-multiselect-toolbar {
+    position: sticky;
+    top: 0;
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 6px 10px;
+    font-size: 12px;
+    color: var(--text-muted);
+    background-color: var(--surface-alt);
+    border-bottom: 1px solid var(--border);
+}
+
+.dp-multiselect-toolbar button.oc-link {
+    font-size: 12px;
+    margin-left: 10px;
+}
+
+.dp-multiselect-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.dp-multiselect-active {
+    background-color: var(--row-hover);
+}
+
+.dp-multiselect-empty {
+    padding: 8px 10px;
+    font-size: 12.5px;
+    color: var(--text-muted);
+}
+
+.dp-full {
+    flex-basis: 100%;
+    margin: 0 0 4px;
+}
+
+.dp-time-cell {
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+/* Data Pump 분할 계획의 예상 시간 줄, 작업 이력 표 */
+.dp-plan-eta {
+    display: block;
+    font-weight: normal;
+}
+
+.dp-nowrap {
+    white-space: nowrap;
+}
+
+.dp-target-cell {
+    max-width: 360px;
+    font-size: 13px;
+    word-break: break-all;
+}

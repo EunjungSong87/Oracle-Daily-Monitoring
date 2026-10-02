@@ -21,9 +21,10 @@ export type ActivePage =
   | 'ilmJob'
   | 'objectCompare'
   | 'parameterCompare'
+  | 'dataPump'
   | 'users';
 
-const MAINTENANCE_GROUP: ActivePage[] = ['tableSpec', 'statsJob', 'ilmJob'];
+const MAINTENANCE_GROUP: ActivePage[] = ['tableSpec', 'statsJob', 'ilmJob', 'dataPump'];
 const COMPARE_GROUP: ActivePage[] = ['objectCompare', 'parameterCompare'];
 const MONITORING_GROUP: ActivePage[] = ['dailyMonitoring', 'scripts', 'thresholds', 'history', 'issues', 'realtime'];
 const DAILY_MONITORING_CHILDREN: ActivePage[] = ['scripts', 'thresholds', 'history', 'issues'];
@@ -193,6 +194,14 @@ export function AppHeader({ active }: Props): ReactElement {
                           <use href="#ic-archive" />
                         </svg>
                         ILM Partition Retention
+                      </a>
+                    </li>
+                    <li>
+                      <a href="dataPump.html" className={`nav-accent-7${active === 'dataPump' ? ' current' : ''}`}>
+                        <svg className="nav-icon" viewBox="0 0 16 16">
+                          <use href="#ic-transfer" />
+                        </svg>
+                        Data Pump
                       </a>
                     </li>
                   </>
