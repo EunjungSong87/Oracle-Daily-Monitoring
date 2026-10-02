@@ -18,8 +18,12 @@ export interface InstanceInfo {
 }
 
 // 파라미터를 어디서 읽었는지. hidden(_) 파라미터 전체는 X$ 테이블에만 있고 X$는 SYS만 볼 수 있어서,
-// SYS가 아니면 DBA가 만들어 grant한 SYS.X_$KSPPI/X_$KSPPCV 뷰를 쓰고, 그것도 없으면 V$PARAMETER로 내려갑니다.
-export type ParameterSource = 'X$' | 'X_$_VIEW' | 'V$PARAMETER';
+// SYS가 아니면 DBA가 만들어 grant한 SYS.X_$KSPPI/X_$KSPPSV 뷰를 쓰고, 그것도 없으면 V$SYSTEM_PARAMETER로 내려갑니다.
+//
+// 값은 전부 "인스턴스 기준"입니다 (X$KSPPSV / V$SYSTEM_PARAMETER). 세션 기준(X$KSPPCV / V$PARAMETER)으로 읽으면
+// NLS_DATE_FORMAT, NLS_LANGUAGE 같은 NLS 파라미터가 DB 설정이 아니라 앱 서버의 클라이언트 설정(NLS_LANG 등)
+// 값으로 나와서, 실제 DB 설정 비교가 되지 않습니다.
+export type ParameterSource = 'X$' | 'X_$_VIEW' | 'V$SYSTEM_PARAMETER';
 
 export interface ParameterSnapshot {
   dbname: string;
@@ -43,19 +47,19 @@ async function connectTarget(dbmsid: DbmsIdParam): Promise<{ connection: oracled
   return { connection: await db.connectDB(config), dbname: dbconfig[6] };
 }
 
-const HIDDEN_QUERY = (ksppi: string, ksppcv: string): string => `
+const HIDDEN_QUERY = (ksppi: string, ksppsv: string): string => `
   SELECT a.KSPPINM AS NAME, b.KSPPSTVL AS VALUE, b.KSPPSTDVL AS DISPLAY_VALUE,
          b.KSPPSTDF AS ISDEFAULT, a.KSPPDESC AS DESCRIPTION
     FROM ${ksppi} a
-    JOIN ${ksppcv} b ON b.INDX = a.INDX AND b.INST_ID = a.INST_ID
+    JOIN ${ksppsv} b ON b.INDX = a.INDX AND b.INST_ID = a.INST_ID
    WHERE a.INST_ID = USERENV('INSTANCE')
    ORDER BY a.KSPPINM`;
 
 // 위에서부터 차례로 시도합니다. 권한이 없는 경우(ORA-00942 등)만 다음으로 넘어가고, 다른 에러는 그대로 던집니다.
 const PARAMETER_QUERIES: { source: ParameterSource; sql: string }[] = [
-  { source: 'X$', sql: HIDDEN_QUERY('X$KSPPI', 'X$KSPPCV') },
-  { source: 'X_$_VIEW', sql: HIDDEN_QUERY('SYS.X_$KSPPI', 'SYS.X_$KSPPCV') },
-  { source: 'V$PARAMETER', sql: `SELECT NAME, VALUE, DISPLAY_VALUE, ISDEFAULT, DESCRIPTION FROM V$PARAMETER ORDER BY NAME` },
+  { source: 'X$', sql: HIDDEN_QUERY('X$KSPPI', 'X$KSPPSV') },
+  { source: 'X_$_VIEW', sql: HIDDEN_QUERY('SYS.X_$KSPPI', 'SYS.X_$KSPPSV') },
+  { source: 'V$SYSTEM_PARAMETER', sql: `SELECT NAME, VALUE, DISPLAY_VALUE, ISDEFAULT, DESCRIPTION FROM V$SYSTEM_PARAMETER ORDER BY NAME` },
 ];
 
 // ORA-00942: table or view does not exist / ORA-01031: insufficient privileges
@@ -73,14 +77,14 @@ async function getParameters(dbmsid: DbmsIdParam): Promise<ParameterSnapshot> {
     const options = { outFormat: oracledb.OUT_FORMAT_OBJECT, fetchArraySize: 1000 };
 
     let parameterResult: oracledb.Result<Record<string, any>> | undefined;
-    let source: ParameterSource = 'V$PARAMETER';
+    let source: ParameterSource = 'V$SYSTEM_PARAMETER';
     for (const candidate of PARAMETER_QUERIES) {
       try {
         parameterResult = await connection.execute<Record<string, any>>(candidate.sql, {}, options);
         source = candidate.source;
         break;
       } catch (error) {
-        if (candidate.source === 'V$PARAMETER' || !isNoAccess(error)) throw error;
+        if (candidate.source === 'V$SYSTEM_PARAMETER' || !isNoAccess(error)) throw error;
       }
     }
     // 버전/호스트는 화면 머리글의 참고 정보일 뿐이라, V$INSTANCE 권한이 없어도 비교 자체는 되게 합니다.
@@ -101,7 +105,7 @@ async function getParameters(dbmsid: DbmsIdParam): Promise<ParameterSnapshot> {
       dbname: target.dbname,
       instance,
       source,
-      hiddenIncluded: source !== 'V$PARAMETER',
+      hiddenIncluded: source !== 'V$SYSTEM_PARAMETER',
       parameters: (parameterResult?.rows ?? []).map((row) => ({
         name: row.NAME,
         value: row.VALUE,

@@ -7,7 +7,7 @@ function parameter(name: string, value: string | null, isDefault = true): Parame
 }
 
 function snapshot(parameters: ParameterInfo[], hiddenIncluded = true): ParameterSnapshot {
-  return { dbname: 'DB', instance: null, parameters, source: hiddenIncluded ? 'X$' : 'V$PARAMETER', hiddenIncluded };
+  return { dbname: 'DB', instance: null, parameters, source: hiddenIncluded ? 'X$' : 'V$SYSTEM_PARAMETER', hiddenIncluded };
 }
 
 const resultOf = (items: ReturnType<typeof compareParameterSnapshots>) => Object.fromEntries(items.map((item) => [item.name, item.result]));

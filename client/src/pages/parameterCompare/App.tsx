@@ -42,7 +42,7 @@ function matchesResult(item: ParameterItem, filter: ResultFilter): boolean {
 }
 
 function sourceLabel(side: ParameterCompareSide): string {
-  if (side.source === 'V$PARAMETER') return 'hidden 미포함 (V$PARAMETER)';
+  if (side.source === 'V$SYSTEM_PARAMETER') return 'hidden 미포함 (V$SYSTEM_PARAMETER)';
   return side.source === 'X$' ? 'hidden 포함 (X$)' : 'hidden 포함 (X_$ 뷰)';
 }
 
@@ -140,7 +140,7 @@ export function App(): ReactElement {
               <DbmsPicker title="대상 (Target)" id="pc-target" dbmsRows={dbmsRows} value={targetDbmsId} onChange={setTargetDbmsId} />
             </div>
             <p className="oc-hint">
-              접속한 인스턴스의 초기화 파라미터 전체를 hidden(_) 파라미터까지 포함해 비교합니다. hidden 전체를 읽으려면
+              접속한 인스턴스의 초기화 파라미터 전체(인스턴스 기준 값)를 hidden(_) 파라미터까지 포함해 비교합니다. hidden 전체를 읽으려면
               대상 DB에 <code>scripts/grant_hidden_parameter_views.sql</code>을 SYS로 한 번 실행해 두어야 합니다.
             </p>
             <div className="oc-actions">

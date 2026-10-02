@@ -344,7 +344,7 @@ export interface ParameterCompareSide {
   dbmsid: string | number;
   dbname: string;
   instance: { instanceName: string; hostName: string; version: string } | null;
-  source: 'X$' | 'X_$_VIEW' | 'V$PARAMETER';
+  source: 'X$' | 'X_$_VIEW' | 'V$SYSTEM_PARAMETER';
   hiddenIncluded: boolean;
 }
 

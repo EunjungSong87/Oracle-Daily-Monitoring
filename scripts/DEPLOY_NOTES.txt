@@ -115,10 +115,11 @@ SYSTEM 등 DBA 계정으로 등록돼 있다면 대부분 이미 있습니다.
                        DBA_TABLES, DBA_TAB_COLUMNS, DBA_INDEXES, DBA_IND_COLUMNS,
                        DBA_IND_EXPRESSIONS, DBA_VIEWS, DBA_MVIEWS, DBA_SEQUENCES,
                        DBA_SYNONYMS, DBA_SOURCE, DBA_OBJECTS
-  - Parameter Compare: 비교하는 양쪽 DB 모두에서 V$PARAMETER, V$INSTANCE 조회.
+  - Parameter Compare: 비교하는 양쪽 DB 모두에서 V$SYSTEM_PARAMETER, V$INSTANCE 조회.
                        hidden(_) 파라미터까지 전부 비교하려면 각 DB에서 SYS로
                        scripts/grant_hidden_parameter_views.sql <접속계정> 을 1회 실행
-                       (X$KSPPI/X$KSPPCV 래퍼 뷰 2개 생성 + SELECT 권한 부여, CDB면 해당 PDB에서).
+                       (X$KSPPI/X$KSPPSV 래퍼 뷰 2개 생성 + SELECT 권한 부여, CDB면 해당 PDB에서).
+                       값은 인스턴스 기준(V$SYSTEM_PARAMETER와 같음)으로 비교합니다.
                        안 해도 화면은 동작하며, 그때는 직접 설정한 hidden만 비교됩니다.
 
 

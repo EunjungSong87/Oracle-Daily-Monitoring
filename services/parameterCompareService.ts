@@ -88,7 +88,7 @@ function isHidden(name: string): boolean {
   return name.startsWith('_');
 }
 
-// 한쪽만 hidden 전체(X$)를 읽고 다른 쪽은 V$PARAMETER(= 직접 설정한 hidden만 보임)라면, 그대로 비교하면
+// 한쪽만 hidden 전체(X$)를 읽고 다른 쪽은 V$SYSTEM_PARAMETER(= 직접 설정한 hidden만 보임)라면, 그대로 비교하면
 // 기본값 hidden 수천 개가 전부 "한쪽에만 있음"으로 나옵니다. 그래서 그 경우엔 X$를 읽은 쪽도
 // 기본값인 hidden은 빼고, 양쪽 모두 "직접 설정한 hidden"끼리만 비교합니다.
 function comparableParameters(snapshot: ParameterSnapshot, other: ParameterSnapshot): ParameterInfo[] {
