@@ -7,6 +7,8 @@ import type {
   IlmRetentionUpdatePayload,
   CompareResponse,
   CompareSide,
+  AshTimeRange,
+  SessionDetailResult,
   ParameterCompareResponse,
   SourceDiffLine,
   IssueDetail,
@@ -258,8 +260,24 @@ export async function downloadTableSpec(
 }
 
 // ── Realtime ─────────────────────────────────────────────────────────────────
-export function pollSessions(dbmsid: string | number): Promise<RealtimeSnapshot> {
-  return postJson('/api/realtime/sessions', { dbmsid });
+// since(DB 시각)를 주면 그 이후에 ASH에서 갱신된 SQL 실행만, 안 주면 최근 10분치를 함께 돌려준다.
+export function pollSessions(dbmsid: string | number, since: string | null = null): Promise<RealtimeSnapshot> {
+  return postJson('/api/realtime/sessions', { dbmsid, since });
+}
+
+// range를 주면 그 기간의 ASH만 보고, 안 주면(세션 목록 더블클릭) 서버가 최근 10분을 본다.
+export function getRealtimeSessionDetail(
+  dbmsid: string | number,
+  target: { sid: number; serial: number | null; sqlId?: string | null; range?: AshTimeRange | null }
+): Promise<SessionDetailResult> {
+  return postJson('/api/realtime/sessionDetail', {
+    dbmsid,
+    sid: target.sid,
+    serial: target.serial,
+    sqlId: target.sqlId ?? null,
+    from: target.range?.from,
+    to: target.range?.to,
+  });
 }
 
 // ── Stats Job ────────────────────────────────────────────────────────────────

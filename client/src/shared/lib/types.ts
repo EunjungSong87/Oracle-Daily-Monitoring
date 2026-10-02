@@ -234,11 +234,113 @@ export interface SessionRow {
   machine: string | null;
   logonTime: string | null;
   lastCallEt: number | null;
+  sqlElapsedSec: number | null;
+  sqlExecId: number | null; // 지금 돌고 있는 실행의 번호 — 산점도에서 "아직 실행 중"인 실행을 빼는 데 씀
+  dbTime: string; // 조회 시점의 DB 서버 시각 'YYYY-MM-DD HH24:MI:SS'
+}
+
+// ── Realtime: ASH / AWR (/api/realtime/ashExecutions, /api/realtime/sessionDetail) ──
+export interface AshTimeRange {
+  from: string;
+  to: string;
+}
+
+export interface AshExecution {
+  sid: number;
+  serial: number;
+  username: string | null;
+  sqlId: string | null;
+  sqlExecId: number | null;
+  sqlExecStart: string | null;
+  samples: number;
+  firstSample: string;
+  lastSample: string;
+  maxElapsedSec: number | null;
+  topEvent: string;
+  topWaitClass: string;
+  program: string | null;
+  module: string | null;
+  machine: string | null;
+}
+
+export interface AshSummary {
+  range: AshTimeRange;
+  samples: number;
+  firstSample: string | null;
+  lastSample: string | null;
+  username: string | null;
+  program: string | null;
+  module: string | null;
+  machine: string | null;
+  events: { event: string; waitClass: string; samples: number }[];
+  blockingSessions: number[];
+  sqlIds: string[];
+  source: 'V$ACTIVE_SESSION_HISTORY' | 'DBA_HIST_ACTIVE_SESS_HISTORY';
+}
+
+export interface LiveSessionDetail {
+  sid: number;
+  serial: number;
+  username: string | null;
+  status: string;
+  osuser: string | null;
+  machine: string | null;
+  terminal: string | null;
+  program: string | null;
+  module: string | null;
+  action: string | null;
+  clientInfo: string | null;
+  serviceName: string | null;
+  spid: string | null;
+  logonTime: string | null;
+  lastCallEt: number | null;
+  state: string | null;
+  event: string | null;
+  waitClass: string | null;
+  waitSec: number | null;
+  blockingSession: number | null;
+  sqlId: string | null;
+  sqlChildNumber: number | null;
+  sqlExecStart: string | null;
+  sqlElapsedSec: number | null;
+  prevSqlId: string | null;
+}
+
+export interface SqlDetail {
+  sqlId: string;
+  source: 'V$SQL' | 'AWR';
+  planHashValue: number | null;
+  parsingSchema: string | null;
+  module: string | null;
+  executions: number | null;
+  elapsedSec: number | null;
+  cpuSec: number | null;
+  bufferGets: number | null;
+  diskReads: number | null;
+  rowsProcessed: number | null;
+  firstSeen: string | null;
+  lastSeen: string | null;
+  sqlText: string;
+}
+
+// 권한/라이선스 문제 등으로 그 부분만 조회하지 못했을 때.
+export interface Unavailable {
+  unavailable: string;
+}
+
+export interface SessionDetailResult {
+  session: LiveSessionDetail | null;
+  ash: AshSummary | Unavailable | null;
+  sql: SqlDetail | Unavailable | null;
+  sqlSource: 'CURRENT' | 'REQUESTED' | 'PREVIOUS' | null;
 }
 
 export interface RealtimeSnapshot {
   timestamp: string;
+  dbNow: string; // DB 서버 현재 시각 — 다음 폴링 때 since로 넘긴다
   sessions: SessionRow[];
+  // ASH의 SQL 실행 목록(산점도용). ASH 권한/라이선스가 없으면 { unavailable }.
+  executions: AshExecution[] | Unavailable;
 }
 
 // POST /api/statsJob/status 한 행 (DBA_SCHEDULER_JOBS + 최근 실행 이력, models/statsJobModel.ts 기준).

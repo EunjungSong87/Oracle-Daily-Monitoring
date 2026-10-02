@@ -4,7 +4,8 @@ interface Props {
   open: boolean;
   onClose: () => void;
   title: string;
-  wide?: boolean;
+  // true면 넓게(880px), 'xl'이면 더 넓게(1100px) — SQL 전문처럼 가로로 긴 내용을 보여줄 때.
+  wide?: boolean | 'xl';
   children: ReactNode;
 }
 
@@ -30,7 +31,7 @@ export function Modal({ open, onClose, title, wide, children }: Props): ReactEle
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className={`modal${wide ? ' modal-wide' : ''}`}>
+      <div className={`modal${wide ? ' modal-wide' : ''}${wide === 'xl' ? ' modal-xl' : ''}`}>
         <div className="modal-header">
           <h2>{title}</h2>
           <button type="button" className="modal-close" onClick={onClose} aria-label="닫기">

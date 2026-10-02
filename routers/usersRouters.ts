@@ -8,9 +8,10 @@ const router = express.Router();
 router.get('/users/basic', usersController.listBasic);
 
 // 이 아래는 계정 관리 기능이라 최고관리자만 접근 가능합니다.
-router.use(requireSuperAdmin);
-router.get('/users', usersController.listUsers);
-router.post('/users/add', usersController.createUser);
-router.post('/users/update', usersController.updateUser);
+// 이 라우터도 server.ts에서 '/api' 전체에 마운트되므로 router.use(requireSuperAdmin)로 경로 없이 걸면 안 됩니다 —
+// 그러면 이 라우터 뒤에 마운트된 다른 라우터(예: /realtime)의 요청까지 전부 최고관리자 검사에 걸립니다.
+router.get('/users', requireSuperAdmin, usersController.listUsers);
+router.post('/users/add', requireSuperAdmin, usersController.createUser);
+router.post('/users/update', requireSuperAdmin, usersController.updateUser);
 
 export default router;

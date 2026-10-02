@@ -1745,3 +1745,210 @@ button.oc-count-SAME { color: var(--success); }
         grid-template-columns: 1fr;
     }
 }
+
+/* ── Real-Time: SQL 경과시간 산점도 / 세션 상세 (realtimeMonitoring.html) ── */
+.rt-panel-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.rt-panel-header h3 {
+    margin: 0;
+}
+
+.rt-panel-controls {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.rt-panel-controls button.status-tab {
+    padding: 5px 10px;
+    font-size: 12px;
+}
+
+.aas-chart.rt-scatter {
+    height: 300px;
+}
+
+/* 드래그 선택을 받는 영역 — 텍스트 선택/터치 스크롤이 드래그를 가로채지 않게 막는다. */
+.rt-scatter-area {
+    position: relative;
+    height: 100%;
+    user-select: none;
+    touch-action: none;
+    cursor: crosshair;
+}
+
+.rt-drag-box {
+    position: absolute;
+    border: 1px dashed var(--primary);
+    background-color: var(--primary-soft);
+    opacity: 0.8;
+    pointer-events: none;
+}
+
+.rt-hint {
+    color: var(--text-muted);
+    font-size: 12.5px;
+    margin: 8px 0 0;
+}
+
+#rt-session-table tbody tr.rt-session-row {
+    cursor: pointer;
+}
+
+.modal-xl {
+    max-width: 1100px;
+}
+
+.rt-modal-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.rt-modal-meta {
+    color: var(--text-muted);
+    font-size: 13px;
+    margin: 0 0 8px;
+}
+
+table.table.rt-ash-table {
+    width: 100%;
+    max-width: none;
+    margin: 8px 0 0;
+}
+
+.rt-ash-table td {
+    font-size: 13px;
+    padding: 8px 12px;
+}
+
+.rt-detail-section {
+    border-top: 1px solid var(--border);
+    padding-top: 12px;
+    margin-top: 14px;
+}
+
+.rt-detail-section h4 {
+    margin: 0 0 10px;
+    font-size: 14px;
+    color: var(--text);
+}
+
+.rt-fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 8px 18px;
+}
+
+.rt-field {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.rt-field-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+}
+
+.rt-field-value {
+    font-size: 13px;
+    color: var(--text);
+    word-break: break-word;
+}
+
+.rt-blocker {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-weight: 700;
+    color: var(--danger);
+    background-color: var(--danger-soft);
+    border-radius: 4px;
+    padding: 0 6px;
+    margin-right: 4px;
+}
+
+button.rt-sql-chip {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 2px 8px;
+    margin: 0 4px 4px 0;
+    border-radius: 4px;
+    background-color: var(--surface-alt);
+    color: var(--primary);
+    border: 1px solid var(--border);
+}
+
+button.rt-sql-chip:hover,
+button.rt-sql-chip-active {
+    background-color: var(--primary-soft);
+    border-color: var(--primary);
+}
+
+.rt-event-bars {
+    margin-top: 12px;
+}
+
+.rt-event-bar {
+    display: grid;
+    grid-template-columns: minmax(160px, 260px) 1fr 90px;
+    align-items: center;
+    gap: 10px;
+    font-size: 12.5px;
+    margin-bottom: 4px;
+}
+
+.rt-event-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.rt-event-track {
+    height: 10px;
+    border-radius: 5px;
+    background-color: var(--surface-alt);
+    overflow: hidden;
+}
+
+.rt-event-fill {
+    display: block;
+    height: 100%;
+}
+
+.rt-event-count {
+    color: var(--text-muted);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.rt-sql-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    margin: 10px 0 6px;
+}
+
+.rt-sql-text {
+    max-height: 360px;
+    overflow: auto;
+    margin: 0;
+    padding: 12px 14px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background-color: #0d1413;
+    color: #dfe8e5;
+    border-radius: 6px;
+}
