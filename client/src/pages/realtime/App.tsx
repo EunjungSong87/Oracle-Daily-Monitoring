@@ -50,6 +50,26 @@ function shiftDbTime(value: string, seconds: number): string {
   return new Date(dbTimeToMs(value) + seconds * 1000).toISOString().slice(0, 19).replace('T', ' ');
 }
 
+// 세션 목록 "ACTIVE만 보기" 토글 상태는 브라우저에 기억해 둔다 (다음에 열어도 유지).
+// 저장소를 못 쓰는 환경(사생활 보호 모드 등)이면 그냥 기본값(전체 보기)으로 동작한다.
+const ACTIVE_ONLY_KEY = 'rt.sessions.activeOnly';
+
+function readActiveOnly(): boolean {
+  try {
+    return window.localStorage.getItem(ACTIVE_ONLY_KEY) === 'Y';
+  } catch {
+    return false;
+  }
+}
+
+function writeActiveOnly(value: boolean): void {
+  try {
+    window.localStorage.setItem(ACTIVE_ONLY_KEY, value ? 'Y' : 'N');
+  } catch {
+    // 저장 못 해도 이번 화면에서는 토글이 그대로 동작하므로 무시한다.
+  }
+}
+
 function executionKey(sid: number, serial: number, sqlId: string | null, sqlExecId: number | null): string {
   return `${sid}/${serial}/${sqlId}/${sqlExecId}`;
 }
@@ -110,6 +130,7 @@ export function App(): ReactElement {
   const [scatterWindowMs, setScatterWindowMs] = useState(SCATTER_WINDOWS[1].ms);
   const [logScale, setLogScale] = useState(false);
   const [ashUnavailable, setAshUnavailable] = useState<string | null>(null);
+  const [activeOnly, setActiveOnly] = useState(readActiveOnly);
   const [detailTarget, setDetailTarget] = useState<DetailTarget | null>(null);
   const [selection, setSelection] = useState<AshExecution[] | null>(null);
 
@@ -297,10 +318,18 @@ export function App(): ReactElement {
     }
   }
 
-  const sortedSessions = [...sessions].sort((a, b) => {
-    if (a.status === b.status) return a.sid - b.sid;
-    return a.status === 'ACTIVE' ? -1 : 1;
-  });
+  const activeSessionCount = sessions.filter((s) => s.status === 'ACTIVE').length;
+  const sortedSessions = sessions
+    .filter((s) => !activeOnly || s.status === 'ACTIVE')
+    .sort((a, b) => {
+      if (a.status === b.status) return a.sid - b.sid;
+      return a.status === 'ACTIVE' ? -1 : 1;
+    });
+
+  function toggleActiveOnly(value: boolean): void {
+    setActiveOnly(value);
+    writeActiveOnly(value);
+  }
   const hasActiveSegments = Object.keys(nowCounts).length > 0;
 
   return (
@@ -409,9 +438,30 @@ export function App(): ReactElement {
       </div>
 
       <div className="rt-panel">
-        <h3>
-          세션 목록 <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>({sessions.length}건 · 더블클릭하면 세션 상세 / SQL)</span>
-        </h3>
+        <div className="rt-panel-header">
+          <h3>
+            세션 목록{' '}
+            <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(더블클릭하면 세션 상세 / SQL)</span>
+          </h3>
+          <div className="rt-panel-controls">
+            <div className="status-tabs" role="group" aria-label="세션 목록 표시 범위">
+              <button
+                type="button"
+                className={`status-tab${activeOnly ? '' : ' status-tab-active'}`}
+                onClick={() => toggleActiveOnly(false)}
+              >
+                전체 {sessions.length}
+              </button>
+              <button
+                type="button"
+                className={`status-tab${activeOnly ? ' status-tab-active' : ''}`}
+                onClick={() => toggleActiveOnly(true)}
+              >
+                ACTIVE만 {activeSessionCount}
+              </button>
+            </div>
+          </div>
+        </div>
         <table id="rt-session-table" className="table" style={{ width: '100%', maxWidth: 'none', margin: 0 }}>
           <thead>
             <tr>
@@ -456,6 +506,7 @@ export function App(): ReactElement {
           </tbody>
         </table>
         {sessions.length === 0 && <p className="issues-empty">세션 정보가 없습니다.</p>}
+        {sessions.length > 0 && sortedSessions.length === 0 && <p className="issues-empty">지금 ACTIVE 세션이 없습니다.</p>}
       </div>
 
       <AshSelectionModal

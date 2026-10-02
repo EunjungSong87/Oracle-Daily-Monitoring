@@ -266,10 +266,10 @@ function SqlSection({
             <Field label="BUFFER GETS (누적 / 1회)">{`${formatNumber(sql.bufferGets)} / ${perExecution(sql.bufferGets, sql.executions)}`}</Field>
             <Field label="DISK READS (누적 / 1회)">{`${formatNumber(sql.diskReads)} / ${perExecution(sql.diskReads, sql.executions)}`}</Field>
             <Field label="ROWS (누적 / 1회)">{`${formatNumber(sql.rowsProcessed)} / ${perExecution(sql.rowsProcessed, sql.executions, 1)}`}</Field>
-            <Field label={sql.source === 'V$SQL' ? '최초 적재 / 마지막 실행' : 'AWR 기록 기간'}>{`${sql.firstSeen ?? '-'} ~ ${sql.lastSeen ?? '-'}`}</Field>
+            <Field label={sql.source === 'V$SQL' ? '최초 적재 / 마지막 실행' : 'AWR 기록 기간 (최근 7일)'}>{`${sql.firstSeen ?? '-'} ~ ${sql.lastSeen ?? '-'}`}</Field>
           </div>
           {sql.source === 'AWR' && (
-            <p className="oc-hint">공유 풀(V$SQL)에서 이미 밀려나 AWR에 저장된 기록을 보여줍니다. 통계는 AWR 보관 기간 전체 합계입니다.</p>
+            <p className="oc-hint">공유 풀(V$SQL)에서 이미 밀려나 AWR에 저장된 기록을 보여줍니다. 통계는 최근 7일 AWR 스냅샷 합계입니다.</p>
           )}
           <div className="rt-sql-toolbar">
             <button type="button" className="btn-secondary" onClick={() => onCopy(sql.sqlText)}>

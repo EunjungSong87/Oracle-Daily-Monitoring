@@ -211,39 +211,40 @@ function errorText(error: unknown): string {
 }
 
 // ASH에서 "since 이후에 샘플이 찍힌" SQL 실행들을 실행(SQL_EXEC_ID) 단위로 가져옵니다.
-// 실행 하나의 경과시간 = 마지막 샘플 시각 - SQL_EXEC_START. 샘플 수/주요 이벤트는 since 이전 샘플까지 포함해
-// 그 실행 전체로 집계합니다 (since는 "새로 갱신된 실행"을 고르는 데만 씀).
+// 실행 하나의 경과시간 = 마지막 샘플 시각 - SQL_EXEC_START.
 // ASH는 1초마다 활성 세션을 샘플링하므로 1초보다 짧게 끝난 실행은 잡히지 않을 수 있습니다.
+//
+// V$ACTIVE_SESSION_HISTORY는 인덱스가 없어 조회할 때마다 메모리 ASH 버퍼 전체를 훑으므로, 2초마다 도는
+// 이 쿼리는 버퍼를 딱 한 번만 읽도록 짰습니다: 산점도가 보관하는 최근 10분 샘플을 실행 단위로 묶고(GROUP BY),
+// 그중 since 이후에 새 샘플이 찍힌 실행만 남깁니다(HAVING). 10분보다 오래 돈 실행은 샘플 수/첫 샘플이
+// 최근 10분 것만 집계되지만, 경과시간은 SQL_EXEC_START 기준이라 정확합니다.
 const MAX_EXECUTIONS_PER_POLL = 2000;
+const EXECUTION_WINDOW_MINUTES = 10;
 
 async function loadAshExecutionsSince(connection: oracledb.Connection, since: string): Promise<AshExecution[]> {
   const rows = await query(
     connection,
-    `WITH touched AS (
-       SELECT DISTINCT session_id, session_serial#, sql_id, sql_exec_id, sql_exec_start
-         FROM v$active_session_history
-        WHERE sample_time > TO_TIMESTAMP(:since, '${TS_FORMAT}')
-          AND sql_exec_id IS NOT NULL
-          AND session_type = 'FOREGROUND'
-     )
-     SELECT * FROM (
-       SELECT h.session_id AS sid, h.session_serial# AS serial_num, MAX(u.username) AS username,
-              h.sql_id, h.sql_exec_id,
-              TO_CHAR(h.sql_exec_start, '${TS_FORMAT}') AS sql_exec_start,
-              COUNT(*) AS samples,
-              TO_CHAR(MIN(h.sample_time), '${TS_FORMAT}') AS first_sample,
-              TO_CHAR(MAX(h.sample_time), '${TS_FORMAT}') AS last_sample,
-              ROUND((CAST(MAX(h.sample_time) AS DATE) - h.sql_exec_start) * 86400) AS max_elapsed_sec,
-              STATS_MODE(NVL(h.event, 'ON CPU')) AS top_event,
-              STATS_MODE(NVL(h.wait_class, 'CPU')) AS top_wait_class,
-              MAX(h.program) AS program, MAX(h.module) AS module, MAX(h.machine) AS machine
-         FROM v$active_session_history h
-         JOIN touched t
-           ON t.session_id = h.session_id AND t.session_serial# = h.session_serial#
-          AND t.sql_id = h.sql_id AND t.sql_exec_id = h.sql_exec_id AND t.sql_exec_start = h.sql_exec_start
-         LEFT JOIN dba_users u ON u.user_id = h.user_id
-        GROUP BY h.session_id, h.session_serial#, h.sql_id, h.sql_exec_id, h.sql_exec_start
-        ORDER BY MAX(h.sample_time) DESC
+    `SELECT * FROM (
+       SELECT a.*, u.username
+         FROM (SELECT h.session_id AS sid, h.session_serial# AS serial_num, h.user_id,
+                      h.sql_id, h.sql_exec_id,
+                      TO_CHAR(h.sql_exec_start, '${TS_FORMAT}') AS sql_exec_start,
+                      COUNT(*) AS samples,
+                      MAX(h.sample_time) AS last_sample_ts,
+                      TO_CHAR(MIN(h.sample_time), '${TS_FORMAT}') AS first_sample,
+                      TO_CHAR(MAX(h.sample_time), '${TS_FORMAT}') AS last_sample,
+                      ROUND((CAST(MAX(h.sample_time) AS DATE) - h.sql_exec_start) * 86400) AS max_elapsed_sec,
+                      STATS_MODE(NVL(h.event, 'ON CPU')) AS top_event,
+                      STATS_MODE(NVL(h.wait_class, 'CPU')) AS top_wait_class,
+                      MAX(h.program) AS program, MAX(h.module) AS module, MAX(h.machine) AS machine
+                 FROM v$active_session_history h
+                WHERE h.sample_time > SYSDATE - ${EXECUTION_WINDOW_MINUTES}/1440
+                  AND h.sql_exec_id IS NOT NULL
+                  AND h.session_type = 'FOREGROUND'
+                GROUP BY h.session_id, h.session_serial#, h.user_id, h.sql_id, h.sql_exec_id, h.sql_exec_start
+               HAVING MAX(h.sample_time) > TO_TIMESTAMP(:since, '${TS_FORMAT}')) a
+         LEFT JOIN dba_users u ON u.user_id = a.user_id
+        ORDER BY a.last_sample_ts DESC
      ) WHERE ROWNUM <= ${MAX_EXECUTIONS_PER_POLL}`,
     { since }
   );
@@ -344,6 +345,46 @@ async function loadSession(connection: oracledb.Connection, sid: number, serial:
   };
 }
 
+// 한 세션이 한 기간에 남긴 ASH 샘플 수 상한 — 메모리 ASH는 초당 1개라 1시간이어도 3600개 수준.
+const MAX_ASH_ROWS = 20000;
+
+// 세션의 ASH 샘플을 "한 번만" 읽어 와서 집계는 여기서 합니다. ASH 뷰는 인덱스가 없어 조회할 때마다
+// 버퍼/파티션을 훑으므로, 요약 항목(샘플 수, 이벤트 분포, 블로커, SQL 목록)마다 따로 조회하면 그만큼 느려집니다.
+function summarizeAsh(rows: Record<string, any>[], range: TimeRange, source: AshSummary['source']): AshSummary | null {
+  if (rows.length === 0) return null;
+  const events = new Map<string, { event: string; waitClass: string; samples: number }>();
+  const sqlCounts = new Map<string, number>();
+  const blockers = new Set<number>();
+  let firstSample = rows[0].SAMPLE_TIME as string;
+  let lastSample = firstSample;
+  for (const row of rows) {
+    if (row.SAMPLE_TIME < firstSample) firstSample = row.SAMPLE_TIME;
+    if (row.SAMPLE_TIME > lastSample) lastSample = row.SAMPLE_TIME;
+    const event = events.get(row.EVENT);
+    if (event) event.samples++;
+    else events.set(row.EVENT, { event: row.EVENT, waitClass: row.WAIT_CLASS, samples: 1 });
+    if (row.SQL_ID) sqlCounts.set(row.SQL_ID, (sqlCounts.get(row.SQL_ID) ?? 0) + 1);
+    if (row.BLOCKING_SESSION !== null && row.BLOCKING_SESSION !== undefined) blockers.add(row.BLOCKING_SESSION);
+  }
+  const latest = rows.reduce((a, b) => (b.SAMPLE_TIME > a.SAMPLE_TIME ? b : a));
+  return {
+    range,
+    samples: rows.length,
+    firstSample,
+    lastSample,
+    username: latest.USERNAME,
+    program: latest.PROGRAM,
+    module: latest.MODULE,
+    machine: latest.MACHINE,
+    events: Array.from(events.values()).sort((a, b) => b.samples - a.samples),
+    blockingSessions: Array.from(blockers),
+    sqlIds: Array.from(sqlCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([id]) => id),
+    source,
+  };
+}
+
 async function loadAshSummary(
   connection: oracledb.Connection,
   sid: number,
@@ -352,64 +393,48 @@ async function loadAshSummary(
   sqlId: string | null
 ): Promise<AshSummary | null> {
   const binds = { sid, serial, sqlId, fromTs: range.from, toTs: range.to };
-  const where = `h.session_id = :sid
+  const select = (view: string, extraWhere = ''): string => `
+    SELECT * FROM (
+      SELECT TO_CHAR(h.sample_time, '${TS_FORMAT}') AS sample_time,
+             NVL(h.event, 'ON CPU') AS event, NVL(h.wait_class, 'CPU') AS wait_class,
+             h.sql_id, h.blocking_session, u.username, h.program, h.module, h.machine
+        FROM ${view} h
+        LEFT JOIN dba_users u ON u.user_id = h.user_id
+       WHERE h.session_id = :sid
          AND (:serial IS NULL OR h.session_serial# = :serial)
          AND (:sqlId IS NULL OR h.sql_id = :sqlId)
-         AND h.sample_time BETWEEN TO_TIMESTAMP(:fromTs, '${TS_FORMAT}') AND TO_TIMESTAMP(:toTs, '${TS_FORMAT}')`;
+         AND h.sample_time BETWEEN TO_TIMESTAMP(:fromTs, '${TS_FORMAT}') AND TO_TIMESTAMP(:toTs, '${TS_FORMAT}')
+         ${extraWhere}
+    ) WHERE ROWNUM <= ${MAX_ASH_ROWS}`;
 
-  for (const view of ['v$active_session_history', 'dba_hist_active_sess_history'] as const) {
-    const header = (
-      await query(
-        connection,
-        `SELECT COUNT(*) AS samples,
-                TO_CHAR(MIN(h.sample_time), '${TS_FORMAT}') AS first_sample,
-                TO_CHAR(MAX(h.sample_time), '${TS_FORMAT}') AS last_sample,
-                MAX(u.username) AS username, MAX(h.program) AS program, MAX(h.module) AS module, MAX(h.machine) AS machine
-           FROM ${view} h
-           LEFT JOIN dba_users u ON u.user_id = h.user_id
-          WHERE ${where}`,
-        binds
-      )
-    )[0];
-    if (!header || header.SAMPLES === 0) continue;
+  const memory = summarizeAsh(await query(connection, select('v$active_session_history'), binds), range, 'V$ACTIVE_SESSION_HISTORY');
+  if (memory) return memory;
 
-    const events = await query(
-      connection,
-      `SELECT NVL(h.event, 'ON CPU') AS event, NVL(h.wait_class, 'CPU') AS wait_class, COUNT(*) AS samples
-         FROM ${view} h
-        WHERE ${where}
-        GROUP BY NVL(h.event, 'ON CPU'), NVL(h.wait_class, 'CPU')
-        ORDER BY samples DESC`,
-      binds
-    );
-    const blockers = await query(
-      connection,
-      `SELECT DISTINCT h.blocking_session FROM ${view} h WHERE ${where} AND h.blocking_session IS NOT NULL`,
-      binds
-    );
-    const sqlIds = await query(
-      connection,
-      `SELECT h.sql_id, COUNT(*) AS samples FROM ${view} h WHERE ${where} AND h.sql_id IS NOT NULL
-        GROUP BY h.sql_id ORDER BY samples DESC`,
-      binds
-    );
-    return {
-      range,
-      samples: header.SAMPLES,
-      firstSample: header.FIRST_SAMPLE,
-      lastSample: header.LAST_SAMPLE,
-      username: header.USERNAME,
-      program: header.PROGRAM,
-      module: header.MODULE,
-      machine: header.MACHINE,
-      events: events.map((row) => ({ event: row.EVENT, waitClass: row.WAIT_CLASS, samples: row.SAMPLES })),
-      blockingSessions: blockers.map((row) => row.BLOCKING_SESSION),
-      sqlIds: sqlIds.map((row) => row.SQL_ID),
-      source: view === 'v$active_session_history' ? 'V$ACTIVE_SESSION_HISTORY' : 'DBA_HIST_ACTIVE_SESS_HISTORY',
-    };
+  // 메모리 ASH에 없을 때 AWR ASH까지 보는 건, 요청 구간이 메모리 ASH가 보관 중인 범위보다 오래됐을 때만입니다
+  // (범위 안인데 없으면 그냥 그 기간에 활동이 없었던 것). AWR ASH는 보관 기간 전체가 쌓여 있어 크므로
+  // DBID와 스냅샷 번호로 범위를 좁혀 해당 파티션만 읽게 합니다.
+  let needAwr = true;
+  try {
+    const info = (await query(connection, `SELECT TO_CHAR(oldest_sample_time, '${TS_FORMAT}') AS oldest FROM v$ash_info`))[0];
+    if (info?.OLDEST && range.from >= info.OLDEST) needAwr = false;
+  } catch {
+    needAwr = true; // V$ASH_INFO를 못 보면 판단할 수 없으니 AWR도 본다
   }
-  return null;
+  if (!needAwr) return null;
+
+  const snapRange = `
+         AND h.dbid = (SELECT dbid FROM v$database)
+         AND h.snap_id BETWEEN
+             (SELECT NVL(MIN(snap_id), 0) FROM dba_hist_snapshot
+               WHERE dbid = (SELECT dbid FROM v$database) AND end_interval_time >= TO_TIMESTAMP(:fromTs, '${TS_FORMAT}'))
+         AND (SELECT NVL(MAX(snap_id), 0) FROM dba_hist_snapshot
+               WHERE dbid = (SELECT dbid FROM v$database) AND begin_interval_time <= TO_TIMESTAMP(:toTs, '${TS_FORMAT}'))`;
+  return summarizeAsh(await query(connection, select('dba_hist_active_sess_history', snapRange), binds), range, 'DBA_HIST_ACTIVE_SESS_HISTORY');
 }
+
+// AWR SQL 통계를 합산하는 기간. DBA_HIST_SQLSTAT은 SQL_ID만으로는 인덱스를 못 타서 보관 기간 전체를 훑으므로
+// 최근 며칠치 스냅샷으로 범위를 좁힙니다.
+const AWR_SQLSTAT_DAYS = 7;
 
 // V$SQL에 있으면 거기서(현재 child 우선), 공유 풀에서 밀려났으면 AWR(DBA_HIST_SQLTEXT/SQLSTAT)에서 가져옵니다.
 async function loadSql(connection: oracledb.Connection, sqlId: string, childNumber: number | null): Promise<SqlDetail | null> {
@@ -475,7 +500,10 @@ async function loadSql(connection: oracledb.Connection, sqlId: string, childNumb
          JOIN dba_hist_snapshot sn
            ON sn.snap_id = st.snap_id AND sn.dbid = st.dbid AND sn.instance_number = st.instance_number
         WHERE st.sql_id = :sqlId
-          AND st.dbid = (SELECT dbid FROM v$database)`,
+          AND st.dbid = (SELECT dbid FROM v$database)
+          AND st.snap_id >= (SELECT NVL(MIN(snap_id), 0) FROM dba_hist_snapshot
+                              WHERE dbid = (SELECT dbid FROM v$database)
+                                AND end_interval_time >= SYSDATE - ${AWR_SQLSTAT_DAYS})`,
       { sqlId }
     )
   )[0];
