@@ -100,7 +100,10 @@ function describeTarget(plan: DataPumpPlan): string {
   } else {
     parts.push('덤프 전체');
   }
-  if (plan.partitionExpr) parts.push(`파티션 ${list(plan.partitionExpr)}`);
+  if (plan.partitionFilters.length > 0) {
+    const single = plan.partitionFilters.length === 1;
+    parts.push(`파티션 ${plan.partitionFilters.map((filter) => (single ? filter.partitions.join(',') : `${filter.table}:${filter.partitions.join(',')}`)).join(' ')}`);
+  }
   if (plan.truncatePartitions.length > 0) parts.push(`비우고 넣음: ${plan.truncatePartitions.join(', ')}`);
   if (plan.networkLink) parts.push(`NETWORK_LINK=${plan.networkLink}`);
   for (const pair of plan.remapSchemas) parts.push(`REMAP_SCHEMA ${pair.from}→${pair.to}`);

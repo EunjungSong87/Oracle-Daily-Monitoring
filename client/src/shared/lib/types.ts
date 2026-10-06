@@ -535,7 +535,8 @@ export interface DataPumpRequest {
   remapSchemas?: { from: string; to: string }[];
   remapTablespaces?: { from: string; to: string }[];
   networkLink?: string | null; // EXPORT: 링크 너머 DB를 덤프로, IMPORT: 링크 너머 DB에서 덤프 없이 바로
-  partitions?: string[]; // 파티션 단위 EXPORT (테이블 하나)
+  tablePartitions?: { table: string; partitions: string[] }[]; // 파티션 단위 EXPORT: 테이블마다 이 파티션만 (없는 테이블은 통째로)
+  partitions?: string[]; // 테이블 하나일 때의 줄임 표기
   truncatePartitions?: string[]; // 파티션 단위 IMPORT 전에 대상 테이블에서 비울 파티션
 }
 
@@ -565,7 +566,7 @@ export interface ExportGroup {
   mode: 'SCHEMA' | 'TABLE';
   tables: TableSizeRow[];
   excludedTables: string[];
-  partitions: PartitionRange[]; // Range 파티션 대상이면 이 작업에 든 파티션 (기간 순), 아니면 빈 배열
+  partitions: (PartitionRange & { table: string })[]; // 파티션 단위로 내보내는 테이블의 파티션 (테이블별 기간 순), 없으면 빈 배열
   bytes: number;
   oversize: boolean;
   filesize: string | null;

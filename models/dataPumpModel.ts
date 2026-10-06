@@ -52,9 +52,8 @@ export interface DataPumpPlan {
   remapSchemas: { from: string; to: string }[]; // IMPORT
   remapTablespaces: { from: string; to: string }[]; // IMPORT
   networkLink: string | null; // DB 링크 (EXPORT: 링크 너머 DB를 이 DB 덤프로, IMPORT: 링크 너머 DB에서 덤프 없이 바로)
-  // 파티션 단위 EXPORT: DATA_FILTER PARTITION_EXPR, 예: IN ('P202401') — 테이블 하나(partitionTable)에만 건다.
-  partitionExpr: string | null;
-  partitionTable: { owner: string; name: string } | null;
+  // 파티션 단위 EXPORT: 테이블마다 DATA_FILTER PARTITION_EXPR (expdp TABLES=OWNER.TAB:PART). 여기 없는 테이블은 통째로.
+  partitionFilters: { owner: string; table: string; partitions: string[] }[];
   // 파티션 단위 IMPORT: 작업 시작 전에 대상 테이블(REMAP_SCHEMA 반영)에서 비울 파티션.
   truncateTarget: { owner: string; name: string } | null;
   truncatePartitions: string[];
@@ -249,10 +248,17 @@ async function startJob(dbmsid: DbmsIdParam, plan: DataPumpPlan): Promise<void> 
            IF :excludeTableExpr IS NOT NULL THEN
              DBMS_DATAPUMP.METADATA_FILTER(handle => h, name => 'NAME_EXPR', value => :excludeTableExpr, object_type => 'TABLE');
            END IF;
-           IF :partitionExpr IS NOT NULL THEN
-             -- 파티션 단위 export (expdp TABLES=OWNER.TAB:PART와 같음). 하위 파티션이 있으면 그 파티션의 하위 파티션 전부.
-             DBMS_DATAPUMP.DATA_FILTER(handle => h, name => 'PARTITION_EXPR', value => :partitionExpr,
-                                       table_name => :partitionTableName, schema_name => :partitionSchema);
+           -- 파티션 단위 export (expdp TABLES=OWNER.TAB:PART와 같음). 테이블마다 한 줄씩 "OWNER.TABLE:P1,P2;OWNER.TABLE2:P3"로 넘어오고,
+           -- 하위 파티션이 있으면 그 파티션의 하위 파티션 전부. 이름은 서비스가 식별자 형식으로 검증한 값이라 따옴표를 붙여 IN 목록을 만든다.
+           IF :partitionFilters IS NOT NULL THEN
+             FOR r IN (SELECT REGEXP_SUBSTR(:partitionFilters, '[^;]+', 1, LEVEL) AS item FROM dual
+                        CONNECT BY REGEXP_SUBSTR(:partitionFilters, '[^;]+', 1, LEVEL) IS NOT NULL) LOOP
+               DBMS_DATAPUMP.DATA_FILTER(
+                 handle => h, name => 'PARTITION_EXPR',
+                 value => 'IN (''' || REPLACE(SUBSTR(r.item, INSTR(r.item, ':') + 1), ',', ''',''') || ''')',
+                 table_name => SUBSTR(r.item, INSTR(r.item, '.') + 1, INSTR(r.item, ':') - INSTR(r.item, '.') - 1),
+                 schema_name => SUBSTR(r.item, 1, INSTR(r.item, '.') - 1));
+             END LOOP;
            END IF;
            IF :content = 'METADATA_ONLY' THEN
              DBMS_DATAPUMP.DATA_FILTER(handle => h, name => 'INCLUDE_ROWS', value => 0);
@@ -346,9 +352,8 @@ async function startJob(dbmsid: DbmsIdParam, plan: DataPumpPlan): Promise<void> 
         remapTablespaces: plan.remapTablespaces.map((pair) => `${pair.from}:${pair.to}`).join(',') || null,
         parallel: plan.parallel,
         networkLink: plan.networkLink,
-        partitionExpr: plan.partitionExpr,
-        partitionTableName: plan.partitionTable?.name ?? null,
-        partitionSchema: plan.partitionTable?.owner ?? null,
+        partitionFilters:
+          plan.partitionFilters.map((filter) => `${filter.owner}.${filter.table}:${filter.partitions.join(',')}`).join(';') || null,
       }
     );
   });

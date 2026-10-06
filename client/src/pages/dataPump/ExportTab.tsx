@@ -431,7 +431,8 @@ export function ExportTab({ dbmsId, meta }: Props): ReactElement {
             </div>
             <p className="oc-hint">
               "OWNER.TABLE", "OWNER TABLE", "OWNER,TABLE" 형식 모두 됩니다. 파티션만 내보내려면 "OWNER.TABLE:PARTITION"처럼 적으세요 (expdp TABLES와 같은 형식) —
-              같은 테이블의 파티션은 한 작업(parfile)에 모으고, 분할 크기를 넘을 때만 기간 순서로 나눕니다. 같은 테이블을 통째로도 적으면 통째로 내보냅니다.
+              같은 스키마는 통째 테이블과 파티션 테이블을 섞어서라도 분할 크기 안에서 한 작업(parfile)에 모으고, 한 테이블의 파티션은 그 테이블 혼자 분할 크기를
+              넘을 때만 기간 순서로 나눕니다. 같은 테이블을 통째로도 적으면 통째로 내보냅니다.
               테이블 데이터만 내보내며(TABLE 모드), 소유자가 다르면 작업을 따로 만듭니다.
             </p>
           </>
@@ -607,7 +608,12 @@ export function ExportTab({ dbmsId, meta }: Props): ReactElement {
                             })
                           }
                         >
-                          {open ? '▾' : '▸'} {group.partitions.length > 0 ? `${group.tables[0]?.name} 파티션 ${group.partitions.length}개` : `테이블 ${group.tables.length}개`}
+                          {open ? '▾' : '▸'}{' '}
+                          {group.partitions.length === 0
+                            ? `테이블 ${group.tables.length}개`
+                            : group.tables.length === 1
+                              ? `${group.tables[0].name} 파티션 ${group.partitions.length}개`
+                              : `테이블 ${group.tables.length}개 · 파티션 ${group.partitions.length}개`}
                         </button>
                         {group.mode === 'SCHEMA' && <span className="oc-subtle">+ 테이블 외 오브젝트</span>}
                         {group.excludedTables.length > 0 && <span className="oc-subtle">(큰 테이블 {group.excludedTables.length}개 제외)</span>}
@@ -655,18 +661,24 @@ export function ExportTab({ dbmsId, meta }: Props): ReactElement {
                         <td colSpan={7}>
                           <div className="dp-table-chips">
                             {group.owners.length > 1 && <p className="dp-hint-line dp-full">스키마: {group.owners.join(', ')}</p>}
-                            {group.partitions.map((partition) => (
-                              <span key={partition.name} className="dp-chip">
-                                {partition.name} <em>{formatBytes(partition.bytes)}</em>
-                              </span>
-                            ))}
-                            {group.partitions.length === 0 &&
-                              group.tables.map((table) => (
-                                <span key={`${table.owner}.${table.name}`} className="dp-chip">
-                                  {group.owners.length > 1 ? `${table.owner}.` : ''}
-                                  {table.name} <em>{formatBytes(table.bytes)}</em>
+                            {group.tables.flatMap((table) => {
+                              // 파티션 단위로 내보내는 테이블은 파티션마다 (테이블이 여럿이면 테이블:파티션), 나머지는 테이블 통째로.
+                              const parts = group.partitions.filter((partition) => partition.table === table.name);
+                              if (parts.length === 0) {
+                                return [
+                                  <span key={`${table.owner}.${table.name}`} className="dp-chip">
+                                    {group.owners.length > 1 ? `${table.owner}.` : ''}
+                                    {table.name} <em>{formatBytes(table.bytes)}</em>
+                                  </span>,
+                                ];
+                              }
+                              return parts.map((partition) => (
+                                <span key={`${table.name}:${partition.name}`} className="dp-chip">
+                                  {group.tables.length > 1 ? `${table.name}:` : ''}
+                                  {partition.name} <em>{formatBytes(partition.bytes)}</em>
                                 </span>
-                              ))}
+                              ));
+                            })}
                             {group.tables.length === 0 && <span className="oc-none">테이블 없음 (테이블 외 오브젝트만)</span>}
                           </div>
                           {group.excludedTables.length > 0 && (

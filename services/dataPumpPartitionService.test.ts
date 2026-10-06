@@ -72,7 +72,7 @@ describe('Export 분할 — Range 파티션 대상', () => {
     ]);
     expect(totalBytes).toBe(6 * G);
     const plan = buildPlan(groups[0].request, NOW);
-    expect(plan).toMatchObject({ partitionExpr: "IN ('P1','P2')", partitionTable: { owner: 'SALES', name: 'ORDERS' } });
+    expect(plan.partitionFilters).toEqual([{ owner: 'SALES', table: 'ORDERS', partitions: ['P1', 'P2'] }]);
     expect(buildParfile(plan, groups[0].request, TARGET).parfile).toContain('TABLES=SALES.ORDERS:P1,SALES.ORDERS:P2\n');
   });
 
