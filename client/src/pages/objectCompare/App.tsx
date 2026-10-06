@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { AppHeader } from '../../shared/components/AppHeader';
 import { ToastHost } from '../../shared/components/ToastHost';
-import { isSuperAdmin, useCurrentUser } from '../../shared/hooks/useCurrentUser';
+import { canSee, useCurrentUser } from '../../shared/hooks/useCurrentUser';
 import { getCompareSchemas, getDbmsList, runObjectCompare } from '../../shared/lib/api';
 import { showToast } from '../../shared/lib/toastStore';
 import type { CompareItem, CompareResponse, CompareResultKind, DbmsRow, SourceDiffLine } from '../../shared/lib/types';
@@ -72,7 +72,7 @@ function useSchemaPicker(dbmsId: string, preferred: string): {
 
 export function App(): ReactElement {
   const { user, loading: userLoading } = useCurrentUser();
-  const canUse = isSuperAdmin(user);
+  const canUse = canSee(user, 'objectCompare');
 
   const [dbmsRows, setDbmsRows] = useState<DbmsRow[]>([]);
   const [sourceDbmsId, setSourceDbmsId] = useState('');
@@ -219,7 +219,7 @@ export function App(): ReactElement {
 
       <h2 className="page-title">Object Compare (오브젝트 비교)</h2>
 
-      {!userLoading && !canUse && <p className="issues-empty">이 기능은 최고관리자만 사용할 수 있습니다.</p>}
+      {!userLoading && !canUse && <p className="issues-empty">이 화면을 사용할 권한이 없습니다. 최고관리자에게 화면 권한을 요청하세요.</p>}
 
       {canUse && (
         <>

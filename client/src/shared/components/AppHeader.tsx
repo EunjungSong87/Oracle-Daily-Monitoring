@@ -1,7 +1,8 @@
 import type { MouseEvent, ReactElement } from 'react';
-import { useCurrentUser } from '../hooks/useCurrentUser';
+import { canSee, useCurrentUser } from '../hooks/useCurrentUser';
 import { useTheme } from '../hooks/useTheme';
 import { logout } from '../lib/api';
+import type { ScreenKey } from '../lib/types';
 import { NavIconSprite } from './NavIconSprite';
 
 // 각 vanilla 페이지가 자기 nav 링크에 손으로 붙여놓던 nav-group-active/current를
@@ -29,6 +30,33 @@ const COMPARE_GROUP: ActivePage[] = ['objectCompare', 'parameterCompare'];
 const MONITORING_GROUP: ActivePage[] = ['dailyMonitoring', 'scripts', 'thresholds', 'history', 'issues', 'realtime'];
 const DAILY_MONITORING_CHILDREN: ActivePage[] = ['scripts', 'thresholds', 'history', 'issues'];
 
+interface NavItem {
+  key: ScreenKey;
+  href: string;
+  label: string;
+  icon: string;
+  accent: string;
+}
+
+const DAILY_MONITORING_ITEMS: NavItem[] = [
+  { key: 'scripts', href: 'monitoringScript.html', label: 'Scripts', icon: '#ic-code', accent: 'nav-accent-3' },
+  { key: 'thresholds', href: 'monitoringThresholds.html', label: 'Thresholds', icon: '#ic-gauge', accent: 'nav-accent-4' },
+  { key: 'history', href: 'history.html', label: 'Run History', icon: '#ic-history', accent: 'nav-accent-5' },
+  { key: 'issues', href: 'issues.html', label: 'Issues', icon: '#ic-issue', accent: 'nav-accent-6' },
+];
+
+const MAINTENANCE_ITEMS: NavItem[] = [
+  { key: 'tableSpec', href: 'tableSpec.html', label: 'Table Spec', icon: '#ic-table', accent: 'nav-accent-7' },
+  { key: 'statsJob', href: 'statsJob.html', label: 'Stats Job Status', icon: '#ic-stats', accent: 'nav-accent-7' },
+  { key: 'ilmJob', href: 'ilmJob.html', label: 'ILM Partition Retention', icon: '#ic-archive', accent: 'nav-accent-7' },
+  { key: 'dataPump', href: 'dataPump.html', label: 'Data Pump', icon: '#ic-transfer', accent: 'nav-accent-7' },
+];
+
+const COMPARE_ITEMS: NavItem[] = [
+  { key: 'objectCompare', href: 'objectCompare.html', label: 'Object Compare', icon: '#ic-table', accent: 'nav-accent-10' },
+  { key: 'parameterCompare', href: 'parameterCompare.html', label: 'Parameter Compare', icon: '#ic-sliders', accent: 'nav-accent-10' },
+];
+
 interface Props {
   active: ActivePage;
 }
@@ -39,6 +67,16 @@ interface Props {
 export function AppHeader({ active }: Props): ReactElement {
   const { user } = useCurrentUser();
   const { theme, toggleTheme } = useTheme();
+
+  // 메뉴는 이 사용자에게 보이는 화면만 (역할 기본 + 계정 관리의 사용자별 예외). 그룹은 보이는 항목이 하나도 없으면
+  // 통째로 빠지고, 그룹 머리의 링크는 그 안에서 처음 보이는 화면으로 간다. 사용자 정보를 읽기 전에는 비워 둔다.
+  const show = (key: ScreenKey): boolean => canSee(user, key);
+  const visibleItems = (items: NavItem[]): NavItem[] => items.filter((item) => show(item.key));
+  const dailyChildren = visibleItems(DAILY_MONITORING_ITEMS);
+  const maintenanceItems = visibleItems(MAINTENANCE_ITEMS);
+  const compareItems = visibleItems(COMPARE_ITEMS);
+  const dailyHref = show('dailyMonitoring') ? 'dailyMonitoring.html' : dailyChildren[0]?.href;
+  const monitoringHref = dailyHref ?? (show('realtime') ? 'realtimeMonitoring.html' : undefined);
 
   const monitoringGroupActive = MONITORING_GROUP.includes(active);
   const dailyMonitoringExtra =
@@ -80,140 +118,101 @@ export function AppHeader({ active }: Props): ReactElement {
 
         <nav>
           <ul>
-            <li>
-              <a href="index.html" className={`nav-accent-1${active === 'databases' ? ' current' : ''}`}>
-                <svg className="nav-icon" viewBox="0 0 16 16">
-                  <use href="#ic-db" />
-                </svg>
-                Databases
-              </a>
-            </li>
+            {show('databases') && (
+              <li>
+                <a href="index.html" className={`nav-accent-1${active === 'databases' ? ' current' : ''}`}>
+                  <svg className="nav-icon" viewBox="0 0 16 16">
+                    <use href="#ic-db" />
+                  </svg>
+                  Databases
+                </a>
+              </li>
+            )}
 
-            <li className="nav-dropdown">
-              <a
-                href="dailyMonitoring.html"
-                className={`nav-accent-2 nav-dropdown-trigger${monitoringGroupActive ? ' nav-group-active' : ''}`}
-              >
-                <svg className="nav-icon" viewBox="0 0 16 16">
-                  <use href="#ic-pulse" />
-                </svg>
-                Monitoring <span className="nav-caret">&#9662;</span>
-              </a>
-              <ul className="nav-dropdown-menu">
-                <li className="nav-dropdown">
-                  <a href="dailyMonitoring.html" className={`nav-accent-2 nav-dropdown-trigger${dailyMonitoringExtra}`}>
-                    <span className="nav-label">
-                      <svg className="nav-icon" viewBox="0 0 16 16">
-                        <use href="#ic-play" />
-                      </svg>
-                      Daily Monitoring
-                    </span>{' '}
-                    <span className="nav-caret-sub">&#9656;</span>
-                  </a>
-                  <ul className="nav-dropdown-menu">
-                    <li>
-                      <a href="monitoringScript.html" className={`nav-accent-3${active === 'scripts' ? ' current' : ''}`}>
-                        <svg className="nav-icon" viewBox="0 0 16 16">
-                          <use href="#ic-code" />
-                        </svg>
-                        Scripts
-                      </a>
-                    </li>
-                    <li>
+            {monitoringHref && (
+              <li className="nav-dropdown">
+                <a href={monitoringHref} className={`nav-accent-2 nav-dropdown-trigger${monitoringGroupActive ? ' nav-group-active' : ''}`}>
+                  <svg className="nav-icon" viewBox="0 0 16 16">
+                    <use href="#ic-pulse" />
+                  </svg>
+                  Monitoring <span className="nav-caret">&#9662;</span>
+                </a>
+                <ul className="nav-dropdown-menu">
+                  {dailyHref && (
+                    <li className={dailyChildren.length > 0 ? 'nav-dropdown' : undefined}>
                       <a
-                        href="monitoringThresholds.html"
-                        className={`nav-accent-4${active === 'thresholds' ? ' current' : ''}`}
+                        href={dailyHref}
+                        className={`nav-accent-2${dailyChildren.length > 0 ? ' nav-dropdown-trigger' : ''}${dailyMonitoringExtra}`}
                       >
-                        <svg className="nav-icon" viewBox="0 0 16 16">
-                          <use href="#ic-gauge" />
-                        </svg>
-                        Thresholds
+                        <span className="nav-label">
+                          <svg className="nav-icon" viewBox="0 0 16 16">
+                            <use href="#ic-play" />
+                          </svg>
+                          Daily Monitoring
+                        </span>{' '}
+                        {dailyChildren.length > 0 && <span className="nav-caret-sub">&#9656;</span>}
                       </a>
+                      {dailyChildren.length > 0 && (
+                        <ul className="nav-dropdown-menu">
+                          {dailyChildren.map((item) => (
+                            <li key={item.key}>
+                              <a href={item.href} className={`${item.accent}${active === item.key ? ' current' : ''}`}>
+                                <svg className="nav-icon" viewBox="0 0 16 16">
+                                  <use href={item.icon} />
+                                </svg>
+                                {item.label}
+                              </a>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </li>
+                  )}
+                  {show('realtime') && (
                     <li>
-                      <a href="history.html" className={`nav-accent-5${active === 'history' ? ' current' : ''}`}>
+                      <a href="realtimeMonitoring.html" className={`nav-accent-9${active === 'realtime' ? ' current' : ''}`}>
                         <svg className="nav-icon" viewBox="0 0 16 16">
-                          <use href="#ic-history" />
+                          <use href="#ic-realtime" />
                         </svg>
-                        Run History
+                        Real-Time
                       </a>
                     </li>
-                    <li>
-                      <a href="issues.html" className={`nav-accent-6${active === 'issues' ? ' current' : ''}`}>
-                        <svg className="nav-icon" viewBox="0 0 16 16">
-                          <use href="#ic-issue" />
-                        </svg>
-                        Issues
-                      </a>
-                    </li>
-                  </ul>
-                </li>
-                <li>
-                  <a href="realtimeMonitoring.html" className={`nav-accent-9${active === 'realtime' ? ' current' : ''}`}>
-                    <svg className="nav-icon" viewBox="0 0 16 16">
-                      <use href="#ic-realtime" />
-                    </svg>
-                    Real-Time
-                  </a>
-                </li>
-              </ul>
-            </li>
+                  )}
+                </ul>
+              </li>
+            )}
 
-            <li className="nav-dropdown">
-              <a
-                href="tableSpec.html"
-                className={`nav-accent-7 nav-dropdown-trigger${MAINTENANCE_GROUP.includes(active) ? ' nav-group-active' : ''}`}
-              >
-                <svg className="nav-icon" viewBox="0 0 16 16">
-                  <use href="#ic-wrench" />
-                </svg>
-                Maintenance <span className="nav-caret">&#9662;</span>
-              </a>
-              <ul className="nav-dropdown-menu">
-                <li>
-                  <a href="tableSpec.html" className={`nav-accent-7${active === 'tableSpec' ? ' current' : ''}`}>
-                    <svg className="nav-icon" viewBox="0 0 16 16">
-                      <use href="#ic-table" />
-                    </svg>
-                    Table Spec
-                  </a>
-                </li>
-                {user?.role === 'SUPER_ADMIN' && (
-                  <>
-                    <li>
-                      <a href="statsJob.html" className={`nav-accent-7${active === 'statsJob' ? ' current' : ''}`}>
-                        <svg className="nav-icon" viewBox="0 0 16 16">
-                          <use href="#ic-stats" />
-                        </svg>
-                        Stats Job Status
-                      </a>
-                    </li>
-                    <li>
-                      <a href="ilmJob.html" className={`nav-accent-7${active === 'ilmJob' ? ' current' : ''}`}>
-                        <svg className="nav-icon" viewBox="0 0 16 16">
-                          <use href="#ic-archive" />
-                        </svg>
-                        ILM Partition Retention
-                      </a>
-                    </li>
-                    <li>
-                      <a href="dataPump.html" className={`nav-accent-7${active === 'dataPump' ? ' current' : ''}`}>
-                        <svg className="nav-icon" viewBox="0 0 16 16">
-                          <use href="#ic-transfer" />
-                        </svg>
-                        Data Pump
-                      </a>
-                    </li>
-                  </>
-                )}
-              </ul>
-            </li>
-
-            {/* 두 DB를 나란히 놓고 비교하는 화면 모음 — 전부 최고관리자 전용이라 메뉴 자체를 숨긴다. */}
-            {user?.role === 'SUPER_ADMIN' && (
+            {maintenanceItems.length > 0 && (
               <li className="nav-dropdown">
                 <a
-                  href="objectCompare.html"
+                  href={maintenanceItems[0].href}
+                  className={`nav-accent-7 nav-dropdown-trigger${MAINTENANCE_GROUP.includes(active) ? ' nav-group-active' : ''}`}
+                >
+                  <svg className="nav-icon" viewBox="0 0 16 16">
+                    <use href="#ic-wrench" />
+                  </svg>
+                  Maintenance <span className="nav-caret">&#9662;</span>
+                </a>
+                <ul className="nav-dropdown-menu">
+                  {maintenanceItems.map((item) => (
+                    <li key={item.key}>
+                      <a href={item.href} className={`${item.accent}${active === item.key ? ' current' : ''}`}>
+                        <svg className="nav-icon" viewBox="0 0 16 16">
+                          <use href={item.icon} />
+                        </svg>
+                        {item.label}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            )}
+
+            {/* 두 DB를 나란히 놓고 비교하는 화면 모음 — 기본은 최고관리자 화면. */}
+            {compareItems.length > 0 && (
+              <li className="nav-dropdown">
+                <a
+                  href={compareItems[0].href}
                   className={`nav-accent-10 nav-dropdown-trigger${COMPARE_GROUP.includes(active) ? ' nav-group-active' : ''}`}
                 >
                   <svg className="nav-icon" viewBox="0 0 16 16">
@@ -222,22 +221,16 @@ export function AppHeader({ active }: Props): ReactElement {
                   Compare <span className="nav-caret">&#9662;</span>
                 </a>
                 <ul className="nav-dropdown-menu">
-                  <li>
-                    <a href="objectCompare.html" className={`nav-accent-10${active === 'objectCompare' ? ' current' : ''}`}>
-                      <svg className="nav-icon" viewBox="0 0 16 16">
-                        <use href="#ic-table" />
-                      </svg>
-                      Object Compare
-                    </a>
-                  </li>
-                  <li>
-                    <a href="parameterCompare.html" className={`nav-accent-10${active === 'parameterCompare' ? ' current' : ''}`}>
-                      <svg className="nav-icon" viewBox="0 0 16 16">
-                        <use href="#ic-sliders" />
-                      </svg>
-                      Parameter Compare
-                    </a>
-                  </li>
+                  {compareItems.map((item) => (
+                    <li key={item.key}>
+                      <a href={item.href} className={`${item.accent}${active === item.key ? ' current' : ''}`}>
+                        <svg className="nav-icon" viewBox="0 0 16 16">
+                          <use href={item.icon} />
+                        </svg>
+                        {item.label}
+                      </a>
+                    </li>
+                  ))}
                 </ul>
               </li>
             )}

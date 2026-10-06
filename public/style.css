@@ -2221,3 +2221,36 @@ textarea.dp-table-list {
     font-size: 13px;
     word-break: break-all;
 }
+
+/* Data Pump Export의 원본 DB(이 DB / DB 링크) 선택 줄 */
+.dp-source-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.dp-source-row label {
+    margin: 0;
+}
+
+.dp-source-row select {
+    width: auto;
+    min-width: 260px;
+}
+
+/* Data Pump 파티션 선택 표 (파티션이 많으면 표 안에서 스크롤) */
+.dp-part-list {
+    max-height: 420px;
+    overflow-y: auto;
+    margin-top: 8px;
+}
+
+.dp-part-list tbody tr {
+    cursor: pointer;
+}
+
+.dp-part-selected td {
+    background-color: var(--info-soft);
+}

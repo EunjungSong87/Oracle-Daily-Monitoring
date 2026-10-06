@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import * as dataPumpService from '../services/dataPumpService';
 import { DataPumpValidationError } from '../services/dataPumpService';
 import * as historyService from '../services/dataPumpHistoryService';
+import * as partitionService from '../services/dataPumpPartitionService';
 import { logger } from '../utils/logger';
 
 function errMsg(error: unknown): string {
@@ -48,13 +49,24 @@ async function getMeta(req: Request, res: Response): Promise<void> {
   }
 }
 
-// 스키마 선택 또는 테이블 목록 → 분할 크기(기본 1T) 이하의 export 작업들과 각 parfile.
+// DB 링크 너머 DB의 스키마 목록 (링크로 export할 때).
+async function linkSchemas(req: Request, res: Response): Promise<void> {
+  const dbmsid = requireDbmsid(req, res);
+  if (dbmsid === null) return;
+  try {
+    res.json({ schemas: await dataPumpService.getLinkSchemas({ dbmsid }, req.body.networkLink) });
+  } catch (error) {
+    handleError(res, error, `DB 링크 스키마 조회 오류 (dbmsid=${dbmsid})`);
+  }
+}
+
+// 스키마 선택 / 테이블 목록 / Range 파티션(기간) → 분할 크기(기본 1T) 이하의 export 작업들과 각 parfile.
 async function exportPlan(req: Request, res: Response): Promise<void> {
   const dbmsid = requireDbmsid(req, res);
   if (dbmsid === null) return;
   try {
-    const { schemas, tableList, options } = req.body;
-    res.json(await dataPumpService.planExport({ dbmsid }, { schemas, tableList }, options ?? {}));
+    const { schemas, tableList, partitionSource, options } = req.body;
+    res.json(await dataPumpService.planExport({ dbmsid }, { schemas, tableList, partitionSource }, options ?? {}));
   } catch (error) {
     handleError(res, error, `분할 계획 생성 오류 (dbmsid=${dbmsid})`);
   }
@@ -65,7 +77,7 @@ async function currentScn(req: Request, res: Response): Promise<void> {
   const dbmsid = requireDbmsid(req, res);
   if (dbmsid === null) return;
   try {
-    res.json({ scn: await dataPumpService.getCurrentScn({ dbmsid }) });
+    res.json({ scn: await dataPumpService.getCurrentScn({ dbmsid }, req.body.networkLink) });
   } catch (error) {
     handleError(res, error, `현재 SCN 조회 오류 (dbmsid=${dbmsid})`);
   }
@@ -164,4 +176,64 @@ async function readLog(req: Request, res: Response): Promise<void> {
   }
 }
 
-export { getMeta, exportPlan, currentScn, preview, start, getJobs, cancel, saveFiles, getHistory, readLog };
+
+// ── Range 파티션 (날짜 기간으로 파티션 단위 export/import) ──
+
+async function partitionTables(req: Request, res: Response): Promise<void> {
+  const dbmsid = requireDbmsid(req, res);
+  if (dbmsid === null) return;
+  try {
+    res.json({ tables: await partitionService.getTables({ dbmsid }, req.body.owner) });
+  } catch (error) {
+    handleError(res, error, `파티션 테이블 목록 조회 오류 (dbmsid=${dbmsid})`);
+  }
+}
+
+async function partitionList(req: Request, res: Response): Promise<void> {
+  const dbmsid = requireDbmsid(req, res);
+  if (dbmsid === null) return;
+  try {
+    res.json(await partitionService.getPartitions({ dbmsid }, req.body.owner, req.body.table));
+  } catch (error) {
+    handleError(res, error, `파티션 목록 조회 오류 (dbmsid=${dbmsid})`);
+  }
+}
+
+async function partitionManifest(req: Request, res: Response): Promise<void> {
+  const dbmsid = requireDbmsid(req, res);
+  if (dbmsid === null) return;
+  try {
+    res.json(await partitionService.readManifest({ dbmsid }, req.body.directory, req.body.file));
+  } catch (error) {
+    handleError(res, error, `매니페스트 읽기 오류 (dbmsid=${dbmsid})`);
+  }
+}
+
+async function partitionImportPlan(req: Request, res: Response): Promise<void> {
+  const dbmsid = requireDbmsid(req, res);
+  if (dbmsid === null) return;
+  try {
+    const { manifest, partitions, options } = req.body;
+    res.json(await partitionService.planImport({ dbmsid }, manifest, partitions, options ?? {}));
+  } catch (error) {
+    handleError(res, error, `파티션 import 계획 생성 오류 (dbmsid=${dbmsid})`);
+  }
+}
+
+export {
+  getMeta,
+  linkSchemas,
+  exportPlan,
+  currentScn,
+  preview,
+  start,
+  getJobs,
+  cancel,
+  saveFiles,
+  getHistory,
+  readLog,
+  partitionTables,
+  partitionList,
+  partitionManifest,
+  partitionImportPlan,
+};

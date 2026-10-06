@@ -23,7 +23,7 @@ import realtimeRouters from './routers/realtimeRouters';
 import objectCompareRouters from './routers/objectCompareRouters';
 import parameterCompareRouters from './routers/parameterCompareRouters';
 import dataPumpRouters from './routers/dataPumpRouters';
-import { requireAuth } from './middleware/auth';
+import { requireAuth, requireScreenPage } from './middleware/auth';
 import { startScheduler } from './services/scheduler';
 import { logger } from './utils/logger';
 
@@ -81,6 +81,9 @@ app.use('/auth', authRouters);
 
 // 이 아래의 모든 라우트/정적 파일은 로그인이 필요합니다 (로그인 페이지와 그 공통 자산은 예외).
 app.use(requireAuth);
+
+// 숨긴 화면(계정 관리 > 화면 권한)의 페이지는 보이는 첫 화면으로 돌려보냅니다.
+app.use(requireScreenPage);
 
 // 메인 기본 HTML 파일을 제공하는 라우트입니다.
 app.get('/', (req, res) => {

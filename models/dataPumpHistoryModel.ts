@@ -15,7 +15,7 @@ export interface DataPumpHistoryRow {
   jobMode: string;
   targetDesc: string | null;
   directory: string;
-  dumpfile: string;
+  dumpfile: string | null; // NETWORK_LINK import는 없음
   logfile: string;
   parallel: number | null;
   tableExistsAction: string | null;
@@ -39,7 +39,7 @@ export interface NewHistory {
   jobMode: string;
   targetDesc: string;
   directory: string;
-  dumpfile: string;
+  dumpfile: string | null;
   logfile: string;
   parallel: number;
   tableExistsAction: string | null;

@@ -62,9 +62,12 @@ interface Props {
   meta: DataPumpMeta;
 }
 
-// Import: 덤프 파일에서 가져오기. 기존 데이터를 건드리는 TABLE_EXISTS_ACTION은 대상 DB명을 입력해야 실행된다 (서버도 한 번 더 확인).
+// Import: 덤프 파일에서, 또는 DB 링크(NETWORK_LINK)로 덤프 없이 바로 가져오기. 기존 데이터를 건드리는 TABLE_EXISTS_ACTION은 대상 DB명을 입력해야 실행된다 (서버도 한 번 더 확인).
 export function ImportTab({ dbmsId, meta }: Props): ReactElement {
   const [directory, setDirectory] = useState(meta.directories.find((dir) => dir.name === 'DATA_PUMP_DIR')?.name ?? meta.directories[0]?.name ?? '');
+  // 가져올 곳: 빈 값 = 덤프 파일, 아니면 DB 링크 이름 (덤프 없이 링크 너머 DB에서 바로)
+  const [networkLink, setNetworkLink] = useState('');
+  const [flashbackConsistent, setFlashbackConsistent] = useState(true);
   const [dumpfile, setDumpfile] = useState('');
   const [logfile, setLogfile] = useState(`${todayPrefix('imp')}.log`);
   const [mode, setMode] = useState<DataPumpRequest['mode']>('FULL');
@@ -94,7 +97,7 @@ export function ImportTab({ dbmsId, meta }: Props): ReactElement {
       tableOwner: mode === 'TABLE' ? tableOwner : undefined,
       tables: mode === 'TABLE' ? splitNames(tablesText) : undefined,
       directory,
-      dumpfile,
+      dumpfile: networkLink ? '' : dumpfile,
       logfile,
       parallel,
       content,
@@ -102,6 +105,8 @@ export function ImportTab({ dbmsId, meta }: Props): ReactElement {
       tableExistsAction,
       remapSchemas: remapSchemas.filter((row) => row.from || row.to),
       remapTablespaces: remapTablespaces.filter((row) => row.from || row.to),
+      networkLink: networkLink || null,
+      flashbackConsistent: networkLink ? flashbackConsistent : false,
     };
   }
 
@@ -132,7 +137,52 @@ export function ImportTab({ dbmsId, meta }: Props): ReactElement {
   return (
     <>
       <div className="rt-panel">
-        <h3>덤프 파일</h3>
+        <h3>가져올 곳</h3>
+        <div className="status-tabs dp-inline">
+          <button type="button" className={`status-tab${!networkLink ? ' status-tab-active' : ''}`} onClick={() => setNetworkLink('')}>
+            덤프 파일
+          </button>
+          <button
+            type="button"
+            className={`status-tab${networkLink ? ' status-tab-active' : ''}`}
+            disabled={meta.dbLinks.length === 0}
+            title={meta.dbLinks.length === 0 ? '이 DB에 쓸 수 있는 DB 링크가 없습니다.' : undefined}
+            onClick={() => {
+              setNetworkLink(meta.dbLinks[0]?.name ?? '');
+              if (mode === 'FULL') setMode('SCHEMA'); // 링크로는 원본 DB 전체를 가져오지 않음
+            }}
+          >
+            DB 링크 (NETWORK_LINK)
+          </button>
+        </div>
+        {networkLink && (
+          <>
+            <div className="dp-grid">
+              <div>
+                <label htmlFor="dp-imp-link">DB 링크</label>
+                <select id="dp-imp-link" value={networkLink} onChange={(e) => setNetworkLink(e.target.value)}>
+                  {meta.dbLinks.map((link) => (
+                    <option key={`${link.owner}.${link.name}`} value={link.name}>
+                      {link.name}
+                      {link.owner === 'PUBLIC' ? ' (PUBLIC)' : ''}
+                      {link.host ? ` → ${link.host}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="oc-types">
+              <label className="oc-check">
+                <input type="checkbox" checked={flashbackConsistent} onChange={(e) => setFlashbackConsistent(e.target.checked)} />
+                일관성 있는 시점으로 (원본 DB의 시작 시점 SCN — FLASHBACK)
+              </label>
+            </div>
+            <p className="oc-hint">
+              덤프 파일 없이 링크 너머 DB에서 {meta.target.dbname}로 바로 가져옵니다 (로그 파일만 아래 DIRECTORY에 생김). 링크 접속 계정에 export 권한
+              (DATAPUMP_EXP_FULL_DATABASE)이 필요하고, LONG 컬럼 테이블은 링크로 가져올 수 없습니다. 네트워크 대역폭이 속도를 좌우합니다.
+            </p>
+          </>
+        )}
         <div className="dp-grid">
           <div>
             <label htmlFor="dp-imp-dir">DIRECTORY</label>
@@ -145,10 +195,12 @@ export function ImportTab({ dbmsId, meta }: Props): ReactElement {
             </select>
             {directoryPath && <div className="dp-hint-line">DB 서버 경로: {directoryPath}</div>}
           </div>
-          <div>
-            <label htmlFor="dp-imp-dump">덤프 파일 (여러 개면 %U)</label>
-            <input id="dp-imp-dump" type="text" placeholder="예: exp_20261002_01_%U.dmp" value={dumpfile} onChange={(e) => setDumpfile(e.target.value)} />
-          </div>
+          {!networkLink && (
+            <div>
+              <label htmlFor="dp-imp-dump">덤프 파일 (여러 개면 %U)</label>
+              <input id="dp-imp-dump" type="text" placeholder="예: exp_20261002_01_%U.dmp" value={dumpfile} onChange={(e) => setDumpfile(e.target.value)} />
+            </div>
+          )}
           <div>
             <label htmlFor="dp-imp-log">로그 파일</label>
             <input id="dp-imp-log" type="text" value={logfile} onChange={(e) => setLogfile(e.target.value)} />
@@ -159,7 +211,7 @@ export function ImportTab({ dbmsId, meta }: Props): ReactElement {
       <div className="rt-panel">
         <h3>가져올 범위와 옵션</h3>
         <div className="status-tabs dp-inline">
-          {(['FULL', 'SCHEMA', 'TABLE'] as const).map((value) => (
+          {(networkLink ? (['SCHEMA', 'TABLE'] as const) : (['FULL', 'SCHEMA', 'TABLE'] as const)).map((value) => (
             <button key={value} type="button" className={`status-tab${mode === value ? ' status-tab-active' : ''}`} onClick={() => setMode(value)}>
               {value === 'FULL' ? '덤프 전체' : value === 'SCHEMA' ? '스키마 지정' : '테이블 지정'}
             </button>
@@ -239,7 +291,7 @@ export function ImportTab({ dbmsId, meta }: Props): ReactElement {
           <button type="button" className="btn-secondary" onClick={showParfile}>
             parfile 보기
           </button>
-          <button type="button" className={destructive ? 'btn-danger' : undefined} disabled={!dumpfile.trim()} onClick={() => setConfirmOpen(true)}>
+          <button type="button" className={destructive ? 'btn-danger' : undefined} disabled={!networkLink && !dumpfile.trim()} onClick={() => setConfirmOpen(true)}>
             Import 실행
           </button>
         </div>
@@ -256,7 +308,17 @@ export function ImportTab({ dbmsId, meta }: Props): ReactElement {
         onClose={() => setConfirmOpen(false)}
       >
         <p>
-          <strong>{meta.target.dbname}</strong>에 <code>{directory}/{dumpfile}</code>를 가져옵니다.
+          <strong>{meta.target.dbname}</strong>에{' '}
+          {networkLink ? (
+            <>
+              DB 링크 <code>{networkLink}</code> 너머 DB에서 바로
+            </>
+          ) : (
+            <code>
+              {directory}/{dumpfile}
+            </code>
+          )}
+          를 가져옵니다.
         </p>
         <ul className="dp-summary">
           <li>범위: {mode === 'FULL' ? '덤프 전체' : mode === 'SCHEMA' ? `스키마 ${splitNames(schemasText).join(', ')}` : `${tableOwner}.${splitNames(tablesText).join(', ')}`}</li>

@@ -1,5 +1,5 @@
 내부망 등 이미 예전 버전이 돌고 있는 환경을 최신 main으로 올릴 때 필요한 작업 순서입니다.
-위에서부터 순서대로 진행하세요. (마지막 갱신: 2026-10-02, Maintenance > Data Pump 추가)
+위에서부터 순서대로 진행하세요. (마지막 갱신: 2026-10-02, Data Pump 이력 + 사용자별 화면 권한 추가)
 
 내부망에 어느 시점 버전이 깔려 있는지 모르면, 3번의 스키마 스크립트는 전부 순서대로 실행해도
 됩니다 — 이미 반영된 것은 "이미 존재" 에러만 나고 아무 영향이 없습니다.
@@ -74,12 +74,14 @@ SESSION_SECRET은 나중에 바꾸면 그 순간 전원 로그아웃됩니다.
   4) scripts/add_users.sql               -> 로그인 계정 (users)
   5) scripts/add_user_roles.sql          -> users에 role(VIEWER/DBA/SUPER_ADMIN) 추가
   6) scripts/add_datapump_history.sql    -> Data Pump 작업 이력 (datapump_job_history) — 2026-10-02 추가
+  7) scripts/add_user_screen_access.sql  -> 사용자별 화면 권한 (user_screen_access) — 2026-10-02 추가, 4) 다음
 
 5)는 반드시 4) 다음에 실행해야 합니다 — users 테이블이 있어야 ALTER할 수 있고, 기존
 is_admin 컬럼을 role로 바꿔치기(추가 후 삭제)하기 때문입니다.
 
-2026-09-28 이후 변경 중 메타데이터 DB 스키마가 추가된 것은 6)뿐입니다. 6)을 빠뜨려도 앱은 돌아가지만
-Data Pump 작업 이력/예상 시간이 비고, 서버 로그에 "작업 이력 테이블이 없어..." 경고가 한 번 남습니다.
+2026-09-28 이후 변경 중 메타데이터 DB 스키마가 추가된 것은 6), 7)뿐입니다. 빠뜨려도 앱은 돌아가지만,
+6)이 없으면 Data Pump 작업 이력/예상 시간이 비고, 7)이 없으면 화면 권한은 역할 기본값으로만 동작하며
+(계정 관리 > 화면 권한 저장 불가) 서버 로그에 각각 "...테이블이 없어..." 경고가 한 번 남습니다.
 
 주의: docker/initdb/*.sql은 로컬 Docker 테스트 DB 전용입니다. 내부망에서는 실행하지 마세요
 (03_ilm_partition_retention.sql은 PGDBA 계정과 샘플 파티션 테이블을, 04_object_compare_sample.sql은
@@ -148,6 +150,13 @@ SYSTEM 등 DBA 계정으로 등록돼 있다면 대부분 이미 있습니다.
                        덤프/로그 파일은 DB 서버의 DIRECTORY 경로에 생깁니다 (앱이 도는 PC가 아님) —
                        디스크 여유 공간 확인. PARALLEL 2 이상은 Enterprise Edition에서만 됩니다
                        (Standard/Free는 화면에서 1로 고정).
+                       파티션 탭: DBA_PART_TABLES/DBA_PART_KEY_COLUMNS/DBA_TAB_PARTITIONS/
+                       DBA_TAB_SUBPARTITIONS/DBA_LOB_PARTITIONS 조회, 파티션 Import의 "비우고 넣기"는
+                       대상 테이블에 TRUNCATE PARTITION 권한(다른 스키마 테이블이면 DROP ANY TABLE).
+                       DB 링크(NETWORK_LINK) 옵션을 쓰려면: 대상 DB에 링크가 있어야 하고(접속 계정 소유
+                       또는 PUBLIC — 화면 목록은 ALL_DB_LINKS), 링크 접속 계정(원본 DB 쪽)에
+                       DATAPUMP_EXP_FULL_DATABASE 롤과 DBA_USERS/DBA_SEGMENTS/DBA_LOBS/DBA_TABLES,
+                       V$DATABASE 조회 권한이 필요합니다. 링크 생성은 앱이 하지 않습니다 (DBA가 직접).
 
     hidden 파라미터용 뷰 — sqlplus 대신 Orange 등 SQL 툴로 실행할 때:
     SYS를 SYSDBA 권한으로 접속한 뒤 아래를 "스크립트 실행"(전체 실행)으로 돌립니다.
@@ -206,6 +215,7 @@ reports/ 폴더에 쓰기 권한이 있어야 예약 실행 리포트가 저장�
   - Maintenance > Stats Job Status, ILM Partition Retention, Data Pump (SUPER_ADMIN만 메뉴에 보임)
     Data Pump는 작은 스키마로 "분할 계획 만들기" → parfile 보기까지만 먼저 확인 (실행은 운영 영향 고려)
   - Compare > Object Compare, Parameter Compare (Compare 메뉴 자체가 SUPER_ADMIN에게만 보임)
+  - Users > 화면 권한: 테스트 계정에 화면 하나 숨김 → 그 계정 메뉴에서 빠지고 주소로 들어가도 막히는지
     Parameter Compare 결과 상단에 "hidden 포함 (X_$ 뷰)"가 나오면 hidden 뷰 작업이 된 것
 
 
@@ -218,13 +228,40 @@ reports/ 폴더에 쓰기 권한이 있어야 예약 실행 리포트가 저장�
   - SUPER_ADMIN : DBA + 계정 관리(Users), Stats Job Status, ILM Partition Retention 조회/등록/수정,
                   Compare(Object / Parameter Compare), Data Pump(EXPDP/IMPDP).
 
+위는 역할별 기본값입니다. 계정 관리(Users) > "화면 권한"에서 사용자마다 화면을 숨기거나, 역할 기본으로는
+안 보이는 화면을 열 수 있습니다 (숨긴 화면은 메뉴/페이지/API 모두 막힘, 주소로 들어오면 보이는 첫 화면으로
+이동). 화면을 열어도 DBMS 등록·스크립트/임계치 변경·예약 설정 저장·ILM 등록/수정은 DBA 이상만 가능합니다.
+계정 관리(Users)는 항상 SUPER_ADMIN 전용입니다. 화면 권한은 저장 즉시(다시 로그인 없이) 적용됩니다.
+
 역할을 바꿔도 이미 로그인한 세션에는 바로 반영되지 않습니다 — 다시 로그인해야 적용됩니다.
 
 
 ============================================================
 참고: 버전별 주요 변경 (스키마 변경은 3번에도 적혀 있음)
 ============================================================
+2026-10-06
+  - Data Pump Range 파티션 기간 export/import:
+    Export 탭 "1. 대상"에 "Range 파티션 (기간)" 추가 — 키 컬럼 하나짜리 RANGE(INTERVAL 포함) 파티션
+    테이블을 고르고 날짜 기간으로 파티션을 고르면, 고른 파티션 크기로 다른 대상과 똑같이 분할(분할 크기
+    이하로 기간 순서대로 묶거나 "파티션마다 하나") / FILESIZE / PARALLEL / 예상 시간을 계산. 파티션 키는
+    DATE/TIMESTAMP 또는 날짜를 담은 문자/숫자(YYYYMMDD, YYYYMM, YYYY-MM-DD 등). 실행하면 덤프 옆에
+    매니페스트(<접두어>_manifest.json)를 남김.
+    Export 탭 "테이블 목록 올리기"에도 파티션 줄을 쓸 수 있음: "OWNER.TABLE:PARTITION" (expdp TABLES 형식,
+    공백/쉼표 구분도 됨). 같은 테이블의 파티션은 한 작업(parfile)에 모으고 분할 크기를 넘을 때만 기간 순서로
+    나눔. 같은 테이블을 통째로도 적으면 통째로. 파티션을 내보내는 테이블마다 매니페스트
+    (<접두어>_<테이블>_manifest.json)를 남김. 분할 기준 "파티션마다 하나"도 테이블 목록에서 고를 수 있음.
+    "파티션 Import" 탭: 매니페스트(DB 서버 DIRECTORY에서 읽거나 PC에서 올림)로 기간을 골라 덤프 단위로
+    가져옴. 대상 파티션은 이름이 아니라 범위로 찾으므로 INTERVAL(SYS_P…) 이름이 달라도 됨. 대상 테이블이
+    있으면 데이터만 APPEND, "비우고 넣기"면 같은 범위의 대상 파티션을 먼저 TRUNCATE (범위가 다르면 거부).
+    항상 APPEND라 대상 DB명 입력이 필요.
 2026-10-02
+  - Data Pump DB 링크(NETWORK_LINK) 옵션: Import는 "가져올 곳 = DB 링크"로 덤프 파일 없이 링크 너머 DB에서
+    바로 가져오기 (스키마/테이블 지정만, 원본 SCN 기준 일관성 옵션). Export는 "원본 DB = DB 링크"로 링크 너머
+    DB의 스키마를 이 DB의 DIRECTORY에 덤프로 (스키마 목록/테이블 크기/같은 시점 SCN도 링크 너머 기준).
+    링크 이름은 대상 DB의 ALL_DB_LINKS 목록과 대조한 뒤에만 사용. 필요 권한은 4번 Data Pump 참고.
+  - 사용자별 화면 권한: 계정 관리(Users) > "화면 권한"에서 역할 기본값 위에 사용자마다 화면을 숨기거나 열 수
+    있음 (메뉴/페이지/API 모두 적용, 저장 즉시 반영). 스키마 추가: 3번 7). 화면 API 권한 검사가 역할 대신
+    화면 기준으로 바뀜 (기본값은 기존 역할 기준과 같음 — 예외를 두지 않으면 동작 변화 없음).
   - Maintenance > Data Pump 추가 (SUPER_ADMIN 전용): EXPDP/IMPDP를 DBMS_DATAPUMP로 DB 서버에서 실행하거나
     같은 설정의 parfile/명령어를 생성. Export는 스키마 선택 또는 "OWNER.TABLE" 목록을 올리면 테이블 크기
     (DBA_SEGMENTS)를 보고 작업 하나당 최대 크기(기본 1TB) 이하로 자동 분할하고 (기준 이하 스키마들은 한 작업

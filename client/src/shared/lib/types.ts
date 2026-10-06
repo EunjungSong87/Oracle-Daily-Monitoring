@@ -2,9 +2,37 @@
 
 export type Role = 'VIEWER' | 'DBA' | 'SUPER_ADMIN';
 
+// 화면 표시 권한의 화면 키 (services/screenAccessService.ts의 SCREENS와 같음). 계정 관리(users)는 최고관리자 고정이라 없음.
+export type ScreenKey =
+  | 'databases'
+  | 'dailyMonitoring'
+  | 'scripts'
+  | 'thresholds'
+  | 'history'
+  | 'issues'
+  | 'realtime'
+  | 'tableSpec'
+  | 'statsJob'
+  | 'ilmJob'
+  | 'dataPump'
+  | 'objectCompare'
+  | 'parameterCompare';
+
 export interface CurrentUser {
   username: string;
   role: Role;
+  screens: ScreenKey[]; // 이 사용자에게 보이는 화면 (역할 기본 + 사용자별 예외)
+}
+
+// 계정 관리 > 화면 권한 한 줄
+export interface UserScreenSetting {
+  key: ScreenKey;
+  label: string;
+  group: string;
+  page: string;
+  defaultRole: Role;
+  roleDefault: boolean; // 이 사용자의 역할 기준 기본값
+  override: boolean | null; // null = 역할 기본값 그대로
 }
 
 // GET /api/dbmslist 한 행 — 실제 컬럼은 ID, DBNAME, USERNAME, SID, IP, PORT, MEMO,
@@ -472,6 +500,14 @@ export interface DataPumpMeta {
   edition: { banner: string; parallelSupported: boolean };
   directories: { name: string; path: string }[];
   schemas: string[];
+  dbLinks: DataPumpDbLink[]; // 이 DB에서 쓸 수 있는 DB 링크 (본인 소유 + PUBLIC)
+}
+
+export interface DataPumpDbLink {
+  name: string;
+  owner: string;
+  username: string | null;
+  host: string | null;
 }
 
 export type DataPumpContent = 'ALL' | 'METADATA_ONLY' | 'DATA_ONLY';
@@ -498,12 +534,15 @@ export interface DataPumpRequest {
   tableExistsAction?: TableExistsAction;
   remapSchemas?: { from: string; to: string }[];
   remapTablespaces?: { from: string; to: string }[];
+  networkLink?: string | null; // EXPORT: 링크 너머 DB를 덤프로, IMPORT: 링크 너머 DB에서 덤프 없이 바로
+  partitions?: string[]; // 파티션 단위 EXPORT (테이블 하나)
+  truncatePartitions?: string[]; // 파티션 단위 IMPORT 전에 대상 테이블에서 비울 파티션
 }
 
 export interface ExportSplitOptions {
   directory: string;
   filePrefix: string;
-  chunkSize: string; // 예: 1T, 500G, NONE
+  chunkSize: string; // 예: 1T, 500G, NONE, PARTITION(파티션마다 하나 — Range 파티션 대상만)
   parallel: number;
   filesizeMode: 'AUTO' | 'NONE' | 'CUSTOM';
   customFilesize?: string | null;
@@ -511,6 +550,7 @@ export interface ExportSplitOptions {
   excludeStatistics?: boolean;
   flashbackConsistent?: boolean;
   reuseDumpfiles?: boolean;
+  networkLink?: string | null;
 }
 
 export interface TableSizeRow {
@@ -525,6 +565,7 @@ export interface ExportGroup {
   mode: 'SCHEMA' | 'TABLE';
   tables: TableSizeRow[];
   excludedTables: string[];
+  partitions: PartitionRange[]; // Range 파티션 대상이면 이 작업에 든 파티션 (기간 순), 아니면 빈 배열
   bytes: number;
   oversize: boolean;
   filesize: string | null;
@@ -541,6 +582,8 @@ export interface ExportPlanResponse {
   chunkBytes: number | null;
   missing: string[];
   groups: ExportGroup[];
+  // 파티션을 내보내는 테이블마다 하나: 덤프와 같은 DIRECTORY에 둘 매니페스트 (파티션 Import가 읽어 기간으로 고름)
+  manifests: { name: string; text: string }[];
 }
 
 export interface ParfilePreview {
@@ -605,4 +648,79 @@ export interface DataPumpHistory {
   rows: DataPumpHistoryRow[];
   // 그 DB에서 최근에 끝난 export들의 평균 처리 속도 (예상 크기 기준 바이트/초). 이력이 없으면 null.
   throughput: { exportBytesPerSec: number | null; samples: number };
+}
+
+// ── Data Pump: Range 파티션 단위 export/import (services/dataPumpPartitionService.ts) ──
+
+export interface PartitionTableInfo {
+  owner: string;
+  name: string;
+  keyColumn: string;
+  keyType: string;
+  partitionCount: number;
+  interval: string | null;
+  subpartitioning: string | null;
+}
+
+// 범위는 'YYYY-MM-DD HH24:MI:SS' — [low, high). low null = 첫 파티션, high null = MAXVALUE
+export interface PartitionRange {
+  name: string;
+  position: number;
+  highValue: string;
+  known: boolean; // 범위를 날짜로 해석했는지 (못 하면 기간 선택에서 빠지고 직접 체크만)
+  low: string | null;
+  high: string | null;
+  numRows: number | null;
+  bytes: number;
+}
+
+export interface PartitionManifestEntry extends PartitionRange {
+  dumpfile: string; // 이 파티션이 든 덤프 (파티션 여러 개를 한 작업으로 묶었으면 같은 덤프)
+}
+
+export interface PartitionManifest {
+  kind: 'DBC_PARTITION_EXPORT';
+  version: 1;
+  createdAt: string;
+  sourceDb: string;
+  owner: string;
+  table: string;
+  keyColumn: string;
+  keyType: string;
+  interval: string | null;
+  directory: string;
+  partitions: PartitionManifestEntry[];
+}
+
+export interface PartitionImportJobView {
+  no: number;
+  dumpfile: string;
+  partitions: PartitionManifestEntry[]; // 이 덤프에 든 파티션 (전부 들어감)
+  extraPartitions: string[]; // 고르지 않았지만 같은 덤프라 같이 들어가는 파티션
+  truncatePartitions: string[]; // 시작 전에 비울 대상 테이블 파티션
+  bytes: number;
+  request: DataPumpRequest;
+  jobName: string;
+  parfile: string;
+  parfileName: string;
+  command: string;
+}
+
+export interface PartitionImportOptions {
+  directory: string;
+  logPrefix: string;
+  targetOwner?: string | null;
+  parallel: number;
+  content?: 'ALL' | 'DATA_ONLY';
+  excludeStatistics?: boolean;
+  truncateBeforeLoad?: boolean;
+}
+
+export interface PartitionImportPlan {
+  jobs: PartitionImportJobView[];
+  totalBytes: number;
+  targetOwner: string;
+  targetTableExists: boolean;
+  createsTable: boolean; // 대상 테이블이 없어 첫 작업이 테이블을 만듦 → 첫 작업을 먼저 끝내야 함
+  notes: string[];
 }

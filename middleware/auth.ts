@@ -1,6 +1,9 @@
 import type { Request, Response, NextFunction } from 'express';
 import 'express-session';
 import type { UserRole } from '../models/usersModel';
+import * as screenAccess from '../services/screenAccessService';
+import type { ScreenKey } from '../services/screenAccessService';
+import { logger } from '../utils/logger';
 
 // req.session에 저장하는 값 — 로그인 시점에 한 번 채우고 로그아웃 시 세션 자체를 파기합니다.
 // 세션 저장소는 기본 in-memory MemoryStore를 씁니다: 이 앱은 프로세스 하나짜리
@@ -67,4 +70,48 @@ function requireSuperAdmin(req: Request, res: Response, next: NextFunction): voi
   res.status(403).json({ message: '최고관리자만 접근할 수 있습니다.' });
 }
 
-export { requireAuth, requireDba, requireSuperAdmin };
+// 화면 표시 권한(services/screenAccessService.ts)으로 API를 막는다 — 역할 기본 + 계정 관리의 사용자별 예외.
+// 여러 화면이 같이 쓰는 API는 그중 하나라도 보이면 허용한다.
+function requireScreen(...keys: ScreenKey[]) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const { userId, role } = req.session ?? {};
+    if (!userId) {
+      res.status(401).json({ message: '로그인이 필요합니다.' });
+      return;
+    }
+    screenAccess
+      .canSee(userId, role, keys)
+      .then((allowed) => {
+        if (allowed) next();
+        else res.status(403).json({ message: '이 화면을 사용할 권한이 없습니다.' });
+      })
+      .catch((error) => {
+        logger.error('ScreenAccess', `화면 권한 확인 실패 (${req.path})`, error);
+        res.status(500).json({ message: '권한 확인 중 서버 오류가 발생했습니다.' });
+      });
+  };
+}
+
+// 화면 페이지(html) 요청: 숨긴 화면이면 그 사용자에게 보이는 첫 화면으로 돌려보낸다 (보이는 화면이 없으면 403).
+// 정적 파일 서빙보다 먼저 건다. 화면에 해당하지 않는 파일(js/css/users.html 등)은 그냥 통과.
+function requireScreenPage(req: Request, res: Response, next: NextFunction): void {
+  const key = screenAccess.screenForPage(req.path);
+  const userId = req.session?.userId;
+  if (!key || !userId) {
+    next();
+    return;
+  }
+  screenAccess
+    .visibleScreens(userId, req.session.role)
+    .then((visible) => {
+      if (visible.includes(key)) next();
+      else if (visible.length > 0) res.redirect(`/${screenAccess.pageOf(visible[0])}`);
+      else res.status(403).type('text/plain; charset=utf-8').send('볼 수 있는 화면이 없습니다. 관리자에게 화면 권한을 요청하세요.');
+    })
+    .catch((error) => {
+      logger.error('ScreenAccess', `화면 권한 확인 실패 (${req.path})`, error);
+      res.status(500).type('text/plain; charset=utf-8').send('권한 확인 중 서버 오류가 발생했습니다.');
+    });
+}
+
+export { requireAuth, requireDba, requireSuperAdmin, requireScreen, requireScreenPage };

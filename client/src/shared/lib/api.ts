@@ -18,6 +18,11 @@ import type {
   ExportPlanResponse,
   ExportSplitOptions,
   ParfilePreview,
+  PartitionImportOptions,
+  PartitionImportPlan,
+  PartitionManifest,
+  PartitionRange,
+  PartitionTableInfo,
   SourceDiffLine,
   IssueDetail,
   IssueRow,
@@ -28,6 +33,7 @@ import type {
   RunHistoryDetail,
   RunHistorySummary,
   ScheduleConfig,
+  ScreenKey,
   ScriptFormPayload,
   ScriptListResponse,
   StatsJobRow,
@@ -37,6 +43,7 @@ import type {
   ThresholdListResponse,
   UserAddPayload,
   UserBasic,
+  UserScreenSetting,
   UserSummary,
   UserUpdatePayload,
 } from './types';
@@ -193,6 +200,15 @@ export function updateUser(payload: UserUpdatePayload): Promise<unknown> {
   return postJson('/api/users/update', payload);
 }
 
+export function getUserScreens(id: number): Promise<{ available: boolean; screens: UserScreenSetting[] }> {
+  return postJson('/api/users/screens', { id });
+}
+
+// screens: 화면키 → true(보이게) / false(숨김) / null(역할 기본값)
+export function saveUserScreens(id: number, screens: Partial<Record<ScreenKey, boolean | null>>): Promise<unknown> {
+  return postJson('/api/users/screens/save', { id, screens });
+}
+
 // ── Issues ───────────────────────────────────────────────────────────────────
 export function listIssues(status: string): Promise<IssueRow[]> {
   return getJson(`/api/issues?status=${encodeURIComponent(status)}`);
@@ -339,16 +355,22 @@ export function getDataPumpMeta(dbmsid: string | number): Promise<DataPumpMeta> 
 }
 
 // 스키마(schemas) 또는 "OWNER.TABLE" 목록 텍스트(tableList) 중 하나로 분할 계획을 만든다.
+export async function getDataPumpLinkSchemas(dbmsid: string | number, networkLink: string): Promise<string[]> {
+  const { schemas } = await postJson<{ schemas: string[] }>('/api/dataPump/linkSchemas', { dbmsid, networkLink });
+  return schemas;
+}
+
 export function planDataPumpExport(
   dbmsid: string | number,
-  source: { schemas?: string[]; tableList?: string },
+  source: { schemas?: string[]; tableList?: string; partitionSource?: { owner: string; table: string; partitions: string[] } },
   options: ExportSplitOptions
 ): Promise<ExportPlanResponse> {
   return postJson('/api/dataPump/exportPlan', { dbmsid, ...source, options });
 }
 
-export async function getDataPumpScn(dbmsid: string | number): Promise<string> {
-  const { scn } = await postJson<{ scn: string }>('/api/dataPump/currentScn', { dbmsid });
+// networkLink가 있으면 링크 너머(데이터를 읽는) DB의 SCN
+export async function getDataPumpScn(dbmsid: string | number, networkLink: string | null = null): Promise<string> {
+  const { scn } = await postJson<{ scn: string }>('/api/dataPump/currentScn', { dbmsid, networkLink });
   return scn;
 }
 
@@ -390,4 +412,30 @@ export function saveDataPumpFiles(
   overwrite: boolean
 ): Promise<{ written: string[]; skipped: string[] }> {
   return postJson('/api/dataPump/saveFiles', { dbmsid, directory, files, overwrite });
+}
+
+// ── Data Pump: Range 파티션 단위 export/import ──
+
+export async function getPartitionTables(dbmsid: string | number, owner: string): Promise<PartitionTableInfo[]> {
+  const { tables } = await postJson<{ tables: PartitionTableInfo[] }>('/api/dataPump/partition/tables', { dbmsid, owner });
+  return tables;
+}
+
+export function getPartitionList(dbmsid: string | number, owner: string, table: string): Promise<{ table: PartitionTableInfo; partitions: PartitionRange[] }> {
+  return postJson('/api/dataPump/partition/list', { dbmsid, owner, table });
+}
+
+// DB 서버 DIRECTORY에 있는 매니페스트(.json) 읽기
+export function readPartitionManifest(dbmsid: string | number, directory: string, file: string): Promise<{ manifest: PartitionManifest; text: string }> {
+  return postJson('/api/dataPump/partition/manifest', { dbmsid, directory, file });
+}
+
+// manifest: 매니페스트 원문(JSON 텍스트)
+export function planPartitionImport(
+  dbmsid: string | number,
+  manifest: string,
+  partitions: string[],
+  options: PartitionImportOptions
+): Promise<PartitionImportPlan> {
+  return postJson('/api/dataPump/partition/importPlan', { dbmsid, manifest, partitions, options });
 }

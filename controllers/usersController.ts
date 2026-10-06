@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express';
+import * as screenAccessService from '../services/screenAccessService';
 import * as usersService from '../services/usersService';
 import type { UserRole } from '../models/usersModel';
 import { logger } from '../utils/logger';
@@ -58,4 +59,45 @@ async function updateUser(req: Request, res: Response): Promise<Response | void>
   }
 }
 
-export { listUsers, listBasic, createUser, updateUser };
+// 화면 권한: 역할 기본값 + 사용자별 예외. 역할은 목록에서 찾는다 (계정 수가 적은 내부 도구).
+async function findUser(id: unknown): Promise<{ id: number; username: string; role: UserRole } | null> {
+  const userId = Number(id);
+  if (!Number.isInteger(userId)) return null;
+  return (await usersService.listUsers()).find((user) => user.id === userId) ?? null;
+}
+
+async function getScreenAccess(req: Request, res: Response): Promise<Response | void> {
+  try {
+    const user = await findUser(req.body.id);
+    if (!user) return res.status(404).json({ message: '사용자를 찾을 수 없습니다.' });
+    res.json(await screenAccessService.getUserSettings(user.id, user.role));
+  } catch (error) {
+    logger.error('Users', '화면 권한 조회 오류', error);
+    res.status(500).json({ message: '서버 오류 발생' });
+  }
+}
+
+// screens: { 화면키: true(보이게) | false(숨김) | null(역할 기본값) }
+async function saveScreenAccess(req: Request, res: Response): Promise<Response | void> {
+  try {
+    const { screens } = req.body;
+    if (!screens || typeof screens !== 'object' || Array.isArray(screens)) {
+      return res.status(400).json({ message: 'screens 정보가 필요합니다.' });
+    }
+    for (const [key, value] of Object.entries(screens)) {
+      if (!screenAccessService.isScreenKey(key) || !(value === null || typeof value === 'boolean')) {
+        return res.status(400).json({ message: `올바르지 않은 화면 설정: ${key}` });
+      }
+    }
+    const user = await findUser(req.body.id);
+    if (!user) return res.status(404).json({ message: '사용자를 찾을 수 없습니다.' });
+    await screenAccessService.saveUserSettings(user.id, user.role, screens, req.session.username ?? null);
+    logger.info('Users', `화면 권한 변경: ${user.username} (by ${req.session.username})`);
+    res.json({ message: '화면 권한을 저장했습니다.' });
+  } catch (error) {
+    logger.error('Users', '화면 권한 저장 오류', error);
+    res.status(500).json({ message: error instanceof Error ? error.message : '서버 오류 발생' });
+  }
+}
+
+export { listUsers, listBasic, createUser, updateUser, getScreenAccess, saveScreenAccess };

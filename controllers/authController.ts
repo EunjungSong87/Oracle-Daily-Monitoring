@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express';
+import * as screenAccessService from '../services/screenAccessService';
 import * as usersService from '../services/usersService';
 import { logger } from '../utils/logger';
 
@@ -43,11 +44,18 @@ function logout(req: Request, res: Response): void {
   });
 }
 
-function me(req: Request, res: Response): Response | void {
-  if (!req.session?.userId) {
+// screens: 이 사용자에게 보이는 화면 (메뉴를 그릴 때 씀 — 역할 기본 + 사용자별 예외).
+async function me(req: Request, res: Response): Promise<Response | void> {
+  const { userId, username, role } = req.session ?? {};
+  if (!userId) {
     return res.status(401).json({ message: '로그인이 필요합니다.' });
   }
-  res.json({ username: req.session.username, role: req.session.role });
+  try {
+    res.json({ username, role, screens: await screenAccessService.visibleScreens(userId, role) });
+  } catch (error) {
+    logger.error('Auth', '화면 권한 조회 오류', error);
+    res.status(500).json({ message: '서버 오류 발생' });
+  }
 }
 
 export { login, logout, me };

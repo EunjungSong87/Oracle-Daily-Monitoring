@@ -36,7 +36,7 @@ export interface DataPumpPlan {
   jobMode: 'SCHEMA' | 'TABLE' | 'FULL';
   jobName: string;
   directory: string;
-  dumpfile: string;
+  dumpfile: string | null; // NETWORK_LINK로 바로 가져오는 import는 덤프 파일 없음
   logfile: string;
   filesize: string | null; // 예: '2G' — 덤프 파일 하나의 최대 크기
   parallel: number;
@@ -46,11 +46,18 @@ export interface DataPumpPlan {
   content: 'ALL' | 'METADATA_ONLY' | 'DATA_ONLY';
   excludeStatistics: boolean;
   reuseDumpfiles: boolean; // EXPORT
-  flashbackConsistent: boolean; // EXPORT — 시작 시점 SCN으로 일관성 있게
+  flashbackConsistent: boolean; // EXPORT(또는 NETWORK_LINK import) — 시작 시점 원본 SCN으로 일관성 있게
   flashbackScn: string | null; // EXPORT — 여러 작업을 같은 시점으로 맞출 때 지정 SCN (없으면 작업 시작 시점)
   tableExistsAction: 'SKIP' | 'APPEND' | 'TRUNCATE' | 'REPLACE' | null; // IMPORT
   remapSchemas: { from: string; to: string }[]; // IMPORT
   remapTablespaces: { from: string; to: string }[]; // IMPORT
+  networkLink: string | null; // DB 링크 (EXPORT: 링크 너머 DB를 이 DB 덤프로, IMPORT: 링크 너머 DB에서 덤프 없이 바로)
+  // 파티션 단위 EXPORT: DATA_FILTER PARTITION_EXPR, 예: IN ('P202401') — 테이블 하나(partitionTable)에만 건다.
+  partitionExpr: string | null;
+  partitionTable: { owner: string; name: string } | null;
+  // 파티션 단위 IMPORT: 작업 시작 전에 대상 테이블(REMAP_SCHEMA 반영)에서 비울 파티션.
+  truncateTarget: { owner: string; name: string } | null;
+  truncatePartitions: string[];
 }
 
 export interface TableSize {
@@ -126,9 +133,33 @@ async function getEdition(dbmsid: DbmsIdParam): Promise<{ banner: string; parall
   });
 }
 
-async function getSchemas(dbmsid: DbmsIdParam): Promise<string[]> {
+// 이 DB에서 쓸 수 있는 DB 링크 (본인 소유 + PUBLIC). NETWORK_LINK 옵션의 목록이자, 넘어온 링크 이름의 허용 목록입니다.
+export interface DbLinkInfo {
+  name: string;
+  owner: string;
+  username: string | null;
+  host: string | null;
+}
+
+async function getDbLinks(dbmsid: DbmsIdParam): Promise<DbLinkInfo[]> {
   return withConnection(dbmsid, async (connection) => {
-    const rows = await query(connection, `SELECT username FROM dba_users WHERE oracle_maintained = 'N' ORDER BY username`);
+    const rows = await query(
+      connection,
+      `SELECT db_link, owner, username, host FROM all_db_links WHERE owner IN (USER, 'PUBLIC') ORDER BY db_link`
+    );
+    return rows.map((row) => ({ name: row.DB_LINK, owner: row.OWNER, username: row.USERNAME, host: row.HOST }));
+  });
+}
+
+// link가 있으면 링크 너머 DB의 딕셔너리를 읽는다. link는 서비스가 getDbLinks 목록과 대조해 검증한 이름만 들어온다
+// (식별자라 바인드 변수로 넘길 수 없어서 SQL에 붙임).
+function remote(link: string | null): string {
+  return link ? `@${link}` : '';
+}
+
+async function getSchemas(dbmsid: DbmsIdParam, link: string | null = null): Promise<string[]> {
+  return withConnection(dbmsid, async (connection) => {
+    const rows = await query(connection, `SELECT username FROM dba_users${remote(link)} WHERE oracle_maintained = 'N' ORDER BY username`);
     return rows.map((row) => row.USERNAME);
   });
 }
@@ -136,8 +167,9 @@ async function getSchemas(dbmsid: DbmsIdParam): Promise<string[]> {
 // 테이블별 크기 = 테이블 세그먼트(파티션/서브파티션 포함) + 그 테이블 LOB 컬럼의 LOB 세그먼트.
 // 인덱스는 덤프에 DDL만 들어가고 데이터는 없으므로 뺍니다. 세그먼트는 할당된 공간이라 실제 덤프는 보통 이보다 작습니다.
 // 세그먼트를 한 번만 훑도록 소유자 단위로 미리 합산한 뒤 테이블에 붙입니다 (테이블마다 서브쿼리를 돌리면 대형 DB에서 느림).
-async function getTableSizes(dbmsid: DbmsIdParam, owners: string[]): Promise<TableSize[]> {
+async function getTableSizes(dbmsid: DbmsIdParam, owners: string[], link: string | null = null): Promise<TableSize[]> {
   if (owners.length === 0) return [];
+  const at = remote(link);
   return withConnection(dbmsid, async (connection) => {
     const binds: Record<string, string> = {};
     const list = owners
@@ -150,19 +182,19 @@ async function getTableSizes(dbmsid: DbmsIdParam, owners: string[]): Promise<Tab
       connection,
       `WITH seg AS (
          SELECT owner, segment_name, SUM(bytes) AS bytes
-           FROM dba_segments
+           FROM dba_segments${at}
           WHERE owner IN (${list})
             AND segment_type IN ('TABLE', 'TABLE PARTITION', 'TABLE SUBPARTITION', 'NESTED TABLE')
           GROUP BY owner, segment_name
        ), lob AS (
          SELECT l.owner, l.table_name, SUM(s.bytes) AS bytes
-           FROM dba_lobs l
-           JOIN dba_segments s ON s.owner = l.owner AND s.segment_name = l.segment_name
+           FROM dba_lobs${at} l
+           JOIN dba_segments${at} s ON s.owner = l.owner AND s.segment_name = l.segment_name
           WHERE l.owner IN (${list})
           GROUP BY l.owner, l.table_name
        )
        SELECT t.owner, t.table_name, NVL(seg.bytes, 0) + NVL(lob.bytes, 0) AS bytes
-         FROM dba_tables t
+         FROM dba_tables${at} t
          LEFT JOIN seg ON seg.owner = t.owner AND seg.segment_name = t.table_name
          LEFT JOIN lob ON lob.owner = t.owner AND lob.table_name = t.table_name
         WHERE t.owner IN (${list})
@@ -178,9 +210,9 @@ async function getTableSizes(dbmsid: DbmsIdParam, owners: string[]): Promise<Tab
 
 // 여러 export 작업을 같은 시점의 데이터로 맞추기 위한 현재 SCN (모든 작업에 FLASHBACK_SCN으로 넘김).
 // SCN은 JS number 정밀도를 넘을 수 있어 문자열로 받습니다.
-async function getCurrentScn(dbmsid: DbmsIdParam): Promise<string> {
+async function getCurrentScn(dbmsid: DbmsIdParam, link: string | null = null): Promise<string> {
   return withConnection(dbmsid, async (connection) => {
-    const rows = await query(connection, `SELECT TO_CHAR(current_scn) AS scn FROM v$database`);
+    const rows = await query(connection, `SELECT TO_CHAR(current_scn) AS scn FROM v$database${remote(link)}`);
     return rows[0].SCN;
   });
 }
@@ -197,11 +229,15 @@ async function startJob(dbmsid: DbmsIdParam, plan: DataPumpPlan): Promise<void> 
          job_state VARCHAR2(30);
          sts ku$_Status;
        BEGIN
-         h := DBMS_DATAPUMP.OPEN(operation => :operation, job_mode => :jobMode, job_name => :jobName);
+         h := DBMS_DATAPUMP.OPEN(operation => :operation, job_mode => :jobMode, job_name => :jobName,
+                                 remote_link => :networkLink);
          BEGIN
-           DBMS_DATAPUMP.ADD_FILE(handle => h, filename => :dumpfile, directory => :directory,
-                                  filesize => :filesize, filetype => DBMS_DATAPUMP.KU$_FILE_TYPE_DUMP_FILE,
-                                  reusefile => :reuse);
+           -- NETWORK_LINK import는 링크 너머 DB에서 바로 가져오므로 덤프 파일이 없다.
+           IF :dumpfile IS NOT NULL THEN
+             DBMS_DATAPUMP.ADD_FILE(handle => h, filename => :dumpfile, directory => :directory,
+                                    filesize => :filesize, filetype => DBMS_DATAPUMP.KU$_FILE_TYPE_DUMP_FILE,
+                                    reusefile => :reuse);
+           END IF;
            DBMS_DATAPUMP.ADD_FILE(handle => h, filename => :logfile, directory => :directory,
                                   filetype => DBMS_DATAPUMP.KU$_FILE_TYPE_LOG_FILE, reusefile => 1);
            IF :schemaExpr IS NOT NULL THEN
@@ -212,6 +248,11 @@ async function startJob(dbmsid: DbmsIdParam, plan: DataPumpPlan): Promise<void> 
            END IF;
            IF :excludeTableExpr IS NOT NULL THEN
              DBMS_DATAPUMP.METADATA_FILTER(handle => h, name => 'NAME_EXPR', value => :excludeTableExpr, object_type => 'TABLE');
+           END IF;
+           IF :partitionExpr IS NOT NULL THEN
+             -- 파티션 단위 export (expdp TABLES=OWNER.TAB:PART와 같음). 하위 파티션이 있으면 그 파티션의 하위 파티션 전부.
+             DBMS_DATAPUMP.DATA_FILTER(handle => h, name => 'PARTITION_EXPR', value => :partitionExpr,
+                                       table_name => :partitionTableName, schema_name => :partitionSchema);
            END IF;
            IF :content = 'METADATA_ONLY' THEN
              DBMS_DATAPUMP.DATA_FILTER(handle => h, name => 'INCLUDE_ROWS', value => 0);
@@ -226,7 +267,13 @@ async function startJob(dbmsid: DbmsIdParam, plan: DataPumpPlan): Promise<void> 
              DBMS_DATAPUMP.SET_PARAMETER(handle => h, name => 'FLASHBACK_SCN', value => TO_NUMBER(:flashbackScn));
            ELSIF :flashback = 1 THEN
              -- 시작 시점 SCN으로 고정해 테이블 간 일관성을 맞춘다 (expdp의 FLASHBACK_TIME=SYSTIMESTAMP와 같음).
-             SELECT current_scn INTO scn FROM v$database;
+             -- NETWORK_LINK 작업은 데이터를 읽는 쪽이 링크 너머 DB라 그 DB의 SCN이어야 한다
+             -- (링크 이름은 서비스가 이 DB의 링크 목록과 대조해 검증한 값).
+             IF :networkLink IS NOT NULL THEN
+               EXECUTE IMMEDIATE 'SELECT current_scn FROM v$database@' || :networkLink INTO scn;
+             ELSE
+               SELECT current_scn INTO scn FROM v$database;
+             END IF;
              DBMS_DATAPUMP.SET_PARAMETER(handle => h, name => 'FLASHBACK_SCN', value => scn);
            END IF;
            IF :tableExistsAction IS NOT NULL THEN
@@ -298,8 +345,160 @@ async function startJob(dbmsid: DbmsIdParam, plan: DataPumpPlan): Promise<void> 
         remapSchemas: plan.remapSchemas.map((pair) => `${pair.from}:${pair.to}`).join(',') || null,
         remapTablespaces: plan.remapTablespaces.map((pair) => `${pair.from}:${pair.to}`).join(',') || null,
         parallel: plan.parallel,
+        networkLink: plan.networkLink,
+        partitionExpr: plan.partitionExpr,
+        partitionTableName: plan.partitionTable?.name ?? null,
+        partitionSchema: plan.partitionTable?.owner ?? null,
       }
     );
+  });
+}
+
+// ── Range 파티션 ──
+
+export interface PartitionTableInfo {
+  owner: string;
+  name: string;
+  keyColumn: string;
+  keyType: string; // DATE, TIMESTAMP(6), VARCHAR2, NUMBER ...
+  partitionCount: number;
+  interval: string | null; // 인터벌 파티션이면 NUMTOYMINTERVAL(1,'MONTH') 같은 식
+  subpartitioning: string | null; // NONE이 아니면 HASH/LIST/RANGE
+}
+
+export interface PartitionRow {
+  name: string;
+  position: number;
+  highValue: string; // DBA_TAB_PARTITIONS.HIGH_VALUE 원문 (LONG)
+  numRows: number | null; // 통계 기준
+  bytes: number; // 테이블 세그먼트(하위 파티션 포함) + LOB 파티션 세그먼트
+}
+
+// 파티션 키가 컬럼 하나인 RANGE(인터벌 포함) 파티션 테이블.
+async function getRangePartitionedTables(dbmsid: DbmsIdParam, owner: string): Promise<PartitionTableInfo[]> {
+  return withConnection(dbmsid, async (connection) => {
+    const rows = await query(
+      connection,
+      `SELECT pt.owner, pt.table_name, pt.interval, pt.subpartitioning_type,
+              -- INTERVAL 테이블의 DBA_PART_TABLES.PARTITION_COUNT는 최대치(1048575)라 실제 개수를 센다.
+              (SELECT COUNT(*) FROM dba_tab_partitions tp WHERE tp.table_owner = pt.owner AND tp.table_name = pt.table_name) AS partition_count,
+              kc.column_name, tc.data_type
+         FROM dba_part_tables pt
+         JOIN dba_part_key_columns kc ON kc.owner = pt.owner AND kc.name = pt.table_name AND TRIM(kc.object_type) = 'TABLE'
+         JOIN dba_tab_columns tc ON tc.owner = pt.owner AND tc.table_name = pt.table_name AND tc.column_name = kc.column_name
+        WHERE pt.owner = :owner
+          AND pt.partitioning_type = 'RANGE'
+          AND pt.partitioning_key_count = 1
+          AND pt.table_name NOT LIKE 'BIN$%'
+        ORDER BY pt.table_name`,
+      { owner }
+    );
+    return rows.map(toPartitionTableInfo);
+  });
+}
+
+function toPartitionTableInfo(row: Record<string, any>): PartitionTableInfo {
+  return {
+    owner: row.OWNER,
+    name: row.TABLE_NAME,
+    keyColumn: row.COLUMN_NAME,
+    keyType: row.DATA_TYPE,
+    partitionCount: Number(row.PARTITION_COUNT),
+    interval: row.INTERVAL ?? null,
+    subpartitioning: row.SUBPARTITIONING_TYPE && row.SUBPARTITIONING_TYPE !== 'NONE' ? row.SUBPARTITIONING_TYPE : null,
+  };
+}
+
+// 테이블 하나의 파티션 목록. 테이블이 없거나 (컬럼 하나 키의) RANGE 파티션 테이블이 아니면 table = null.
+// HIGH_VALUE가 LONG이라 집계/함수와 섞지 않도록 크기는 따로 조회해 붙인다.
+async function getTablePartitions(
+  dbmsid: DbmsIdParam,
+  owner: string,
+  table: string
+): Promise<{ table: PartitionTableInfo | null; partitions: PartitionRow[] }> {
+  return withConnection(dbmsid, async (connection) => {
+    const info = await query(
+      connection,
+      `SELECT pt.owner, pt.table_name, pt.interval, pt.subpartitioning_type,
+              -- INTERVAL 테이블의 DBA_PART_TABLES.PARTITION_COUNT는 최대치(1048575)라 실제 개수를 센다.
+              (SELECT COUNT(*) FROM dba_tab_partitions tp WHERE tp.table_owner = pt.owner AND tp.table_name = pt.table_name) AS partition_count,
+              kc.column_name, tc.data_type
+         FROM dba_part_tables pt
+         JOIN dba_part_key_columns kc ON kc.owner = pt.owner AND kc.name = pt.table_name AND TRIM(kc.object_type) = 'TABLE'
+         JOIN dba_tab_columns tc ON tc.owner = pt.owner AND tc.table_name = pt.table_name AND tc.column_name = kc.column_name
+        WHERE pt.owner = :owner AND pt.table_name = :tableName
+          AND pt.partitioning_type = 'RANGE' AND pt.partitioning_key_count = 1`,
+      { owner, tableName: table }
+    );
+    if (info.length === 0) return { table: null, partitions: [] };
+
+    const parts = await query(
+      connection,
+      `SELECT partition_name, partition_position, high_value, num_rows
+         FROM dba_tab_partitions
+        WHERE table_owner = :owner AND table_name = :tableName
+        ORDER BY partition_position`,
+      { owner, tableName: table }
+    );
+    const sizes = await query(
+      connection,
+      `WITH seg AS (
+         SELECT partition_name, SUM(bytes) AS bytes
+           FROM dba_segments
+          WHERE owner = :owner AND segment_name = :tableName
+          GROUP BY partition_name
+       ), sub AS (
+         SELECT sp.partition_name, SUM(seg.bytes) AS bytes
+           FROM dba_tab_subpartitions sp
+           JOIN seg ON seg.partition_name = sp.subpartition_name
+          WHERE sp.table_owner = :owner AND sp.table_name = :tableName
+          GROUP BY sp.partition_name
+       ), lobp AS (
+         SELECT lp.partition_name, SUM(s.bytes) AS bytes
+           FROM dba_lob_partitions lp
+           JOIN dba_segments s ON s.owner = lp.table_owner AND s.segment_name = lp.lob_name AND s.partition_name = lp.lob_partition_name
+          WHERE lp.table_owner = :owner AND lp.table_name = :tableName
+          GROUP BY lp.partition_name
+       ), lobsub AS (
+         -- 서브파티션 테이블이면 LOB 세그먼트도 서브파티션 단위라, 테이블 서브파티션을 거쳐 파티션에 붙인다.
+         SELECT sp.partition_name, SUM(s.bytes) AS bytes
+           FROM dba_lob_subpartitions ls
+           JOIN dba_tab_subpartitions sp
+             ON sp.table_owner = ls.table_owner AND sp.table_name = ls.table_name AND sp.subpartition_name = ls.subpartition_name
+           JOIN dba_segments s ON s.owner = ls.table_owner AND s.segment_name = ls.lob_name AND s.partition_name = ls.lob_subpartition_name
+          WHERE ls.table_owner = :owner AND ls.table_name = :tableName
+          GROUP BY sp.partition_name
+       )
+       SELECT p.partition_name, NVL(seg.bytes, 0) + NVL(sub.bytes, 0) + NVL(lobp.bytes, 0) + NVL(lobsub.bytes, 0) AS bytes
+         FROM dba_tab_partitions p
+         LEFT JOIN seg ON seg.partition_name = p.partition_name
+         LEFT JOIN sub ON sub.partition_name = p.partition_name
+         LEFT JOIN lobp ON lobp.partition_name = p.partition_name
+         LEFT JOIN lobsub ON lobsub.partition_name = p.partition_name
+        WHERE p.table_owner = :owner AND p.table_name = :tableName`,
+      { owner, tableName: table }
+    );
+    const bytesByName = new Map(sizes.map((row) => [row.PARTITION_NAME as string, Number(row.BYTES)]));
+    return {
+      table: toPartitionTableInfo(info[0]),
+      partitions: parts.map((row) => ({
+        name: row.PARTITION_NAME,
+        position: Number(row.PARTITION_POSITION),
+        highValue: String(row.HIGH_VALUE ?? ''),
+        numRows: row.NUM_ROWS === null || row.NUM_ROWS === undefined ? null : Number(row.NUM_ROWS),
+        bytes: bytesByName.get(row.PARTITION_NAME) ?? 0,
+      })),
+    };
+  });
+}
+
+// 파티션 비우기 (파티션 단위 import 전). 글로벌 인덱스가 UNUSABLE이 되지 않게 UPDATE INDEXES.
+// 이름은 서비스가 식별자 형식과 실제 존재 여부를 확인한 값만 들어온다 (DDL이라 바인드 불가 → 큰따옴표로 감싸 붙임).
+async function truncatePartitions(dbmsid: DbmsIdParam, owner: string, table: string, partitions: string[]): Promise<void> {
+  await withConnection(dbmsid, async (connection) => {
+    for (const partition of partitions) {
+      await connection.execute(`ALTER TABLE "${owner}"."${table}" TRUNCATE PARTITION "${partition}" UPDATE INDEXES`);
+    }
   });
 }
 
@@ -520,10 +719,10 @@ async function getFileSizes(dbmsid: DbmsIdParam, directory: string, filenames: s
   });
 }
 
-// 로그 파일은 DB 서버의 DIRECTORY에 있으므로 BFILE로 읽어 옵니다. 너무 크면 끝부분만 가져옵니다.
+// 로그 파일(과 파티션 export 매니페스트)은 DB 서버의 DIRECTORY에 있으므로 BFILE로 읽어 옵니다. 너무 크면 끝부분만 가져옵니다.
 const MAX_LOG_BYTES = 512 * 1024;
 
-async function readLog(dbmsid: DbmsIdParam, directory: string, filename: string): Promise<LogContent> {
+async function readLog(dbmsid: DbmsIdParam, directory: string, filename: string, maxBytes: number = MAX_LOG_BYTES): Promise<LogContent> {
   return withConnection(dbmsid, async (connection) => {
     const result = await connection.execute<{ exists: number; truncated: number; content: oracledb.Lob | null }>(
       `DECLARE
@@ -561,7 +760,7 @@ async function readLog(dbmsid: DbmsIdParam, directory: string, filename: string)
       {
         directory,
         filename,
-        maxBytes: MAX_LOG_BYTES,
+        maxBytes,
         exists: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
         truncated: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
         content: { dir: oracledb.BIND_OUT, type: oracledb.CLOB },
@@ -577,6 +776,7 @@ export {
   getTargetInfo,
   getEdition,
   getDirectories,
+  getDbLinks,
   getSchemas,
   getTableSizes,
   getCurrentScn,
@@ -587,4 +787,7 @@ export {
   getFileSizes,
   writeFiles,
   readLog,
+  getRangePartitionedTables,
+  getTablePartitions,
+  truncatePartitions,
 };

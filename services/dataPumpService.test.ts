@@ -181,6 +181,39 @@ describe('buildParfile', () => {
   });
 });
 
+describe('NETWORK_LINK', () => {
+  it('링크 import는 덤프 파일 없이 링크 이름만 (일관성은 원본 SCN)', () => {
+    const request = importRequest({ networkLink: 'src_db.example.com', dumpfile: 'ignored.dmp', flashbackConsistent: true });
+    const plan = buildPlan(request, NOW);
+    expect(plan).toMatchObject({ networkLink: 'SRC_DB.EXAMPLE.COM', dumpfile: null, flashbackConsistent: true });
+    const { parfile } = buildParfile(plan, request, TARGET);
+    expect(parfile).not.toContain('DUMPFILE=');
+    expect(parfile).toContain('NETWORK_LINK=SRC_DB.EXAMPLE.COM\n');
+    expect(parfile).toContain('FLASHBACK_TIME=SYSTIMESTAMP\n');
+  });
+
+  it('덤프 import는 일관성 옵션을 무시한다', () => {
+    expect(buildPlan(importRequest({ flashbackConsistent: true }), NOW).flashbackConsistent).toBe(false);
+  });
+
+  it('링크 import로 원본 DB 전체(FULL)는 막는다', () => {
+    expectInvalid(importRequest({ networkLink: 'SRC', mode: 'FULL' }), /스키마나 테이블/);
+  });
+
+  it('링크 export는 덤프 파일을 그대로 쓰고 NETWORK_LINK를 붙인다', () => {
+    const request = exportRequest({ networkLink: 'SRC' });
+    const plan = buildPlan(request, NOW);
+    expect(plan).toMatchObject({ networkLink: 'SRC', dumpfile: 'exp_%U.dmp' });
+    expect(buildParfile(plan, request, TARGET).parfile).toContain('DUMPFILE=exp_%U.dmp\nLOGFILE=exp.log\nNETWORK_LINK=SRC\n');
+  });
+
+  it('링크 이름에 SQL에 끼어들 문자가 있으면 거부한다', () => {
+    expectInvalid(importRequest({ networkLink: "SRC' OR 1=1" }), /DB 링크 이름/);
+    expectInvalid(importRequest({ networkLink: 'SRC;DROP' }), /DB 링크 이름/);
+  });
+});
+
+
 // ── 크기 기준 자동 분할 ──
 
 const G = 1024 ** 3;
@@ -313,6 +346,59 @@ describe('planExportGroups — 테이블 목록', () => {
   it('형식이 틀린 줄은 거부', () => {
     expect(() => parseTableList('EMP')).toThrow(/소유자.테이블/);
     expect(() => parseTableList('  \n# x\n')).toThrow(/비어/);
+  });
+});
+
+describe('planExportGroups — 테이블 목록에 파티션', () => {
+  const range = (name: string, position: number, bytes: number) => ({
+    name,
+    position,
+    highValue: '',
+    known: true,
+    low: null,
+    high: null,
+    numRows: null,
+    bytes,
+  });
+  const ORDERS = [range('P01', 1, 300 * G), range('P02', 2, 300 * G), range('P03', 3, 300 * G), range('P04', 4, 300 * G)];
+  const LOGS = [range('P01', 1, 10 * G), range('P02', 2, 10 * G)];
+
+  it('OWNER.TABLE:PARTITION 줄을 읽는다 (expdp TABLES 형식, 공백/쉼표도)', () => {
+    expect(parseTableList('sales.orders:p01\nSALES ORDERS P02\nSALES,LOGS\n')).toEqual([
+      { owner: 'SALES', name: 'ORDERS', partition: 'P01' },
+      { owner: 'SALES', name: 'ORDERS', partition: 'P02' },
+      { owner: 'SALES', name: 'LOGS' },
+    ]);
+    expect(() => parseTableList('A.B:C:D')).toThrow(/소유자.테이블:파티션/);
+  });
+
+  it('같은 테이블의 파티션은 한 작업(parfile)에 모으고, 분할 크기를 넘을 때만 기간 순서로 나눈다', () => {
+    const list = parseTableList('SALES.ORDERS:P01\nSALES.ORDERS:P02\nSALES.ORDERS:P03\nSALES.ORDERS:P04\nSALES.LOGS:P02\nSALES.ORDERS:P99');
+    const { groups, missing } = planExportGroups(
+      { kind: 'TABLES', tables: list, partitionRanges: { 'SALES.ORDERS': ORDERS, 'SALES.LOGS': LOGS } },
+      [],
+      splitOptions(),
+      NOW
+    );
+    expect(missing).toEqual(['SALES.ORDERS:P99']);
+    expect(groups.map((g) => [g.tables[0].name, g.partitions.map((p) => p.name).join(','), g.bytes / G])).toEqual([
+      ['ORDERS', 'P01,P02,P03', 900],
+      ['ORDERS', 'P04', 300],
+      ['LOGS', 'P02', 10],
+    ]);
+    // 테이블마다 따로 — 다른 테이블에 같은 파티션 이름이 있어도 덤프 이름이 겹치지 않게 테이블 이름을 넣음
+    expect(groups[2].request.dumpfile).toBe('exp_20261002_LOGS_P02_%U.dmp');
+    expect(buildParfile(buildPlan(groups[0].request, NOW), groups[0].request, TARGET).parfile).toContain(
+      'TABLES=SALES.ORDERS:P01,SALES.ORDERS:P02,SALES.ORDERS:P03\n'
+    );
+  });
+
+  it('같은 테이블이 통째로도 적혀 있으면 통째로, RANGE 파티션 정보가 없는 테이블의 파티션 줄은 missing', () => {
+    const sizes = [table('SALES', 'ORDERS', 1200 * G)];
+    const list = parseTableList('SALES.ORDERS\nSALES.ORDERS:P01\nSALES.HEAP:P01');
+    const { groups, missing } = planExportGroups({ kind: 'TABLES', tables: list, partitionRanges: { 'SALES.ORDERS': ORDERS } }, sizes, splitOptions(), NOW);
+    expect(groups.map((g) => [g.tables[0].name, g.partitions.length])).toEqual([['ORDERS', 0]]);
+    expect(missing).toEqual(['SALES.HEAP:P01']);
   });
 });
 

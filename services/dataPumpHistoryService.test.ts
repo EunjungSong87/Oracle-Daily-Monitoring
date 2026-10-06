@@ -58,6 +58,7 @@ describe('describeTarget', () => {
     operation: 'EXPORT', jobMode: 'SCHEMA', jobName: 'J', directory: 'D', dumpfile: 'x.dmp', logfile: 'x.log', filesize: null, parallel: 1,
     schemaExpr: "IN ('HR','SCOTT')", nameExpr: null, excludeTableExpr: null, content: 'ALL', excludeStatistics: false,
     reuseDumpfiles: false, flashbackConsistent: false, flashbackScn: null, tableExistsAction: null, remapSchemas: [], remapTablespaces: [],
+    networkLink: null, partitionExpr: null, partitionTable: null, truncateTarget: null, truncatePartitions: [],
   };
 
   it('스키마 작업 (제외 테이블 수 포함)', () => {
@@ -67,6 +68,7 @@ describe('describeTarget', () => {
 
   it('테이블 작업과 import REMAP', () => {
     expect(describeTarget({ ...base, jobMode: 'TABLE', schemaExpr: "IN ('HR')", nameExpr: "IN ('EMP','DEPT')" })).toBe('HR 테이블 2개: EMP, DEPT');
+    expect(describeTarget({ ...base, jobMode: 'TABLE', schemaExpr: "IN ('S')", nameExpr: "IN ('T')", partitionExpr: "IN ('P202601')" })).toBe('S 테이블 1개: T / 파티션 P202601');
     expect(describeTarget({ ...base, operation: 'IMPORT', jobMode: 'FULL', schemaExpr: null, remapSchemas: [{ from: 'HR', to: 'HR2' }] })).toBe(
       '덤프 전체 / REMAP_SCHEMA HR→HR2'
     );

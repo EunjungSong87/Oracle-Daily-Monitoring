@@ -100,6 +100,9 @@ function describeTarget(plan: DataPumpPlan): string {
   } else {
     parts.push('덤프 전체');
   }
+  if (plan.partitionExpr) parts.push(`파티션 ${list(plan.partitionExpr)}`);
+  if (plan.truncatePartitions.length > 0) parts.push(`비우고 넣음: ${plan.truncatePartitions.join(', ')}`);
+  if (plan.networkLink) parts.push(`NETWORK_LINK=${plan.networkLink}`);
   for (const pair of plan.remapSchemas) parts.push(`REMAP_SCHEMA ${pair.from}→${pair.to}`);
   for (const pair of plan.remapTablespaces) parts.push(`REMAP_TABLESPACE ${pair.from}→${pair.to}`);
   return parts.join(' / ');
@@ -149,7 +152,7 @@ async function recordCancel(dbmsId: number | string, owner: string, jobName: str
 
 // 덤프 파일 이름에 %U가 있으면 로그의 "Dump file set" 목록이 실제 이름이고, 없으면 지정한 이름 그대로다.
 async function dumpBytesOf(row: DataPumpHistoryRow, parsed: ParsedLog): Promise<number | null> {
-  const names = parsed.dumpFiles.length > 0 ? parsed.dumpFiles : /%U/i.test(row.dumpfile) ? [] : [row.dumpfile];
+  const names = parsed.dumpFiles.length > 0 ? parsed.dumpFiles : !row.dumpfile || /%U/i.test(row.dumpfile) ? [] : [row.dumpfile];
   if (names.length === 0) return null;
   const sizes = await dataPumpModel.getFileSizes({ dbmsid: row.dbmsId }, row.directory, names);
   const values = Object.values(sizes);

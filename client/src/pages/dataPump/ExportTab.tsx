@@ -1,10 +1,28 @@
 import { Fragment, useEffect, useRef, useState, type ChangeEvent, type ReactElement } from 'react';
-import { getDataPumpHistory, getDataPumpScn, planDataPumpExport, startDataPump } from '../../shared/lib/api';
+import {
+  getDataPumpHistory,
+  getDataPumpLinkSchemas,
+  getDataPumpScn,
+  getPartitionList,
+  getPartitionTables,
+  planDataPumpExport,
+  saveDataPumpFiles,
+  startDataPump,
+} from '../../shared/lib/api';
 import { showToast } from '../../shared/lib/toastStore';
-import type { DataPumpContent, DataPumpMeta, ExportGroup, ExportPlanResponse, ExportSplitOptions } from '../../shared/lib/types';
+import type {
+  DataPumpContent,
+  DataPumpMeta,
+  ExportGroup,
+  ExportPlanResponse,
+  ExportSplitOptions,
+  PartitionRange,
+  PartitionTableInfo,
+} from '../../shared/lib/types';
 import { ConfirmModal } from './ConfirmModal';
 import { downloadText, estimateSeconds, formatBytes, formatDuration, todayPrefix } from './helpers';
 import { ParfileModal, type ParfileView } from './ParfileModal';
+import { PartitionPicker } from './PartitionPicker';
 import { SchemaMultiSelect } from './SchemaMultiSelect';
 import { useServerSave } from './useServerSave';
 
@@ -24,7 +42,17 @@ interface Props {
 // Export: 스키마를 고르거나 "OWNER.TABLE" 목록을 올리면, 테이블 크기를 보고 분할 크기(기본 1TB) 이하의 작업들로 나눈다.
 // 작업마다 바로 실행하거나 parfile을 받을 수 있다.
 export function ExportTab({ dbmsId, meta }: Props): ReactElement {
-  const [sourceKind, setSourceKind] = useState<'SCHEMAS' | 'TABLES'>('SCHEMAS');
+  // 원본: 빈 값 = 이 DB, 아니면 DB 링크 이름 (링크 너머 DB의 오브젝트를 이 DB의 DIRECTORY에 덤프로).
+  const [networkLink, setNetworkLink] = useState('');
+  const [linkSchemas, setLinkSchemas] = useState<string[] | null>(null);
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const [sourceKind, setSourceKind] = useState<'SCHEMAS' | 'TABLES' | 'PARTITIONS'>('SCHEMAS');
+  // Range 파티션 대상: 테이블 하나를 골라 기간으로 파티션을 고른다 (크기/분할도 고른 파티션 기준).
+  const [partOwner, setPartOwner] = useState('');
+  const [partTables, setPartTables] = useState<PartitionTableInfo[] | null>(null);
+  const [partTable, setPartTable] = useState('');
+  const [partitions, setPartitions] = useState<PartitionRange[] | null>(null);
+  const [selectedPartitions, setSelectedPartitions] = useState<Set<string>>(new Set());
   const [selectedSchemas, setSelectedSchemas] = useState<Set<string>>(new Set());
   const [tableList, setTableList] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -65,6 +93,27 @@ export function ExportTab({ dbmsId, meta }: Props): ReactElement {
   }, [dbmsId]);
 
   const directoryPath = meta.directories.find((dir) => dir.name === directory)?.path;
+  const schemaOptions = networkLink ? (linkSchemas ?? []) : meta.schemas;
+
+  // 원본을 바꾸면 고른 스키마/계획은 이전 DB 기준이라 비우고, 링크면 그 너머 DB의 스키마 목록을 읽는다.
+  useEffect(() => {
+    setSelectedSchemas(new Set());
+    setPlan(null);
+    setLinkSchemas(null);
+    setLinkError(null);
+    if (!networkLink) return;
+    let cancelled = false;
+    getDataPumpLinkSchemas(dbmsId, networkLink)
+      .then((schemas) => {
+        if (!cancelled) setLinkSchemas(schemas);
+      })
+      .catch((error) => {
+        if (!cancelled) setLinkError(error instanceof Error ? error.message : 'DB 링크 너머 스키마를 읽지 못했습니다.');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dbmsId, networkLink]);
 
   function loadTableFile(event: ChangeEvent<HTMLInputElement>): void {
     const file = event.target.files?.[0];
@@ -79,7 +128,54 @@ export function ExportTab({ dbmsId, meta }: Props): ReactElement {
     event.target.value = '';
   }
 
+  // Range 파티션 대상: 스키마 → 그 스키마의 RANGE 파티션 테이블 목록
+  useEffect(() => {
+    setPartTables(null);
+    setPartTable('');
+    if (sourceKind !== 'PARTITIONS' || !partOwner) return;
+    let cancelled = false;
+    getPartitionTables(dbmsId, partOwner)
+      .then((result) => {
+        if (!cancelled) setPartTables(result);
+      })
+      .catch((error) => showToast(error instanceof Error ? error.message : '파티션 테이블 목록을 읽지 못했습니다.', 'error'));
+    return () => {
+      cancelled = true;
+    };
+  }, [dbmsId, sourceKind, partOwner]);
+
+  // 테이블 → 파티션 목록 (범위/크기). 고른 파티션과 계획은 비운다.
+  useEffect(() => {
+    setPartitions(null);
+    setSelectedPartitions(new Set());
+    setPlan(null);
+    if (!partOwner || !partTable) return;
+    let cancelled = false;
+    getPartitionList(dbmsId, partOwner, partTable)
+      .then((result) => {
+        if (!cancelled) setPartitions(result.partitions);
+      })
+      .catch((error) => showToast(error instanceof Error ? error.message : '파티션 목록을 읽지 못했습니다.', 'error'));
+    return () => {
+      cancelled = true;
+    };
+  }, [dbmsId, partOwner, partTable]);
+
+  // "파티션마다 하나"는 파티션 대상에서만 고를 수 있다.
+  function changeSourceKind(next: typeof sourceKind): void {
+    setSourceKind(next);
+    if (next === 'SCHEMAS' && chunkPreset === 'PARTITION') setChunkPreset('1T');
+  }
+
+  const partTableInfo = partTables?.find((table) => table.name === partTable) ?? null;
+  // "파티션마다 하나"는 Range 파티션 대상, 또는 파티션 줄을 올릴 수 있는 테이블 목록에서만.
+  const chunkPresets = sourceKind !== 'SCHEMAS' ? [...CHUNK_PRESETS, { value: 'PARTITION', label: '파티션마다 하나' }] : CHUNK_PRESETS;
+
   async function makePlan(): Promise<void> {
+    if (sourceKind === 'PARTITIONS' && selectedPartitions.size === 0) {
+      showToast('파티션을 하나 이상 골라주세요.', 'error');
+      return;
+    }
     if (sourceKind === 'SCHEMAS' && selectedSchemas.size === 0) {
       showToast('스키마를 하나 이상 골라주세요.', 'error');
       return;
@@ -101,13 +197,19 @@ export function ExportTab({ dbmsId, meta }: Props): ReactElement {
         excludeStatistics,
         flashbackConsistent,
         reuseDumpfiles,
+        networkLink: networkLink || null,
       };
-      const source = sourceKind === 'SCHEMAS' ? { schemas: Array.from(selectedSchemas) } : { tableList };
+      const source =
+        sourceKind === 'PARTITIONS'
+          ? { partitionSource: { owner: partOwner, table: partTable, partitions: Array.from(selectedPartitions) } }
+          : sourceKind === 'SCHEMAS'
+            ? { schemas: Array.from(selectedSchemas) }
+            : { tableList };
       const result = await planDataPumpExport(dbmsId, source, options);
       setPlan(result);
       setStarted(new Map());
       setExpanded(new Set());
-      if (result.missing.length > 0) showToast(`목록 중 ${result.missing.length}개 테이블은 DB에 없어 뺐습니다.`, 'error');
+      if (result.missing.length > 0) showToast(`목록 중 ${result.missing.length}개 항목(테이블/파티션)은 DB에 없어 뺐습니다.`, 'error');
     } catch (error) {
       console.error('Error planning export:', error);
       showToast(error instanceof Error ? error.message : '분할 계획을 만들지 못했습니다.', 'error');
@@ -130,8 +232,14 @@ export function ExportTab({ dbmsId, meta }: Props): ReactElement {
 
   async function runOne(group: ExportGroup): Promise<void> {
     setStartingNo(group.no);
-    if (await startGroup(group, null)) showToast(`작업 ${group.no}을(를) 시작했습니다. "작업 현황" 탭에서 진행 상황을 볼 수 있습니다.`);
-    setStartingNo(null);
+    try {
+      await saveManifest();
+      if (await startGroup(group, null)) showToast(`작업 ${group.no}을(를) 시작했습니다. "작업 현황" 탭에서 진행 상황을 볼 수 있습니다.`);
+    } catch (error) {
+      showToast(error instanceof Error ? `매니페스트 저장 실패: ${error.message}` : '매니페스트 저장 실패', 'error');
+    } finally {
+      setStartingNo(null);
+    }
   }
 
   // 전체 실행: 모든 작업에 같은 SCN을 걸어 작업끼리도 같은 시점의 데이터가 되게 한다.
@@ -139,13 +247,14 @@ export function ExportTab({ dbmsId, meta }: Props): ReactElement {
     if (!plan) return;
     setStartingNo('ALL');
     try {
-      const scn = flashbackConsistent ? await getDataPumpScn(dbmsId) : null;
+      await saveManifest();
+      const scn = flashbackConsistent ? await getDataPumpScn(dbmsId, networkLink || null) : null;
       let ok = 0;
       for (const group of plan.groups) {
         if (started.has(group.no)) continue;
         if (await startGroup(group, scn)) ok++;
       }
-      showToast(`${ok}개 작업을 시작했습니다${scn ? ` (SCN ${scn} 기준)` : ''}.`);
+      showToast(`${ok}개 작업을 시작했습니다${scn ? ` (SCN ${scn} 기준)` : ''}.${plan.manifests.length > 0 ? ` 매니페스트: ${plan.manifests.map((manifest) => manifest.name).join(', ')}` : ''}`);
     } catch (error) {
       showToast(error instanceof Error ? error.message : '전체 실행 실패', 'error');
     } finally {
@@ -172,20 +281,37 @@ export function ExportTab({ dbmsId, meta }: Props): ReactElement {
     ].join('\n');
   }
 
-  function downloadAllParfiles(): void {
-    if (!plan) return;
-    // 브라우저가 여러 파일 다운로드를 막지 않도록 조금씩 간격을 둔다.
-    plan.groups.forEach((group, index) => window.setTimeout(() => downloadText(group.parfileName, group.parfile), index * 300));
-    window.setTimeout(() => downloadText(runScriptName, runScript()), plan.groups.length * 300);
+  // 파티션을 내보내는 계획이면 실행 전에 매니페스트(테이블마다 하나)를 덤프와 같은 DIRECTORY에 남긴다 ("파티션 Import" 탭이 읽음).
+  // 같은 접두어로 다시 만든 계획이면 내용이 바뀌었을 수 있어 늘 최신 계획으로 덮어쓴다.
+  async function saveManifest(): Promise<void> {
+    if (!plan || plan.manifests.length === 0) return;
+    await saveDataPumpFiles(
+      dbmsId,
+      planDirectory,
+      plan.manifests.map((manifest) => ({ name: manifest.name, content: manifest.text })),
+      true
+    );
   }
 
-  // parfile 전부 + 실행 스크립트를 DB 서버의 DIRECTORY(덤프가 생길 곳)에 바로 만든다.
-  function saveAllToServer(): void {
-    if (!plan) return;
-    serverSave.save(planDirectory, [
+  // parfile 전부 + 실행 스크립트 (+ 파티션 대상이면 매니페스트)
+  function allFiles(): { name: string; content: string }[] {
+    if (!plan) return [];
+    return [
       ...plan.groups.map((group) => ({ name: group.parfileName, content: group.parfile })),
       { name: runScriptName, content: runScript() },
-    ]);
+      ...plan.manifests.map((manifest) => ({ name: manifest.name, content: manifest.text })),
+    ];
+  }
+
+  function downloadAllParfiles(): void {
+    // 브라우저가 여러 파일 다운로드를 막지 않도록 조금씩 간격을 둔다.
+    allFiles().forEach((file, index) => window.setTimeout(() => downloadText(file.name, file.content), index * 300));
+  }
+
+  // DB 서버의 DIRECTORY(덤프가 생길 곳)에 바로 만든다.
+  function saveAllToServer(): void {
+    if (!plan) return;
+    serverSave.save(planDirectory, allFiles());
   }
 
   const pending = plan ? plan.groups.filter((group) => !started.has(group.no)).length : 0;
@@ -194,22 +320,93 @@ export function ExportTab({ dbmsId, meta }: Props): ReactElement {
     <>
       <div className="rt-panel">
         <h3>1. 대상</h3>
+        <div className="dp-source-row">
+          <label htmlFor="dp-exp-link">원본 DB</label>
+          <select id="dp-exp-link" value={networkLink} onChange={(e) => setNetworkLink(e.target.value)}>
+            <option value="">이 DB ({meta.target.dbname})</option>
+            {meta.dbLinks.map((link) => (
+              <option key={`${link.owner}.${link.name}`} value={link.name}>
+                DB 링크 {link.name}
+                {link.owner === 'PUBLIC' ? ' (PUBLIC)' : ''}
+                {link.host ? ` → ${link.host}` : ''}
+              </option>
+            ))}
+          </select>
+          {meta.dbLinks.length === 0 && <span className="dp-hint-line">이 DB에 쓸 수 있는 DB 링크가 없습니다.</span>}
+        </div>
+        {networkLink && (
+          <p className="oc-hint">
+            NETWORK_LINK={networkLink}: 링크 너머 DB의 오브젝트를 이 DB({meta.target.dbname})의 DIRECTORY에 덤프로 씁니다. 스키마 목록과 테이블 크기도 링크 너머
+            DB 기준이고, 같은 시점 SCN도 그 DB에서 받습니다. 링크 접속 계정에 export 권한(DATAPUMP_EXP_FULL_DATABASE)과 DBA_* 조회 권한이 필요하고,
+            LONG 컬럼 테이블은 링크로 export할 수 없습니다.
+          </p>
+        )}
+        {linkError && <p className="pc-warning">{linkError}</p>}
+        {networkLink && !linkSchemas && !linkError && <p className="oc-detail-note">링크 너머 스키마 목록을 읽는 중...</p>}
         <div className="status-tabs dp-inline">
-          <button type="button" className={`status-tab${sourceKind === 'SCHEMAS' ? ' status-tab-active' : ''}`} onClick={() => setSourceKind('SCHEMAS')}>
+          <button type="button" className={`status-tab${sourceKind === 'SCHEMAS' ? ' status-tab-active' : ''}`} onClick={() => changeSourceKind('SCHEMAS')}>
             스키마 선택
           </button>
-          <button type="button" className={`status-tab${sourceKind === 'TABLES' ? ' status-tab-active' : ''}`} onClick={() => setSourceKind('TABLES')}>
+          <button type="button" className={`status-tab${sourceKind === 'TABLES' ? ' status-tab-active' : ''}`} onClick={() => changeSourceKind('TABLES')}>
             테이블 목록 올리기
+          </button>
+          <button
+            type="button"
+            className={`status-tab${sourceKind === 'PARTITIONS' ? ' status-tab-active' : ''}`}
+            disabled={!!networkLink}
+            title={networkLink ? 'Range 파티션 export는 DB 링크 없이 이 DB에서만 됩니다.' : undefined}
+            onClick={() => changeSourceKind('PARTITIONS')}
+          >
+            Range 파티션 (기간)
           </button>
         </div>
 
-        {sourceKind === 'SCHEMAS' ? (
+        {sourceKind === 'PARTITIONS' ? (
+          <>
+            <div className="dp-grid">
+              <div>
+                <label htmlFor="dp-exp-part-owner">스키마</label>
+                <select id="dp-exp-part-owner" value={partOwner} onChange={(e) => setPartOwner(e.target.value)}>
+                  <option value="">선택</option>
+                  {meta.schemas.map((schema) => (
+                    <option key={schema} value={schema}>
+                      {schema}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="dp-exp-part-table">RANGE 파티션 테이블</label>
+                <select id="dp-exp-part-table" value={partTable} disabled={!partTables} onChange={(e) => setPartTable(e.target.value)}>
+                  <option value="">{partOwner && !partTables ? '읽는 중...' : partTables && partTables.length === 0 ? '없음' : '선택'}</option>
+                  {partTables?.map((table) => (
+                    <option key={table.name} value={table.name}>
+                      {table.name} ({table.partitionCount}개)
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            {partTableInfo && (
+              <p className="oc-hint">
+                파티션 키 {partTableInfo.keyColumn} ({partTableInfo.keyType}){partTableInfo.interval ? ` · INTERVAL ${partTableInfo.interval}` : ''}
+                {partTableInfo.subpartitioning ? ` · 서브파티션 ${partTableInfo.subpartitioning} (파티션 단위로 통째로)` : ''}
+              </p>
+            )}
+            {partOwner && partTables && partTables.length === 0 && <p className="issues-empty">이 스키마에는 키 컬럼 하나짜리 RANGE 파티션 테이블이 없습니다.</p>}
+            {partitions && <PartitionPicker partitions={partitions} selected={selectedPartitions} onChange={setSelectedPartitions} />}
+            <p className="oc-hint">
+              고른 파티션의 크기로 분할합니다 — 기간 순서대로 분할 크기까지 묶거나, 분할 기준에서 "파티션마다 하나"를 고르면 파티션 하나당 작업 하나. 실행하면 덤프
+              옆에 매니페스트(.json)를 남겨 "파티션 Import" 탭에서 기간으로 골라 가져올 수 있습니다.
+            </p>
+          </>
+        ) : sourceKind === 'SCHEMAS' ? (
           <>
             <SchemaMultiSelect
-              options={meta.schemas}
+              options={schemaOptions}
               selected={selectedSchemas}
               onChange={setSelectedSchemas}
-              placeholder={`스키마 검색 (${meta.schemas.length}개) — 입력하면 목록이 걸러집니다`}
+              placeholder={`스키마 검색 (${schemaOptions.length}개) — 입력하면 목록이 걸러집니다`}
             />
             <p className="oc-hint">
               스키마 전체(테이블 + 뷰/프로시저/시퀀스/권한 등)를 내보냅니다. 고른 스키마들의 합이 분할 크기 이하면 작업 하나(SCHEMAS=A,B,…)로,
@@ -221,7 +418,7 @@ export function ExportTab({ dbmsId, meta }: Props): ReactElement {
           <>
             <textarea
               className="dp-table-list"
-              placeholder={'한 줄에 하나씩  소유자.테이블\nHR.EMPLOYEES\nHR.DEPARTMENTS\nSALES.ORDERS'}
+              placeholder={'한 줄에 하나씩  소유자.테이블 (파티션만이면 소유자.테이블:파티션)\nHR.EMPLOYEES\nHR.DEPARTMENTS\nSALES.ORDERS:P202601\nSALES.ORDERS:P202602'}
               value={tableList}
               onChange={(e) => setTableList(e.target.value)}
             />
@@ -233,7 +430,9 @@ export function ExportTab({ dbmsId, meta }: Props): ReactElement {
               <span className="oc-subtle">{tableList.split(/\r?\n/).filter((line) => line.trim() && !line.trim().startsWith('#')).length}줄</span>
             </div>
             <p className="oc-hint">
-              "OWNER.TABLE", "OWNER TABLE", "OWNER,TABLE" 형식 모두 됩니다. 테이블 데이터만 내보내며(TABLE 모드), 소유자가 다르면 작업을 따로 만듭니다.
+              "OWNER.TABLE", "OWNER TABLE", "OWNER,TABLE" 형식 모두 됩니다. 파티션만 내보내려면 "OWNER.TABLE:PARTITION"처럼 적으세요 (expdp TABLES와 같은 형식) —
+              같은 테이블의 파티션은 한 작업(parfile)에 모으고, 분할 크기를 넘을 때만 기간 순서로 나눕니다. 같은 테이블을 통째로도 적으면 통째로 내보냅니다.
+              테이블 데이터만 내보내며(TABLE 모드), 소유자가 다르면 작업을 따로 만듭니다.
             </p>
           </>
         )}
@@ -263,7 +462,7 @@ export function ExportTab({ dbmsId, meta }: Props): ReactElement {
           <div>
             <label htmlFor="dp-exp-chunk">작업 하나의 최대 크기 (분할 기준)</label>
             <select id="dp-exp-chunk" value={chunkPreset} onChange={(e) => setChunkPreset(e.target.value)}>
-              {CHUNK_PRESETS.map((preset) => (
+              {chunkPresets.map((preset) => (
                 <option key={preset.value} value={preset.value}>
                   {preset.label}
                 </option>
@@ -351,15 +550,21 @@ export function ExportTab({ dbmsId, meta }: Props): ReactElement {
                 parfile 전체 다운로드
               </button>
               <button type="button" className="btn-secondary" disabled={serverSave.saving} onClick={saveAllToServer}>
-                {serverSave.saving ? '저장 중...' : `DB 서버 ${planDirectory}에 parfile 저장`}
+                {serverSave.saving ? '저장 중...' : `DB 서버 ${planDirectory}에 parfile${plan.manifests.length > 0 ? ' + 매니페스트' : ''} 저장`}
               </button>
               <button type="button" disabled={pending === 0 || startingNo !== null} onClick={() => setConfirmAll(true)}>
                 전체 실행 ({pending}개)
               </button>
             </div>
           </div>
+          {plan.manifests.length > 0 && (
+            <p className="oc-hint">
+              실행하면 매니페스트 {plan.manifests.map((manifest) => manifest.name).join(', ')}을(를) {planDirectory}에 먼저 저장합니다. 덤프를 다른 DB로 옮길 때 이 파일도 같이 옮기면 "파티션 Import" 탭에서 기간으로 골라
+              가져올 수 있습니다.
+            </p>
+          )}
           {plan.missing.length > 0 && (
-            <p className="pc-warning">DB에 없는 테이블이라 뺀 항목 {plan.missing.length}개: {plan.missing.slice(0, 20).join(', ')}{plan.missing.length > 20 ? ' …' : ''}</p>
+            <p className="pc-warning">DB에 없는 테이블/파티션이라 뺀 항목 {plan.missing.length}개: {plan.missing.slice(0, 20).join(', ')}{plan.missing.length > 20 ? ' …' : ''}</p>
           )}
           <table className="table oc-items-table dp-groups">
             <thead>
@@ -382,7 +587,9 @@ export function ExportTab({ dbmsId, meta }: Props): ReactElement {
                     <tr>
                       <td>{group.no}</td>
                       <td>
-                        <span className={`issue-badge ${group.mode === 'SCHEMA' ? 'oc-badge-ONLY_SOURCE' : 'oc-badge-SAME'}`}>{group.mode}</span>
+                        <span className={`issue-badge ${group.mode === 'SCHEMA' ? 'oc-badge-ONLY_SOURCE' : 'oc-badge-SAME'}`}>
+                          {group.partitions.length > 0 ? 'PARTITION' : group.mode}
+                        </span>
                       </td>
                       <td className="oc-name">
                         {group.owners.length <= 3 ? group.owners.join(', ') : `${group.owners.slice(0, 3).join(', ')} 외 ${group.owners.length - 3}개`}
@@ -400,7 +607,7 @@ export function ExportTab({ dbmsId, meta }: Props): ReactElement {
                             })
                           }
                         >
-                          {open ? '▾' : '▸'} 테이블 {group.tables.length}개
+                          {open ? '▾' : '▸'} {group.partitions.length > 0 ? `${group.tables[0]?.name} 파티션 ${group.partitions.length}개` : `테이블 ${group.tables.length}개`}
                         </button>
                         {group.mode === 'SCHEMA' && <span className="oc-subtle">+ 테이블 외 오브젝트</span>}
                         {group.excludedTables.length > 0 && <span className="oc-subtle">(큰 테이블 {group.excludedTables.length}개 제외)</span>}
@@ -448,12 +655,18 @@ export function ExportTab({ dbmsId, meta }: Props): ReactElement {
                         <td colSpan={7}>
                           <div className="dp-table-chips">
                             {group.owners.length > 1 && <p className="dp-hint-line dp-full">스키마: {group.owners.join(', ')}</p>}
-                            {group.tables.map((table) => (
-                              <span key={`${table.owner}.${table.name}`} className="dp-chip">
-                                {group.owners.length > 1 ? `${table.owner}.` : ''}
-                                {table.name} <em>{formatBytes(table.bytes)}</em>
+                            {group.partitions.map((partition) => (
+                              <span key={partition.name} className="dp-chip">
+                                {partition.name} <em>{formatBytes(partition.bytes)}</em>
                               </span>
                             ))}
+                            {group.partitions.length === 0 &&
+                              group.tables.map((table) => (
+                                <span key={`${table.owner}.${table.name}`} className="dp-chip">
+                                  {group.owners.length > 1 ? `${table.owner}.` : ''}
+                                  {table.name} <em>{formatBytes(table.bytes)}</em>
+                                </span>
+                              ))}
                             {group.tables.length === 0 && <span className="oc-none">테이블 없음 (테이블 외 오브젝트만)</span>}
                           </div>
                           {group.excludedTables.length > 0 && (

@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactElement } from 'react';
 import { AppHeader } from '../../shared/components/AppHeader';
 import { ToastHost } from '../../shared/components/ToastHost';
-import { isDbaOrAbove, useCurrentUser } from '../../shared/hooks/useCurrentUser';
+import { canSee, useCurrentUser } from '../../shared/hooks/useCurrentUser';
 import { downloadTableSpec, getDbmsList, getSchemas, getTables } from '../../shared/lib/api';
 import { showToast } from '../../shared/lib/toastStore';
 import type { DbmsRow, TableSpecSchemas } from '../../shared/lib/types';
@@ -17,7 +17,7 @@ interface TableGroup {
 // public/tableSpec.html 포팅.
 export function App(): ReactElement {
   const { user, loading: userLoading } = useCurrentUser();
-  const canUse = isDbaOrAbove(user);
+  const canUse = canSee(user, 'tableSpec');
 
   const [dbmsRows, setDbmsRows] = useState<DbmsRow[]>([]);
   const [dbmsId, setDbmsId] = useState('');
@@ -169,7 +169,7 @@ export function App(): ReactElement {
 
       <h2 className="page-title">Table Spec (테이블 명세서)</h2>
 
-      {!userLoading && !canUse && <p className="issues-empty">이 기능은 DBA 이상만 사용할 수 있습니다.</p>}
+      {!userLoading && !canUse && <p className="issues-empty">이 화면을 사용할 권한이 없습니다. 최고관리자에게 화면 권한을 요청하세요.</p>}
 
       {canUse && (
         <form onSubmit={(e) => e.preventDefault()}>

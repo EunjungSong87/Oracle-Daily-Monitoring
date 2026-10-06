@@ -1,20 +1,21 @@
 import { useEffect, useState, type ReactElement } from 'react';
 import { AppHeader } from '../../shared/components/AppHeader';
 import { ToastHost } from '../../shared/components/ToastHost';
-import { isSuperAdmin, useCurrentUser } from '../../shared/hooks/useCurrentUser';
+import { canSee, useCurrentUser } from '../../shared/hooks/useCurrentUser';
 import { getDataPumpMeta, getDbmsList } from '../../shared/lib/api';
 import { showToast } from '../../shared/lib/toastStore';
 import type { DataPumpMeta, DbmsRow } from '../../shared/lib/types';
 import { ExportTab } from './ExportTab';
 import { ImportTab } from './ImportTab';
 import { JobsTab } from './JobsTab';
+import { PartitionTab } from './PartitionTab';
 
-type Tab = 'EXPORT' | 'IMPORT' | 'JOBS';
+type Tab = 'EXPORT' | 'IMPORT' | 'PARTITION' | 'JOBS';
 
 // EXPDP/IMPDP를 DBMS_DATAPUMP로 DB 서버에서 실행하거나, 같은 설정의 parfile/명령어를 만든다. 최고관리자 전용.
 export function App(): ReactElement {
   const { user, loading: userLoading } = useCurrentUser();
-  const canUse = isSuperAdmin(user);
+  const canUse = canSee(user, 'dataPump');
 
   const [dbmsRows, setDbmsRows] = useState<DbmsRow[]>([]);
   const [dbmsId, setDbmsId] = useState('');
@@ -59,7 +60,7 @@ export function App(): ReactElement {
 
       <h2 className="page-title">Data Pump (EXPDP / IMPDP)</h2>
 
-      {!userLoading && !canUse && <p className="issues-empty">이 기능은 최고관리자만 사용할 수 있습니다.</p>}
+      {!userLoading && !canUse && <p className="issues-empty">이 화면을 사용할 권한이 없습니다. 최고관리자에게 화면 권한을 요청하세요.</p>}
 
       {canUse && (
         <>
@@ -80,6 +81,7 @@ export function App(): ReactElement {
                   [
                     ['EXPORT', 'Export'],
                     ['IMPORT', 'Import'],
+                    ['PARTITION', '파티션 Import'],
                     ['JOBS', '작업 현황'],
                   ] as const
                 ).map(([key, label]) => (
@@ -101,6 +103,7 @@ export function App(): ReactElement {
           {/* DBMS를 바꾸면 탭 상태(선택/계획)가 이전 DB 기준으로 남지 않게 key로 새로 만든다. */}
           {meta && tab === 'EXPORT' && <ExportTab key={dbmsId} dbmsId={dbmsId} meta={meta} />}
           {meta && tab === 'IMPORT' && <ImportTab key={dbmsId} dbmsId={dbmsId} meta={meta} />}
+          {meta && tab === 'PARTITION' && <PartitionTab key={dbmsId} dbmsId={dbmsId} meta={meta} />}
           {meta && tab === 'JOBS' && <JobsTab key={dbmsId} dbmsId={dbmsId} />}
         </>
       )}

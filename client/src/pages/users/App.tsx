@@ -6,6 +6,7 @@ import { showToast } from '../../shared/lib/toastStore';
 import type { Role, UserSummary } from '../../shared/lib/types';
 import { UserAddModal } from './UserAddModal';
 import { UserEditModal } from './UserEditModal';
+import { UserScreensModal } from './UserScreensModal';
 
 const ROLE_LABELS: Record<Role, string> = { VIEWER: 'Viewer', DBA: 'DBA', SUPER_ADMIN: 'Super Admin' };
 
@@ -21,6 +22,7 @@ export function App(): ReactElement {
   const [users, setUsers] = useState<UserSummary[] | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<UserSummary | null>(null);
+  const [screensUser, setScreensUser] = useState<UserSummary | null>(null);
 
   const fetchUsers = useCallback(() => {
     listUsers()
@@ -73,6 +75,9 @@ export function App(): ReactElement {
               <td>
                 <button type="button" className="btn-secondary" onClick={() => setEditing(user)}>
                   수정
+                </button>{" "}
+                <button type="button" className="btn-secondary" onClick={() => setScreensUser(user)}>
+                  화면 권한
                 </button>
               </td>
             </tr>
@@ -98,6 +103,8 @@ export function App(): ReactElement {
           fetchUsers();
         }}
       />
+
+      <UserScreensModal user={screensUser} onClose={() => setScreensUser(null)} />
     </>
   );
 }

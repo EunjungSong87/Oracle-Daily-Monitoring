@@ -13,5 +13,7 @@ router.get('/users/basic', usersController.listBasic);
 router.get('/users', requireSuperAdmin, usersController.listUsers);
 router.post('/users/add', requireSuperAdmin, usersController.createUser);
 router.post('/users/update', requireSuperAdmin, usersController.updateUser);
+router.post('/users/screens', requireSuperAdmin, usersController.getScreenAccess);
+router.post('/users/screens/save', requireSuperAdmin, usersController.saveScreenAccess);
 
 export default router;
