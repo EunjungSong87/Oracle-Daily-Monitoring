@@ -166,6 +166,11 @@ async function dumpBytesOf(row: DataPumpHistoryRow, parsed: ParsedLog): Promise<
 // 같은 DB를 동시에 두 번 마무리하지 않도록 진행 중인 것은 건너뛴다.
 const syncing = new Set<string>();
 
+// 대상 DB에 못 붙으면(ORA-12170 접속 시간 초과 등) 스케줄러가 매분 접속 시간 초과를 기다리며 같은 경고를 쌓지 않도록,
+// 그 DB는 잠시 건너뛰고 경고도 처음 한 번만 남긴다. 다시 붙으면 복구 로그를 한 번 남긴다.
+const RETRY_AFTER_MS = 10 * 60 * 1000;
+const unreachableUntil = new Map<string, number>();
+
 async function syncRunning(dbmsId: number | string | null): Promise<void> {
   if (historyTableMissing) return;
   const key = String(dbmsId ?? 'ALL');
@@ -173,9 +178,14 @@ async function syncRunning(dbmsId: number | string | null): Promise<void> {
   syncing.add(key);
   try {
     const running = await historyModel.listRunning(dbmsId);
+    const failedNow = new Set<string>();
     for (const row of running) {
+      const dbKey = String(row.dbmsId);
+      if (failedNow.has(dbKey) || (unreachableUntil.get(dbKey) ?? 0) > Date.now()) continue;
       try {
-        if (await dataPumpModel.jobExists({ dbmsid: row.dbmsId }, row.jobOwner ?? '', row.jobName)) continue;
+        const stillRunning = await dataPumpModel.jobExists({ dbmsid: row.dbmsId }, row.jobOwner ?? '', row.jobName);
+        if (unreachableUntil.delete(dbKey)) logger.info('DataPump', `작업 이력 확인 재개: ${row.dbname} 접속 복구`);
+        if (stillRunning) continue;
         const log = await dataPumpModel.readLog({ dbmsid: row.dbmsId }, row.directory, row.logfile);
         const parsed = log.exists
           ? parseDataPumpLog(log.text)
@@ -189,8 +199,12 @@ async function syncRunning(dbmsId: number | string | null): Promise<void> {
           dumpBytes,
         });
       } catch (error) {
-        // 대상 DB에 잠깐 못 붙는 경우 등 — 다음 확인 때 다시 시도한다.
-        logger.warn('DataPump', `작업 이력 마무리 보류 (${row.dbname} ${row.jobName})`, error);
+        // 대상 DB에 못 붙는 경우 등 — 그 DB의 나머지 작업도 이번엔 건너뛰고 10분 뒤 다시 확인한다.
+        failedNow.add(dbKey);
+        if (!unreachableUntil.has(dbKey)) {
+          logger.warn('DataPump', `작업 이력 마무리 보류: ${row.dbname} 확인 실패 (${row.jobName}) — 10분 뒤 다시 확인, 그동안 이 경고는 생략`, error);
+        }
+        unreachableUntil.set(dbKey, Date.now() + RETRY_AFTER_MS);
       }
     }
   } catch (error) {

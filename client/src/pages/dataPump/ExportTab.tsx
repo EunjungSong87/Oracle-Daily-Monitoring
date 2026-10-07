@@ -23,7 +23,7 @@ import { ConfirmModal } from './ConfirmModal';
 import { downloadText, estimateSeconds, formatBytes, formatDuration, todayPrefix } from './helpers';
 import { ParfileModal, type ParfileView } from './ParfileModal';
 import { PartitionPicker } from './PartitionPicker';
-import { SchemaMultiSelect } from './SchemaMultiSelect';
+import { SchemaMultiSelect } from '../../shared/components/SchemaMultiSelect';
 import { useServerSave } from './useServerSave';
 
 const CHUNK_PRESETS = [
@@ -171,7 +171,8 @@ export function ExportTab({ dbmsId, meta }: Props): ReactElement {
   // "파티션마다 하나"는 Range 파티션 대상, 또는 파티션 줄을 올릴 수 있는 테이블 목록에서만.
   const chunkPresets = sourceKind !== 'SCHEMAS' ? [...CHUNK_PRESETS, { value: 'PARTITION', label: '파티션마다 하나' }] : CHUNK_PRESETS;
 
-  async function makePlan(): Promise<void> {
+  // refreshSizes: 서버가 재사용 중인 크기(10분)를 버리고 대상 DB에서 새로 읽기
+  async function makePlan(refreshSizes = false): Promise<void> {
     if (sourceKind === 'PARTITIONS' && selectedPartitions.size === 0) {
       showToast('파티션을 하나 이상 골라주세요.', 'error');
       return;
@@ -205,7 +206,7 @@ export function ExportTab({ dbmsId, meta }: Props): ReactElement {
           : sourceKind === 'SCHEMAS'
             ? { schemas: Array.from(selectedSchemas) }
             : { tableList };
-      const result = await planDataPumpExport(dbmsId, source, options);
+      const result = await planDataPumpExport(dbmsId, { ...source, refreshSizes }, options);
       setPlan(result);
       setStarted(new Map());
       setExpanded(new Set());
@@ -433,7 +434,8 @@ export function ExportTab({ dbmsId, meta }: Props): ReactElement {
               "OWNER.TABLE", "OWNER TABLE", "OWNER,TABLE" 형식 모두 됩니다. 파티션만 내보내려면 "OWNER.TABLE:PARTITION"처럼 적으세요 (expdp TABLES와 같은 형식) —
               같은 스키마는 통째 테이블과 파티션 테이블을 섞어서라도 분할 크기 안에서 한 작업(parfile)에 모으고, 한 테이블의 파티션은 그 테이블 혼자 분할 크기를
               넘을 때만 기간 순서로 나눕니다. 같은 테이블을 통째로도 적으면 통째로 내보냅니다.
-              테이블 데이터만 내보내며(TABLE 모드), 소유자가 다르면 작업을 따로 만듭니다.
+              테이블 데이터만 내보내며(TABLE 모드), 스키마가 달라도 분할 크기 안이면 한 작업(TABLES=HR.EMP,SCOTT.DEPT)으로 묶습니다. 단, 묶으면 목록에 없는
+              같은 이름 테이블(예: SCOTT.EMP)까지 딸려 오는 조합은 따로 나눕니다.
             </p>
           </>
         )}
@@ -522,11 +524,27 @@ export function ExportTab({ dbmsId, meta }: Props): ReactElement {
             같은 이름의 덤프 파일 덮어쓰기 (REUSE_DUMPFILES)
           </label>
         </div>
-        <div className="oc-actions">
-          <button type="button" disabled={planning || !directory} onClick={makePlan}>
+        <div className="oc-actions dp-buttons">
+          <button type="button" disabled={planning || !directory} onClick={() => makePlan(false)}>
             {planning ? '테이블 크기 확인 중...' : '분할 계획 만들기'}
           </button>
+          {plan && (
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={planning}
+              title="크기는 대상 DB에서 한 번 읽으면 10분간 다시 읽지 않습니다 (대상 DB 부하를 줄이려고). 그 사이 데이터가 크게 바뀌었으면 누르세요."
+              onClick={() => makePlan(true)}
+            >
+              크기 새로 읽기
+            </button>
+          )}
         </div>
+        <p className="oc-hint">
+          크기는 대상 DB의 딕셔너리(DBA_SEGMENTS 등)만 읽으며, 한 번 읽은 값은 10분간 다시 조회하지 않고 씁니다 — 옵션만 바꿔 다시 만들어도 대상 DB에 부하가 가지
+          않습니다.
+          {plan && ` 지금 계획의 크기: ${new Date(plan.sizesReadAt).toLocaleTimeString('ko-KR', { hour12: false })}에 읽은 값.`}
+        </p>
       </div>
 
       {plan && (
@@ -663,7 +681,7 @@ export function ExportTab({ dbmsId, meta }: Props): ReactElement {
                             {group.owners.length > 1 && <p className="dp-hint-line dp-full">스키마: {group.owners.join(', ')}</p>}
                             {group.tables.flatMap((table) => {
                               // 파티션 단위로 내보내는 테이블은 파티션마다 (테이블이 여럿이면 테이블:파티션), 나머지는 테이블 통째로.
-                              const parts = group.partitions.filter((partition) => partition.table === table.name);
+                              const parts = group.partitions.filter((partition) => partition.owner === table.owner && partition.table === table.name);
                               if (parts.length === 0) {
                                 return [
                                   <span key={`${table.owner}.${table.name}`} className="dp-chip">
@@ -673,8 +691,8 @@ export function ExportTab({ dbmsId, meta }: Props): ReactElement {
                                 ];
                               }
                               return parts.map((partition) => (
-                                <span key={`${table.name}:${partition.name}`} className="dp-chip">
-                                  {group.tables.length > 1 ? `${table.name}:` : ''}
+                                <span key={`${table.owner}.${table.name}:${partition.name}`} className="dp-chip">
+                                  {group.owners.length > 1 ? `${table.owner}.${table.name}:` : group.tables.length > 1 ? `${table.name}:` : ''}
                                   {partition.name} <em>{formatBytes(partition.bytes)}</em>
                                 </span>
                               ));

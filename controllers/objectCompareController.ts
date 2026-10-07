@@ -1,6 +1,9 @@
 import type { Request, Response } from 'express';
 import * as objectCompareService from '../services/objectCompareService';
 import type { CompareSide } from '../services/objectCompareService';
+import * as securityCompareService from '../services/securityCompareService';
+import { SecurityCompareValidationError } from '../services/securityCompareService';
+import type { SecuritySide } from '../services/securityCompareService';
 import { logger } from '../utils/logger';
 
 // 요청 본문의 { dbmsid, schema } 한 쌍을 검증합니다. 스키마명은 바인드 변수로만 쓰이므로 형식 검사는 하지 않습니다.
@@ -63,4 +66,45 @@ async function getSourceDiff(req: Request, res: Response): Promise<Response | vo
   }
 }
 
-export { getSchemas, compare, getSourceDiff };
+
+// ── 계정·권한 비교 ──
+
+function parseDbmsSide(value: unknown): SecuritySide | null {
+  if (!value || typeof value !== 'object') return null;
+  const { dbmsid } = value as Record<string, unknown>;
+  if ((typeof dbmsid !== 'number' && typeof dbmsid !== 'string') || dbmsid === '') return null;
+  return { dbmsid };
+}
+
+async function getSecurityLists(req: Request, res: Response): Promise<Response | void> {
+  const source = parseDbmsSide(req.body?.source);
+  const target = parseDbmsSide(req.body?.target);
+  if (!source || !target) {
+    return res.status(400).json({ message: '기준/대상 dbmsid 정보가 필요합니다.' });
+  }
+  try {
+    res.status(200).json(await securityCompareService.getLists(source, target));
+  } catch (error) {
+    logger.error('ObjectCompare', `계정/Role/Profile 목록 조회 오류 (${source.dbmsid} ↔ ${target.dbmsid})`, error);
+    res.status(500).json({ message: '계정/Role/Profile 목록을 조회하지 못했습니다. 대상 DB 접속 정보와 DBA_USERS/DBA_ROLES 조회 권한을 확인하세요.' });
+  }
+}
+
+async function compareSecurity(req: Request, res: Response): Promise<Response | void> {
+  const source = parseDbmsSide(req.body?.source);
+  const target = parseDbmsSide(req.body?.target);
+  if (!source || !target) {
+    return res.status(400).json({ message: '기준/대상 dbmsid 정보가 필요합니다.' });
+  }
+  try {
+    res.status(200).json(await securityCompareService.compare(source, target, req.body?.selection));
+  } catch (error) {
+    if (error instanceof SecurityCompareValidationError) {
+      return res.status(400).json({ message: error.message });
+    }
+    logger.error('ObjectCompare', `계정/권한 비교 오류 (${source.dbmsid} ↔ ${target.dbmsid})`, error);
+    res.status(500).json({ message: '계정/권한 비교 중 오류가 발생했습니다. 대상 DB 접속 정보와 DBA_* 권한 뷰 조회 권한을 확인하세요.' });
+  }
+}
+
+export { getSchemas, compare, getSourceDiff, getSecurityLists, compareSecurity };

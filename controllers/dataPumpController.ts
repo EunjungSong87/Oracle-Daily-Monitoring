@@ -65,8 +65,8 @@ async function exportPlan(req: Request, res: Response): Promise<void> {
   const dbmsid = requireDbmsid(req, res);
   if (dbmsid === null) return;
   try {
-    const { schemas, tableList, partitionSource, options } = req.body;
-    res.json(await dataPumpService.planExport({ dbmsid }, { schemas, tableList, partitionSource }, options ?? {}));
+    const { schemas, tableList, partitionSource, refreshSizes, options } = req.body;
+    res.json(await dataPumpService.planExport({ dbmsid }, { schemas, tableList, partitionSource, refreshSizes }, options ?? {}));
   } catch (error) {
     handleError(res, error, `분할 계획 생성 오류 (dbmsid=${dbmsid})`);
   }

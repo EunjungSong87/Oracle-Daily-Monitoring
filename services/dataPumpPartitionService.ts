@@ -1,7 +1,7 @@
 import * as dataPumpModel from '../models/dataPumpModel';
 import type { PartitionTableInfo } from '../models/dataPumpModel';
 import type { DbmsIdParam } from '../models/dbmsModel';
-import { buildParfile, buildPlan, fail, filename, identifier, timestamp } from './dataPumpService';
+import { buildParfile, buildPlan, cachedTablePartitions, fail, filename, identifier, timestamp } from './dataPumpService';
 import type { DataPumpRequest } from './dataPumpService';
 import { buildRanges, MANIFEST_KIND, overlaps, rangeLabel, safeFilePart, sameRange } from './partitionRanges';
 import type { PartitionManifest, PartitionManifestEntry, PartitionRange } from './partitionRanges';
@@ -211,13 +211,13 @@ async function loadRanges(dbmsid: DbmsIdParam, owner: string, table: string): Pr
   }
 }
 
-// 파티션별 범위와 크기 (Export 탭에서 기간으로 고를 때).
+// 파티션별 범위와 크기 (Export 탭에서 기간으로 고를 때). 분할 계획과 같은 캐시를 써서, 여기서 읽은 것을 계획 만들 때 다시 읽지 않는다.
 async function getPartitions(dbmsid: DbmsIdParam, owner: unknown, table: unknown): Promise<{ table: PartitionTableInfo; partitions: PartitionRange[] }> {
   const ownerName = identifier(owner, '스키마');
   const tableName = identifier(table, '테이블');
-  const result = await loadRanges(dbmsid, ownerName, tableName);
+  const { value: result } = await cachedTablePartitions(dbmsid, ownerName, tableName);
   if (!result.table) fail(`${ownerName}.${tableName}은(는) 파티션 키가 컬럼 하나인 RANGE 파티션 테이블이 아닙니다.`);
-  return { table: result.table, partitions: result.ranges };
+  return { table: result.table, partitions: buildRanges(result.partitions) };
 }
 
 // DB 서버 DIRECTORY에 있는 매니페스트를 읽는다.

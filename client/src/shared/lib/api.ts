@@ -34,6 +34,8 @@ import type {
   RunHistorySummary,
   ScheduleConfig,
   ScreenKey,
+  SecurityListResponse,
+  SecuritySelection,
   ScriptFormPayload,
   ScriptListResponse,
   StatsJobRow,
@@ -340,6 +342,19 @@ export function runObjectCompare(
   return postJson('/api/objectCompare/run', { source, target, types, ignoreTablespace });
 }
 
+export function getSecurityLists(sourceDbmsId: string | number, targetDbmsId: string | number): Promise<SecurityListResponse> {
+  return postJson('/api/objectCompare/security/lists', { source: { dbmsid: sourceDbmsId }, target: { dbmsid: targetDbmsId } });
+}
+
+// 계정·권한 비교 — 결과 형식은 오브젝트 비교와 같다 (schema는 빈 값).
+export function runSecurityCompare(
+  sourceDbmsId: string | number,
+  targetDbmsId: string | number,
+  selection: SecuritySelection
+): Promise<CompareResponse> {
+  return postJson('/api/objectCompare/security/run', { source: { dbmsid: sourceDbmsId }, target: { dbmsid: targetDbmsId }, selection });
+}
+
 export function getSourceDiff(source: CompareSide, target: CompareSide, type: string, name: string): Promise<SourceDiffLine[]> {
   return postJson('/api/objectCompare/sourceDiff', { source, target, type, name });
 }
@@ -362,7 +377,7 @@ export async function getDataPumpLinkSchemas(dbmsid: string | number, networkLin
 
 export function planDataPumpExport(
   dbmsid: string | number,
-  source: { schemas?: string[]; tableList?: string; partitionSource?: { owner: string; table: string; partitions: string[] } },
+  source: { schemas?: string[]; tableList?: string; partitionSource?: { owner: string; table: string; partitions: string[] }; refreshSizes?: boolean },
   options: ExportSplitOptions
 ): Promise<ExportPlanResponse> {
   return postJson('/api/dataPump/exportPlan', { dbmsid, ...source, options });

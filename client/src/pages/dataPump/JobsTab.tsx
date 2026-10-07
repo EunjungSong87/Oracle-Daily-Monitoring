@@ -6,7 +6,14 @@ import type { DataPumpHistory, DataPumpHistoryStatus, DataPumpJob, DataPumpLog }
 import { ConfirmModal } from './ConfirmModal';
 import { formatBytes, formatDuration } from './helpers';
 
-const REFRESH_MS = 5000;
+// 대상 DB에 접속해 작업 상태를 읽으므로 너무 자주 묻지 않는다. 브라우저 탭이 안 보일 때(다른 탭/최소화)는 건너뛴다.
+const REFRESH_MS = 15000;
+
+function whenVisible(load: () => void): () => void {
+  return () => {
+    if (!document.hidden) load();
+  };
+}
 
 // 지난 시간 / 남은 시간 / 끝날 예상 시각. 남은 시간은 오라클 계산값(V$SESSION_LONGOPS)이 있으면 그것, 없으면
 // "지금까지 속도가 유지된다"는 가정의 어림값(진행률 기준)이다. 진행률은 테이블 단위로 올라가서 초반엔 비어 있을 수 있다.
@@ -42,7 +49,7 @@ interface LogTarget {
   logfile: string;
 }
 
-// 로그 파일은 DB 서버 DIRECTORY에 있어서 서버가 BFILE로 읽어 온다. 작업이 도는 동안은 5초마다 새로 읽는다.
+// 로그 파일은 DB 서버 DIRECTORY에 있어서 서버가 BFILE로 읽어 온다. 작업이 도는 동안은 15초마다 새로 읽는다.
 function LogModal({ dbmsId, target, running, onClose }: { dbmsId: string; target: LogTarget | null; running: boolean; onClose: () => void }): ReactElement | null {
   const [log, setLog] = useState<DataPumpLog | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -61,7 +68,7 @@ function LogModal({ dbmsId, target, running, onClose }: { dbmsId: string; target
     setLog(null);
     load();
     if (!running) return;
-    const timer = window.setInterval(load, REFRESH_MS);
+    const timer = window.setInterval(whenVisible(load), REFRESH_MS);
     return () => window.clearInterval(timer);
   }, [load, running]);
 
@@ -72,7 +79,7 @@ function LogModal({ dbmsId, target, running, onClose }: { dbmsId: string; target
         <div className="rt-modal-toolbar">
           <span className="rt-modal-meta">
             {target.directory}/{target.logfile}
-            {running && ' · 실행 중이라 5초마다 새로 읽습니다'}
+            {running && ' · 실행 중이라 15초마다 새로 읽습니다'}
             {log?.truncated && ' · 파일이 커서 끝부분만 표시'}
           </span>
           <button type="button" className="btn-secondary" onClick={load}>
@@ -128,7 +135,7 @@ export function JobsTab({ dbmsId }: Props): ReactElement {
     }
   }, [dbmsId]);
 
-  // 이력 조회는 서버가 끝난 작업의 로그를 읽어 결과를 채우는 일까지 하므로 5초마다가 아니라,
+  // 이력 조회는 서버가 끝난 작업의 로그를 읽어 결과를 채우는 일까지 하므로 주기적으로가 아니라,
   // 처음 열 때와 실행 중 작업 목록이 바뀔 때(작업이 시작/종료됨)만 다시 읽는다.
   const loadHistory = useCallback(async () => {
     try {
@@ -142,7 +149,7 @@ export function JobsTab({ dbmsId }: Props): ReactElement {
   useEffect(() => {
     setJobs(null);
     load();
-    const timer = window.setInterval(load, REFRESH_MS);
+    const timer = window.setInterval(whenVisible(load), REFRESH_MS);
     return () => window.clearInterval(timer);
   }, [load]);
 
@@ -183,7 +190,7 @@ export function JobsTab({ dbmsId }: Props): ReactElement {
       <div className="rt-panel">
         <div className="rt-panel-header">
           <h3>
-            DB에서 실행 중인 Data Pump 작업 <span className="oc-subtle">DBA_DATAPUMP_JOBS · 5초마다 갱신</span>
+            DB에서 실행 중인 Data Pump 작업 <span className="oc-subtle">DBA_DATAPUMP_JOBS · 15초마다 갱신</span>
           </h3>
           <button type="button" className="btn-secondary" onClick={load}>
             새로고침

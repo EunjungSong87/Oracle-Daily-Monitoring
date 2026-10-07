@@ -58,7 +58,7 @@ describe('describeTarget', () => {
     operation: 'EXPORT', jobMode: 'SCHEMA', jobName: 'J', directory: 'D', dumpfile: 'x.dmp', logfile: 'x.log', filesize: null, parallel: 1,
     schemaExpr: "IN ('HR','SCOTT')", nameExpr: null, excludeTableExpr: null, content: 'ALL', excludeStatistics: false,
     reuseDumpfiles: false, flashbackConsistent: false, flashbackScn: null, tableExistsAction: null, remapSchemas: [], remapTablespaces: [],
-    networkLink: null, partitionFilters: [], truncateTarget: null, truncatePartitions: [],
+    networkLink: null, partitionFilters: [], multiSchemaTables: false, truncateTarget: null, truncatePartitions: [],
   };
 
   it('스키마 작업 (제외 테이블 수 포함)', () => {

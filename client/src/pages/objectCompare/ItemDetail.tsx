@@ -11,7 +11,7 @@ interface Props {
 }
 
 function sideLabel(side: CompareResponse['source']): string {
-  return `${side.dbname}.${side.schema}`;
+  return side.schema ? `${side.dbname}.${side.schema}` : side.dbname; // 계정·권한 비교는 스키마가 없음
 }
 
 // 목록에서 한 줄을 펼쳤을 때 보이는 상세: 속성/컬럼 차이 표, 그리고 소스가 다른 오브젝트는 줄 단위 diff.

@@ -452,4 +452,4 @@ async function getSourceLines(dbmsid: DbmsIdParam, owner: string, type: ObjectTy
   }
 }
 
-export { getSchemas, getSnapshot, getSourceLines };
+export { getSchemas, getSnapshot, getSourceLines, connectTarget, query };

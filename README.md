@@ -24,8 +24,8 @@
 | **Maintenance › Table Spec** | 스키마/테이블 명세서 엑셀 추출 | DBA 이상 |
 | ‣ Stats Job Status | 통계 수집 스케줄러 잡 현황/수동 실행 | 최고관리자 |
 | ‣ ILM Partition Retention | 파티션 보관주기 관리 (`PGDBA.DEL_JOB_TABLE_LIST`) | 최고관리자 |
-| ‣ Data Pump | EXPDP/IMPDP를 DB 서버에서 실행(`DBMS_DATAPUMP`)하거나 parfile 생성. 스키마/테이블 목록을 테이블 크기 기준으로 작업당 1TB(변경 가능) 이하로 자동 분할, FILESIZE 자동 계산, parfile을 DB 서버 DIRECTORY에 바로 저장, DB 링크(NETWORK_LINK) 옵션, Export 대상에 RANGE 파티션(날짜 기간으로 골라 크기·분할에 반영, 테이블 목록에 OWNER.TABLE:PARTITION 줄도 가능) + 파티션 Import(매니페스트로 범위 맞춤, 비우고 넣기), 작업 현황(남은 시간 어림)·로그·취소, 작업 이력(누가·결과·수행 시간)과 지난 속도 기준 예상 시간. Import는 REMAP 지원, 덮어쓰기는 DB명 확인 | 최고관리자 |
-| **Compare › Object Compare** | 두 DB(또는 두 스키마) 오브젝트 비교: 테이블스페이스, 테이블 컬럼(유무/타입/길이/NULL/기본값), 인덱스, 뷰, 시퀀스, 시노님, PL/SQL 소스(줄 단위 diff) | 최고관리자 |
+| ‣ Data Pump | EXPDP/IMPDP를 DB 서버에서 실행(`DBMS_DATAPUMP`)하거나 parfile 생성. 스키마/테이블 목록을 테이블 크기 기준으로 작업당 1TB(변경 가능) 이하로 자동 분할, FILESIZE 자동 계산, parfile을 DB 서버 DIRECTORY에 바로 저장, DB 링크(NETWORK_LINK) 옵션, Export 대상에 RANGE 파티션(날짜 기간으로 골라 크기·분할에 반영, 테이블 목록에 OWNER.TABLE:PARTITION 줄도 가능, 스키마가 달라도 분할 크기 안이면 parfile 하나로) + 파티션 Import(매니페스트로 범위 맞춤, 비우고 넣기), 작업 현황(남은 시간 어림)·로그·취소, 작업 이력(누가·결과·수행 시간)과 지난 속도 기준 예상 시간. Import는 REMAP 지원, 덮어쓰기는 DB명 확인 | 최고관리자 |
+| **Compare › Object Compare** | 두 DB(또는 두 스키마) 오브젝트 비교: 테이블스페이스, 테이블 컬럼(유무/타입/길이/NULL/기본값), 인덱스, 뷰, 시퀀스, 시노님, PL/SQL 소스(줄 단위 diff). **계정·권한 탭**: 계정(User)·Role·Profile을 골라 속성, 시스템 권한, 받은 Role(Role 안의 Role 포함), 오브젝트·컬럼 권한, 테이블스페이스 할당량, Profile 제한값 비교 | 최고관리자 |
 | **Compare › Parameter Compare** | 두 DB 초기화 파라미터 비교 (hidden `_` 파라미터 포함, 인스턴스 기준 값) | 최고관리자 |
 | 계정 › Users | 로그인 계정/권한 관리 | 최고관리자 |
 

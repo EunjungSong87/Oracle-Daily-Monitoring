@@ -2,11 +2,12 @@ import { Fragment, useEffect, useMemo, useRef, useState, type ReactElement } fro
 import { AppHeader } from '../../shared/components/AppHeader';
 import { ToastHost } from '../../shared/components/ToastHost';
 import { canSee, useCurrentUser } from '../../shared/hooks/useCurrentUser';
-import { getCompareSchemas, getDbmsList, runObjectCompare } from '../../shared/lib/api';
+import { getCompareSchemas, getDbmsList, runObjectCompare, runSecurityCompare } from '../../shared/lib/api';
 import { showToast } from '../../shared/lib/toastStore';
-import type { CompareItem, CompareResponse, CompareResultKind, DbmsRow, SourceDiffLine } from '../../shared/lib/types';
+import type { CompareItem, CompareResponse, CompareResultKind, DbmsRow, SecuritySelection, SourceDiffLine } from '../../shared/lib/types';
 import { ItemDetail } from './ItemDetail';
 import { OBJECT_TYPES, RESULT_LABEL } from './objectTypes';
+import { SecurityPicker } from './SecurityPicker';
 
 // 결과 목록 필터. NOT_SAME(차이 전체)이 기본값 — 보통 동일한 오브젝트가 대부분이라 차이만 먼저 보여준다.
 type ResultFilter = 'NOT_SAME' | CompareResultKind | 'ALL';
@@ -92,6 +93,9 @@ export function App(): ReactElement {
   }, [source.schema, sourceDbmsId, targetDbmsId, targetSchemas, setTargetSchema]);
 
   const [types, setTypes] = useState<Set<string>>(new Set(OBJECT_TYPES));
+  // 오브젝트 비교(스키마) / 계정·권한 비교 (Profile, User, Role과 그 권한)
+  const [mode, setMode] = useState<'OBJECT' | 'SECURITY'>('OBJECT');
+  const [securitySelection, setSecuritySelection] = useState<SecuritySelection>({ users: [], roles: [], profiles: [] });
   const [ignoreTablespace, setIgnoreTablespace] = useState(false);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<CompareResponse | null>(null);
@@ -136,22 +140,34 @@ export function App(): ReactElement {
   }
 
   async function handleCompare(): Promise<void> {
-    if (!sourceDbmsId || !targetDbmsId || !source.schema || !target.schema) {
-      showToast('기준/대상 DBMS와 스키마를 모두 선택해주세요.', 'error');
+    if (!sourceDbmsId || !targetDbmsId) {
+      showToast('기준/대상 DBMS를 선택해주세요.', 'error');
       return;
     }
-    if (types.size === 0) {
-      showToast('비교할 오브젝트 종류를 하나 이상 선택해주세요.', 'error');
+    if (mode === 'OBJECT') {
+      if (!source.schema || !target.schema) {
+        showToast('기준/대상 스키마를 선택해주세요.', 'error');
+        return;
+      }
+      if (types.size === 0) {
+        showToast('비교할 오브젝트 종류를 하나 이상 선택해주세요.', 'error');
+        return;
+      }
+    } else if (securitySelection.users.length + securitySelection.roles.length + securitySelection.profiles.length === 0) {
+      showToast('비교할 계정 / Role / Profile을 하나 이상 골라주세요.', 'error');
       return;
     }
     setRunning(true);
     try {
-      const response = await runObjectCompare(
-        { dbmsid: sourceDbmsId, schema: source.schema },
-        { dbmsid: targetDbmsId, schema: target.schema },
-        OBJECT_TYPES.filter((type) => types.has(type)),
-        ignoreTablespace
-      );
+      const response =
+        mode === 'OBJECT'
+          ? await runObjectCompare(
+              { dbmsid: sourceDbmsId, schema: source.schema },
+              { dbmsid: targetDbmsId, schema: target.schema },
+              OBJECT_TYPES.filter((type) => types.has(type)),
+              ignoreTablespace
+            )
+          : await runSecurityCompare(sourceDbmsId, targetDbmsId, securitySelection);
       diffCacheRef.current = new Map();
       setExpanded(new Set());
       setTypeFilter('');
@@ -162,11 +178,18 @@ export function App(): ReactElement {
       const differences = response.items.filter((item) => item.result !== 'SAME').length;
       showToast(differences === 0 ? '비교 완료: 차이가 없습니다.' : `비교 완료: 차이 ${differences}건`);
     } catch (error) {
-      console.error('Error comparing objects:', error);
-      showToast(error instanceof Error ? error.message : '오브젝트 비교 중 오류가 발생했습니다.', 'error');
+      console.error('Error comparing:', error);
+      showToast(error instanceof Error ? error.message : '비교 중 오류가 발생했습니다.', 'error');
     } finally {
       setRunning(false);
     }
+  }
+
+  // 오브젝트 ↔ 계정·권한을 바꾸면 이전 결과는 다른 종류라 지운다.
+  function changeMode(next: 'OBJECT' | 'SECURITY'): void {
+    if (next === mode) return;
+    setMode(next);
+    setResult(null);
   }
 
   function toggleExpanded(key: string): void {
@@ -209,21 +232,31 @@ export function App(): ReactElement {
     setSearch('');
   }
 
-  const sourceLabel = result ? `${result.source.dbname}.${result.source.schema}` : '';
-  const targetLabel = result ? `${result.target.dbname}.${result.target.schema}` : '';
+  // 계정·권한 비교는 스키마가 없어 DB 이름만
+  const sideName = (side: CompareResponse['source']) => (side.schema ? `${side.dbname}.${side.schema}` : side.dbname);
+  const sourceLabel = result ? sideName(result.source) : '';
+  const targetLabel = result ? sideName(result.target) : '';
 
   return (
     <>
       <AppHeader active="objectCompare" />
       <ToastHost />
 
-      <h2 className="page-title">Object Compare (오브젝트 비교)</h2>
+      <h2 className="page-title">Object Compare (오브젝트 · 계정·권한 비교)</h2>
 
       {!userLoading && !canUse && <p className="issues-empty">이 화면을 사용할 권한이 없습니다. 최고관리자에게 화면 권한을 요청하세요.</p>}
 
       {canUse && (
         <>
           <div className="rt-panel">
+            <div className="status-tabs oc-mode-tabs">
+              <button type="button" className={`status-tab${mode === 'OBJECT' ? ' status-tab-active' : ''}`} onClick={() => changeMode('OBJECT')}>
+                오브젝트
+              </button>
+              <button type="button" className={`status-tab${mode === 'SECURITY' ? ' status-tab-active' : ''}`} onClick={() => changeMode('SECURITY')}>
+                계정·권한
+              </button>
+            </div>
             <h3>비교 조건</h3>
             <div className="oc-sides">
               <SidePicker
@@ -232,7 +265,7 @@ export function App(): ReactElement {
                 dbmsRows={dbmsRows}
                 dbmsId={sourceDbmsId}
                 onDbmsChange={setSourceDbmsId}
-                schemas={source.schemas}
+                schemas={mode === 'OBJECT' ? source.schemas : null}
                 schema={source.schema}
                 onSchemaChange={source.setSchema}
               />
@@ -245,37 +278,43 @@ export function App(): ReactElement {
                 dbmsRows={dbmsRows}
                 dbmsId={targetDbmsId}
                 onDbmsChange={setTargetDbmsId}
-                schemas={target.schemas}
+                schemas={mode === 'OBJECT' ? target.schemas : null}
                 schema={target.schema}
                 onSchemaChange={target.setSchema}
               />
             </div>
 
-            <div className="oc-types-header">
-              <span className="oc-field-label">비교할 오브젝트 종류</span>
-              <button type="button" className="btn-secondary" onClick={() => setTypes(new Set(OBJECT_TYPES))}>
-                전체 선택
-              </button>
-              <button type="button" className="btn-secondary" onClick={() => setTypes(new Set())}>
-                전체 해제
-              </button>
-            </div>
-            <div className="oc-types">
-              {OBJECT_TYPES.map((type) => (
-                <label key={type} className="oc-check">
-                  <input type="checkbox" checked={types.has(type)} onChange={() => toggleType(type)} />
-                  {type}
-                </label>
-              ))}
-            </div>
-            <p className="oc-hint">
-              TABLESPACE는 스키마와 상관없이 DB 전체의 테이블스페이스를 비교합니다. 나머지는 선택한 스키마의 오브젝트만 비교합니다.
-            </p>
+            {mode === 'SECURITY' ? (
+              <SecurityPicker sourceDbmsId={sourceDbmsId} targetDbmsId={targetDbmsId} selection={securitySelection} onChange={setSecuritySelection} />
+            ) : (
+              <>
+                <div className="oc-types-header">
+                  <span className="oc-field-label">비교할 오브젝트 종류</span>
+                  <button type="button" className="btn-secondary" onClick={() => setTypes(new Set(OBJECT_TYPES))}>
+                    전체 선택
+                  </button>
+                  <button type="button" className="btn-secondary" onClick={() => setTypes(new Set())}>
+                    전체 해제
+                  </button>
+                </div>
+                <div className="oc-types">
+                  {OBJECT_TYPES.map((type) => (
+                    <label key={type} className="oc-check">
+                      <input type="checkbox" checked={types.has(type)} onChange={() => toggleType(type)} />
+                      {type}
+                    </label>
+                  ))}
+                </div>
+                <p className="oc-hint">
+                  TABLESPACE는 스키마와 상관없이 DB 전체의 테이블스페이스를 비교합니다. 나머지는 선택한 스키마의 오브젝트만 비교합니다.
+                </p>
 
-            <label className="oc-check">
-              <input type="checkbox" checked={ignoreTablespace} onChange={(e) => setIgnoreTablespace(e.target.checked)} />
-              테이블/인덱스가 저장된 테이블스페이스 이름 차이는 무시
-            </label>
+                <label className="oc-check">
+                  <input type="checkbox" checked={ignoreTablespace} onChange={(e) => setIgnoreTablespace(e.target.checked)} />
+                  테이블/인덱스가 저장된 테이블스페이스 이름 차이는 무시
+                </label>
+              </>
+            )}
 
             <div className="oc-actions">
               <button type="button" disabled={running} onClick={handleCompare}>
@@ -337,7 +376,7 @@ export function App(): ReactElement {
 
               <div className="rt-panel">
                 <h3>
-                  오브젝트 목록 <span className="oc-subtle">({filteredItems.length}건)</span>
+                  {mode === 'SECURITY' ? '계정·권한 목록' : '오브젝트 목록'} <span className="oc-subtle">({filteredItems.length}건)</span>
                 </h3>
                 <div className="oc-filters">
                   <div className="status-tabs">
@@ -433,7 +472,7 @@ interface SidePickerProps {
   dbmsRows: DbmsRow[];
   dbmsId: string;
   onDbmsChange: (id: string) => void;
-  schemas: string[] | 'loading';
+  schemas: string[] | 'loading' | null; // null이면 스키마 선택을 숨긴다 (계정·권한 비교)
   schema: string;
   onSchemaChange: (schema: string) => void;
 }
@@ -450,22 +489,26 @@ function SidePicker({ title, idPrefix, dbmsRows, dbmsId, onDbmsChange, schemas, 
           </option>
         ))}
       </select>
-      <label htmlFor={`${idPrefix}-schema`}>스키마</label>
-      <select
-        id={`${idPrefix}-schema`}
-        value={schema}
-        disabled={schemas === 'loading'}
-        onChange={(e) => onSchemaChange(e.target.value)}
-      >
-        {schemas === 'loading' && <option value="">불러오는 중...</option>}
-        {Array.isArray(schemas) && schemas.length === 0 && <option value="">스키마가 없습니다</option>}
-        {Array.isArray(schemas) &&
-          schemas.map((owner) => (
-            <option key={owner} value={owner}>
-              {owner}
-            </option>
-          ))}
-      </select>
+      {schemas !== null && (
+        <>
+          <label htmlFor={`${idPrefix}-schema`}>스키마</label>
+          <select
+            id={`${idPrefix}-schema`}
+            value={schema}
+            disabled={schemas === 'loading'}
+            onChange={(e) => onSchemaChange(e.target.value)}
+          >
+            {schemas === 'loading' && <option value="">불러오는 중...</option>}
+            {Array.isArray(schemas) && schemas.length === 0 && <option value="">스키마가 없습니다</option>}
+            {Array.isArray(schemas) &&
+              schemas.map((owner) => (
+                <option key={owner} value={owner}>
+                  {owner}
+                </option>
+              ))}
+          </select>
+        </>
+      )}
     </div>
   );
 }

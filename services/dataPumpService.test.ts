@@ -331,16 +331,32 @@ describe('planExportGroups — 스키마 선택', () => {
 });
 
 describe('planExportGroups — 테이블 목록', () => {
-  it('목록을 DB 테이블과 맞추고, 없는 건 missing으로, 소유자별로 1T 이하 작업을 만든다', () => {
+  it('목록을 DB 테이블과 맞추고, 없는 건 missing으로, 스키마가 달라도 1T 이하면 한 작업에 묶는다', () => {
     const sizes = [table('HR', 'EMP', 600 * G), table('HR', 'DEPT', 500 * G), table('HR', 'LOC', 300 * G), table('SH', 'SALES', 100 * G)];
     const list = parseTableList('HR.EMP\nhr.dept\n"HR"."LOC"\nSH SALES\nHR.NOPE\n# 주석\n\nHR.EMP');
     const { groups, missing } = planExportGroups({ kind: 'TABLES', tables: list }, sizes, splitOptions(), NOW);
     expect(missing).toEqual(['HR.NOPE']);
-    expect(groups.map((g) => [g.owners[0], g.mode, g.tables.map((t) => t.name).join(',')])).toEqual([
-      ['HR', 'TABLE', 'EMP,LOC'],
-      ['HR', 'TABLE', 'DEPT'],
-      ['SH', 'TABLE', 'SALES'],
+    expect(groups.map((g) => [g.owners.join(','), g.mode, g.tables.map((t) => `${t.owner}.${t.name}`).join(',')])).toEqual([
+      ['HR,SH', 'TABLE', 'HR.EMP,HR.LOC,SH.SALES'],
+      ['HR', 'TABLE', 'HR.DEPT'],
     ]);
+    // 여러 스키마 작업은 OWNER.TABLE 쌍으로 넘기고, parfile도 한 줄
+    expect(groups[0].request.qualifiedTables).toEqual([
+      { owner: 'HR', table: 'EMP' },
+      { owner: 'HR', table: 'LOC' },
+      { owner: 'SH', table: 'SALES' },
+    ]);
+    const plan = buildPlan(groups[0].request, NOW);
+    expect(plan).toMatchObject({ schemaExpr: "IN ('HR','SH')", nameExpr: "IN ('EMP','LOC','SALES')" });
+    expect(buildParfile(plan, groups[0].request, TARGET).parfile).toContain('TABLES=HR.EMP,HR.LOC,SH.SALES\n');
+  });
+
+  it('묶으면 목록에 없는 같은 이름 테이블이 딸려 오는 스키마 조합은 나눈다', () => {
+    // HR.EMP와 SCOTT.DEPT를 묶으면 실행 필터가 (HR,SCOTT) × (EMP,DEPT)라 목록에 없는 SCOTT.EMP까지 들어간다.
+    const sizes = [table('HR', 'EMP', 1 * G), table('SCOTT', 'DEPT', 1 * G), table('SCOTT', 'EMP', 1 * G), table('SH', 'SALES', 1 * G)];
+    const list = parseTableList('HR.EMP\nSCOTT.DEPT\nSH.SALES');
+    const { groups } = planExportGroups({ kind: 'TABLES', tables: list }, sizes, splitOptions(), NOW);
+    expect(groups.map((g) => g.tables.map((t) => `${t.owner}.${t.name}`).join(','))).toEqual(['HR.EMP,SH.SALES', 'SCOTT.DEPT']);
   });
 
   it('형식이 틀린 줄은 거부', () => {
@@ -399,22 +415,21 @@ describe('planExportGroups — 테이블 목록에 파티션', () => {
     expect(groups[1].request.dumpfile).toBe('exp_20261002_ORDERS_P04_%U.dmp');
   });
 
-  it('통째로 적은 테이블과 파티션을 적은 테이블도 같은 스키마면 한 작업에 (TABLES=O.T1,O.T2:P..)', () => {
+  it('통째 테이블과 파티션 테이블, 다른 스키마 테이블도 한 작업에 (TABLES=O.T1,O.T2:P..,O2.T3)', () => {
     const sizes = [table('SALES', 'CUSTOMERS', 50 * G)];
     const list = parseTableList('SALES.CUSTOMERS\nSALES.LOGS:P01\nSALES.LOGS:P02\nHR.EMP');
     const { groups, missing } = planExportGroups(
       { kind: 'TABLES', tables: list, partitionRanges: { 'SALES.LOGS': LOGS } },
-      [...sizes, table('HR', 'EMP', 1 * G)],
+      [...sizes, table('SALES', 'LOGS', 20 * G), table('HR', 'EMP', 1 * G)],
       splitOptions(),
       NOW
     );
     expect(missing).toEqual([]);
-    expect(groups.map((g) => [g.owners[0], g.tables.map((t) => t.name).join(',')])).toEqual([
-      ['SALES', 'CUSTOMERS,LOGS'],
-      ['HR', 'EMP'],
-    ]);
-    expect(buildParfile(buildPlan(groups[0].request, NOW), groups[0].request, TARGET).parfile).toContain(
-      'TABLES=SALES.CUSTOMERS,SALES.LOGS:P01,SALES.LOGS:P02\n'
+    expect(groups).toHaveLength(1);
+    const plan = buildPlan(groups[0].request, NOW);
+    expect(plan.partitionFilters).toEqual([{ owner: 'SALES', table: 'LOGS', partitions: ['P01', 'P02'] }]);
+    expect(buildParfile(plan, groups[0].request, TARGET).parfile).toContain(
+      'TABLES=SALES.CUSTOMERS,SALES.LOGS:P01,SALES.LOGS:P02,HR.EMP\n'
     );
   });
 

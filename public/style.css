@@ -2254,3 +2254,12 @@ textarea.dp-table-list {
 .dp-part-selected td {
     background-color: var(--info-soft);
 }
+
+/* Object Compare: 오브젝트 / 계정·권한 전환 탭, 계정·권한 선택 칸 */
+.oc-mode-tabs {
+    margin-bottom: 12px;
+}
+
+.oc-sec-field {
+    margin-bottom: 12px;
+}

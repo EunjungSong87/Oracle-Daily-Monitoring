@@ -566,7 +566,7 @@ export interface ExportGroup {
   mode: 'SCHEMA' | 'TABLE';
   tables: TableSizeRow[];
   excludedTables: string[];
-  partitions: (PartitionRange & { table: string })[]; // 파티션 단위로 내보내는 테이블의 파티션 (테이블별 기간 순), 없으면 빈 배열
+  partitions: (PartitionRange & { owner: string; table: string })[]; // 파티션 단위로 내보내는 테이블의 파티션 (테이블별 기간 순), 없으면 빈 배열
   bytes: number;
   oversize: boolean;
   filesize: string | null;
@@ -585,6 +585,7 @@ export interface ExportPlanResponse {
   groups: ExportGroup[];
   // 파티션을 내보내는 테이블마다 하나: 덤프와 같은 DIRECTORY에 둘 매니페스트 (파티션 Import가 읽어 기간으로 고름)
   manifests: { name: string; text: string }[];
+  sizesReadAt: string; // 크기를 대상 DB에서 읽은 시각 (서버가 10분간 재사용)
 }
 
 export interface ParfilePreview {
@@ -724,4 +725,24 @@ export interface PartitionImportPlan {
   targetTableExists: boolean;
   createsTable: boolean; // 대상 테이블이 없어 첫 작업이 테이블을 만듦 → 첫 작업을 먼저 끝내야 함
   notes: string[];
+}
+
+// Object Compare "계정·권한" 탭: 두 DB의 계정/Role/Profile 목록을 합친 것 (이름마다 어느 쪽에 있는지)
+export interface SecurityNameEntry {
+  name: string;
+  oracleMaintained?: boolean;
+  inSource: boolean;
+  inTarget: boolean;
+}
+
+export interface SecurityListResponse {
+  users: SecurityNameEntry[];
+  roles: SecurityNameEntry[];
+  profiles: SecurityNameEntry[];
+}
+
+export interface SecuritySelection {
+  users: string[];
+  roles: string[];
+  profiles: string[];
 }

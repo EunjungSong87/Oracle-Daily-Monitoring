@@ -54,6 +54,9 @@ export interface DataPumpPlan {
   networkLink: string | null; // DB 링크 (EXPORT: 링크 너머 DB를 이 DB 덤프로, IMPORT: 링크 너머 DB에서 덤프 없이 바로)
   // 파티션 단위 EXPORT: 테이블마다 DATA_FILTER PARTITION_EXPR (expdp TABLES=OWNER.TAB:PART). 여기 없는 테이블은 통째로.
   partitionFilters: { owner: string; table: string; partitions: string[] }[];
+  // TABLE 모드인데 테이블이 여러 스키마에 걸친 작업. DBMS_DATAPUMP TABLE 모드는 스키마 하나만 받으므로(ORA-39040)
+  // SCHEMA 모드 + "테이블만"(INCLUDE_PATH_EXPR = TABLE)으로 연다 — 덤프 내용은 TABLE 모드와 같다 (테이블과 그 인덱스/제약조건/권한).
+  multiSchemaTables: boolean;
   // 파티션 단위 IMPORT: 작업 시작 전에 대상 테이블(REMAP_SCHEMA 반영)에서 비울 파티션.
   truncateTarget: { owner: string; name: string } | null;
   truncatePartitions: string[];
@@ -165,45 +168,112 @@ async function getSchemas(dbmsid: DbmsIdParam, link: string | null = null): Prom
 
 // 테이블별 크기 = 테이블 세그먼트(파티션/서브파티션 포함) + 그 테이블 LOB 컬럼의 LOB 세그먼트.
 // 인덱스는 덤프에 DDL만 들어가고 데이터는 없으므로 뺍니다. 세그먼트는 할당된 공간이라 실제 덤프는 보통 이보다 작습니다.
-// 세그먼트를 한 번만 훑도록 소유자 단위로 미리 합산한 뒤 테이블에 붙입니다 (테이블마다 서브쿼리를 돌리면 대형 DB에서 느림).
-async function getTableSizes(dbmsid: DbmsIdParam, owners: string[], link: string | null = null): Promise<TableSize[]> {
-  if (owners.length === 0) return [];
+// 딕셔너리 뷰만 읽고(데이터 블록은 안 읽음), 세그먼트를 한 번만 훑도록 미리 합산한 뒤 테이블에 붙입니다.
+// pairs를 주면 그 (소유자, 테이블)만 읽습니다 — 테이블 목록 export에서 스키마 전체를 훑지 않게.
+async function loadTableSizes(
+  connection: oracledb.Connection,
+  owners: string[],
+  link: string | null,
+  pairs: { owner: string; table: string }[] | null = null
+): Promise<TableSize[]> {
+  if (owners.length === 0 || (pairs && pairs.length === 0)) return [];
   const at = remote(link);
-  return withConnection(dbmsid, async (connection) => {
+  // 바인드 목록이 너무 길어지지 않게(IN 목록 한도 1000) 나눠서 읽는다.
+  const chunks = pairs ? Array.from({ length: Math.ceil(pairs.length / 500) }, (_, i) => pairs.slice(i * 500, i * 500 + 500)) : [null];
+  const result: TableSize[] = [];
+  for (const chunk of chunks) {
     const binds: Record<string, string> = {};
-    const list = owners
+    const ownerList = owners
       .map((owner, index) => {
         binds[`o${index}`] = owner;
         return `:o${index}`;
       })
       .join(', ');
+    let pairFilter = (_owner: string, _name: string) => '1 = 1';
+    if (chunk) {
+      const tuples = chunk
+        .map((pair, index) => {
+          binds[`po${index}`] = pair.owner;
+          binds[`pt${index}`] = pair.table;
+          return `(:po${index}, :pt${index})`;
+        })
+        .join(', ');
+      pairFilter = (owner: string, name: string) => `(${owner}, ${name}) IN (${tuples})`;
+    }
     const rows = await query(
       connection,
       `WITH seg AS (
          SELECT owner, segment_name, SUM(bytes) AS bytes
            FROM dba_segments${at}
-          WHERE owner IN (${list})
+          WHERE owner IN (${ownerList}) AND ${pairFilter('owner', 'segment_name')}
             AND segment_type IN ('TABLE', 'TABLE PARTITION', 'TABLE SUBPARTITION', 'NESTED TABLE')
           GROUP BY owner, segment_name
        ), lob AS (
          SELECT l.owner, l.table_name, SUM(s.bytes) AS bytes
            FROM dba_lobs${at} l
            JOIN dba_segments${at} s ON s.owner = l.owner AND s.segment_name = l.segment_name
-          WHERE l.owner IN (${list})
+          WHERE l.owner IN (${ownerList}) AND ${pairFilter('l.owner', 'l.table_name')}
           GROUP BY l.owner, l.table_name
        )
        SELECT t.owner, t.table_name, NVL(seg.bytes, 0) + NVL(lob.bytes, 0) AS bytes
          FROM dba_tables${at} t
          LEFT JOIN seg ON seg.owner = t.owner AND seg.segment_name = t.table_name
          LEFT JOIN lob ON lob.owner = t.owner AND lob.table_name = t.table_name
-        WHERE t.owner IN (${list})
+        WHERE t.owner IN (${ownerList}) AND ${pairFilter('t.owner', 't.table_name')}
           AND t.table_name NOT LIKE 'BIN$%'
           AND t.nested = 'NO' AND t.secondary = 'N'
           AND (t.iot_type IS NULL OR t.iot_type = 'IOT')
         ORDER BY t.owner, t.table_name`,
       binds
     );
-    return rows.map((row) => ({ owner: row.OWNER, name: row.TABLE_NAME, bytes: Number(row.BYTES) }));
+    result.push(...rows.map((row) => ({ owner: row.OWNER, name: row.TABLE_NAME, bytes: Number(row.BYTES) })));
+  }
+  return result;
+}
+
+async function getTableSizes(dbmsid: DbmsIdParam, owners: string[], link: string | null = null): Promise<TableSize[]> {
+  if (owners.length === 0) return [];
+  return withConnection(dbmsid, (connection) => loadTableSizes(connection, owners, link));
+}
+
+// 테이블 목록 export용 크기/파티션 정보를 접속 한 번에 읽는다 (테이블마다 따로 접속하면 대상 DB에 로그온이 몰려서).
+//  - sizes: 목록에 나온 (소유자, 테이블)만
+//  - existing: 목록의 스키마들 × 목록의 테이블 이름 중 실제로 있는 테이블 (여러 스키마를 한 작업에 묶어도 되는지 판단용, DBA_TABLES만)
+//  - partitions: 파티션 줄이 있는 테이블의 파티션 범위/크기
+export interface ListSizing {
+  sizes: TableSize[];
+  existing: string[]; // OWNER.TABLE
+  partitions: Record<string, { table: PartitionTableInfo | null; partitions: PartitionRow[] }>;
+}
+
+async function getListSizing(
+  dbmsid: DbmsIdParam,
+  pairs: { owner: string; table: string }[],
+  partitionKeys: string[],
+  link: string | null = null
+): Promise<ListSizing> {
+  const owners = [...new Set(pairs.map((pair) => pair.owner))];
+  const names = [...new Set(pairs.map((pair) => pair.table))];
+  return withConnection(dbmsid, async (connection) => {
+    const sizes = await loadTableSizes(connection, owners, link, pairs);
+    const existing: string[] = [];
+    for (let i = 0; i < names.length; i += 500) {
+      const binds: Record<string, string> = {};
+      const ownerList = owners.map((owner, index) => ((binds[`o${index}`] = owner), `:o${index}`)).join(', ');
+      const nameList = names
+        .slice(i, i + 500)
+        .map((name, index) => ((binds[`n${index}`] = name), `:n${index}`))
+        .join(', ');
+      const rows = await query(connection, `SELECT owner, table_name FROM dba_tables${remote(link)} WHERE owner IN (${ownerList}) AND table_name IN (${nameList})`, binds);
+      existing.push(...rows.map((row) => `${row.OWNER}.${row.TABLE_NAME}`));
+    }
+    const partitions: ListSizing['partitions'] = {};
+    if (partitionKeys.length > 0 && link) throw new Error('파티션 단위 export는 DB 링크 없이 이 DB에서만 지원합니다.');
+    for (const key of partitionKeys) {
+      const [owner, table] = key.split('.');
+      partitions[key] = await loadTablePartitions(connection, owner, table);
+    }
+    return { sizes, existing, partitions };
   });
 }
 
@@ -241,6 +311,10 @@ async function startJob(dbmsid: DbmsIdParam, plan: DataPumpPlan): Promise<void> 
                                   filetype => DBMS_DATAPUMP.KU$_FILE_TYPE_LOG_FILE, reusefile => 1);
            IF :schemaExpr IS NOT NULL THEN
              DBMS_DATAPUMP.METADATA_FILTER(handle => h, name => 'SCHEMA_EXPR', value => :schemaExpr);
+           END IF;
+           IF :tablesOnly = 1 THEN
+             -- 여러 스키마의 테이블을 SCHEMA 모드로 돌릴 때: 테이블(과 그 하위 오브젝트)만, 스키마의 다른 오브젝트는 빼고.
+             DBMS_DATAPUMP.METADATA_FILTER(handle => h, name => 'INCLUDE_PATH_EXPR', value => 'IN (''TABLE'')');
            END IF;
            IF :nameExpr IS NOT NULL THEN
              DBMS_DATAPUMP.METADATA_FILTER(handle => h, name => 'NAME_EXPR', value => :nameExpr, object_type => 'TABLE');
@@ -332,7 +406,8 @@ async function startJob(dbmsid: DbmsIdParam, plan: DataPumpPlan): Promise<void> 
        END;`,
       {
         operation: plan.operation,
-        jobMode: plan.jobMode,
+        jobMode: plan.multiSchemaTables ? 'SCHEMA' : plan.jobMode,
+        tablesOnly: plan.multiSchemaTables ? 1 : 0,
         jobName: plan.jobName,
         dumpfile: plan.dumpfile,
         directory: plan.directory,
@@ -416,85 +491,91 @@ function toPartitionTableInfo(row: Record<string, any>): PartitionTableInfo {
 
 // 테이블 하나의 파티션 목록. 테이블이 없거나 (컬럼 하나 키의) RANGE 파티션 테이블이 아니면 table = null.
 // HIGH_VALUE가 LONG이라 집계/함수와 섞지 않도록 크기는 따로 조회해 붙인다.
+async function loadTablePartitions(
+  connection: oracledb.Connection,
+  owner: string,
+  table: string
+): Promise<{ table: PartitionTableInfo | null; partitions: PartitionRow[] }> {
+  const info = await query(
+    connection,
+    `SELECT pt.owner, pt.table_name, pt.interval, pt.subpartitioning_type,
+            -- INTERVAL 테이블의 DBA_PART_TABLES.PARTITION_COUNT는 최대치(1048575)라 실제 개수를 센다.
+            (SELECT COUNT(*) FROM dba_tab_partitions tp WHERE tp.table_owner = pt.owner AND tp.table_name = pt.table_name) AS partition_count,
+            kc.column_name, tc.data_type
+       FROM dba_part_tables pt
+       JOIN dba_part_key_columns kc ON kc.owner = pt.owner AND kc.name = pt.table_name AND TRIM(kc.object_type) = 'TABLE'
+       JOIN dba_tab_columns tc ON tc.owner = pt.owner AND tc.table_name = pt.table_name AND tc.column_name = kc.column_name
+      WHERE pt.owner = :owner AND pt.table_name = :tableName
+        AND pt.partitioning_type = 'RANGE' AND pt.partitioning_key_count = 1`,
+    { owner, tableName: table }
+  );
+  if (info.length === 0) return { table: null, partitions: [] };
+
+  const parts = await query(
+    connection,
+    `SELECT partition_name, partition_position, high_value, num_rows
+       FROM dba_tab_partitions
+      WHERE table_owner = :owner AND table_name = :tableName
+      ORDER BY partition_position`,
+    { owner, tableName: table }
+  );
+  const sizes = await query(
+    connection,
+    `WITH seg AS (
+       SELECT partition_name, SUM(bytes) AS bytes
+         FROM dba_segments
+        WHERE owner = :owner AND segment_name = :tableName
+        GROUP BY partition_name
+     ), sub AS (
+       SELECT sp.partition_name, SUM(seg.bytes) AS bytes
+         FROM dba_tab_subpartitions sp
+         JOIN seg ON seg.partition_name = sp.subpartition_name
+        WHERE sp.table_owner = :owner AND sp.table_name = :tableName
+        GROUP BY sp.partition_name
+     ), lobp AS (
+       SELECT lp.partition_name, SUM(s.bytes) AS bytes
+         FROM dba_lob_partitions lp
+         JOIN dba_segments s ON s.owner = lp.table_owner AND s.segment_name = lp.lob_name AND s.partition_name = lp.lob_partition_name
+        WHERE lp.table_owner = :owner AND lp.table_name = :tableName
+        GROUP BY lp.partition_name
+     ), lobsub AS (
+       -- 서브파티션 테이블이면 LOB 세그먼트도 서브파티션 단위라, 테이블 서브파티션을 거쳐 파티션에 붙인다.
+       SELECT sp.partition_name, SUM(s.bytes) AS bytes
+         FROM dba_lob_subpartitions ls
+         JOIN dba_tab_subpartitions sp
+           ON sp.table_owner = ls.table_owner AND sp.table_name = ls.table_name AND sp.subpartition_name = ls.subpartition_name
+         JOIN dba_segments s ON s.owner = ls.table_owner AND s.segment_name = ls.lob_name AND s.partition_name = ls.lob_subpartition_name
+        WHERE ls.table_owner = :owner AND ls.table_name = :tableName
+        GROUP BY sp.partition_name
+     )
+     SELECT p.partition_name, NVL(seg.bytes, 0) + NVL(sub.bytes, 0) + NVL(lobp.bytes, 0) + NVL(lobsub.bytes, 0) AS bytes
+       FROM dba_tab_partitions p
+       LEFT JOIN seg ON seg.partition_name = p.partition_name
+       LEFT JOIN sub ON sub.partition_name = p.partition_name
+       LEFT JOIN lobp ON lobp.partition_name = p.partition_name
+       LEFT JOIN lobsub ON lobsub.partition_name = p.partition_name
+      WHERE p.table_owner = :owner AND p.table_name = :tableName`,
+    { owner, tableName: table }
+  );
+  const bytesByName = new Map(sizes.map((row) => [row.PARTITION_NAME as string, Number(row.BYTES)]));
+  return {
+    table: toPartitionTableInfo(info[0]),
+    partitions: parts.map((row) => ({
+      name: row.PARTITION_NAME,
+      position: Number(row.PARTITION_POSITION),
+      highValue: String(row.HIGH_VALUE ?? ''),
+      numRows: row.NUM_ROWS === null || row.NUM_ROWS === undefined ? null : Number(row.NUM_ROWS),
+      bytes: bytesByName.get(row.PARTITION_NAME) ?? 0,
+    })),
+  };
+}
+
 async function getTablePartitions(
   dbmsid: DbmsIdParam,
   owner: string,
   table: string
 ): Promise<{ table: PartitionTableInfo | null; partitions: PartitionRow[] }> {
-  return withConnection(dbmsid, async (connection) => {
-    const info = await query(
-      connection,
-      `SELECT pt.owner, pt.table_name, pt.interval, pt.subpartitioning_type,
-              -- INTERVAL 테이블의 DBA_PART_TABLES.PARTITION_COUNT는 최대치(1048575)라 실제 개수를 센다.
-              (SELECT COUNT(*) FROM dba_tab_partitions tp WHERE tp.table_owner = pt.owner AND tp.table_name = pt.table_name) AS partition_count,
-              kc.column_name, tc.data_type
-         FROM dba_part_tables pt
-         JOIN dba_part_key_columns kc ON kc.owner = pt.owner AND kc.name = pt.table_name AND TRIM(kc.object_type) = 'TABLE'
-         JOIN dba_tab_columns tc ON tc.owner = pt.owner AND tc.table_name = pt.table_name AND tc.column_name = kc.column_name
-        WHERE pt.owner = :owner AND pt.table_name = :tableName
-          AND pt.partitioning_type = 'RANGE' AND pt.partitioning_key_count = 1`,
-      { owner, tableName: table }
-    );
-    if (info.length === 0) return { table: null, partitions: [] };
-
-    const parts = await query(
-      connection,
-      `SELECT partition_name, partition_position, high_value, num_rows
-         FROM dba_tab_partitions
-        WHERE table_owner = :owner AND table_name = :tableName
-        ORDER BY partition_position`,
-      { owner, tableName: table }
-    );
-    const sizes = await query(
-      connection,
-      `WITH seg AS (
-         SELECT partition_name, SUM(bytes) AS bytes
-           FROM dba_segments
-          WHERE owner = :owner AND segment_name = :tableName
-          GROUP BY partition_name
-       ), sub AS (
-         SELECT sp.partition_name, SUM(seg.bytes) AS bytes
-           FROM dba_tab_subpartitions sp
-           JOIN seg ON seg.partition_name = sp.subpartition_name
-          WHERE sp.table_owner = :owner AND sp.table_name = :tableName
-          GROUP BY sp.partition_name
-       ), lobp AS (
-         SELECT lp.partition_name, SUM(s.bytes) AS bytes
-           FROM dba_lob_partitions lp
-           JOIN dba_segments s ON s.owner = lp.table_owner AND s.segment_name = lp.lob_name AND s.partition_name = lp.lob_partition_name
-          WHERE lp.table_owner = :owner AND lp.table_name = :tableName
-          GROUP BY lp.partition_name
-       ), lobsub AS (
-         -- 서브파티션 테이블이면 LOB 세그먼트도 서브파티션 단위라, 테이블 서브파티션을 거쳐 파티션에 붙인다.
-         SELECT sp.partition_name, SUM(s.bytes) AS bytes
-           FROM dba_lob_subpartitions ls
-           JOIN dba_tab_subpartitions sp
-             ON sp.table_owner = ls.table_owner AND sp.table_name = ls.table_name AND sp.subpartition_name = ls.subpartition_name
-           JOIN dba_segments s ON s.owner = ls.table_owner AND s.segment_name = ls.lob_name AND s.partition_name = ls.lob_subpartition_name
-          WHERE ls.table_owner = :owner AND ls.table_name = :tableName
-          GROUP BY sp.partition_name
-       )
-       SELECT p.partition_name, NVL(seg.bytes, 0) + NVL(sub.bytes, 0) + NVL(lobp.bytes, 0) + NVL(lobsub.bytes, 0) AS bytes
-         FROM dba_tab_partitions p
-         LEFT JOIN seg ON seg.partition_name = p.partition_name
-         LEFT JOIN sub ON sub.partition_name = p.partition_name
-         LEFT JOIN lobp ON lobp.partition_name = p.partition_name
-         LEFT JOIN lobsub ON lobsub.partition_name = p.partition_name
-        WHERE p.table_owner = :owner AND p.table_name = :tableName`,
-      { owner, tableName: table }
-    );
-    const bytesByName = new Map(sizes.map((row) => [row.PARTITION_NAME as string, Number(row.BYTES)]));
-    return {
-      table: toPartitionTableInfo(info[0]),
-      partitions: parts.map((row) => ({
-        name: row.PARTITION_NAME,
-        position: Number(row.PARTITION_POSITION),
-        highValue: String(row.HIGH_VALUE ?? ''),
-        numRows: row.NUM_ROWS === null || row.NUM_ROWS === undefined ? null : Number(row.NUM_ROWS),
-        bytes: bytesByName.get(row.PARTITION_NAME) ?? 0,
-      })),
-    };
-  });
+  return withConnection(dbmsid, (connection) => loadTablePartitions(connection, owner, table));
 }
 
 // 파티션 비우기 (파티션 단위 import 전). 글로벌 인덱스가 UNUSABLE이 되지 않게 UPDATE INDEXES.
@@ -784,6 +865,7 @@ export {
   getDbLinks,
   getSchemas,
   getTableSizes,
+  getListSizing,
   getCurrentScn,
   startJob,
   getJobs,

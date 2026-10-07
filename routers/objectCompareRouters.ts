@@ -10,5 +10,7 @@ const router = express.Router();
 router.post('/objectCompare/schemas', requireScreen('objectCompare'), objectCompareController.getSchemas);
 router.post('/objectCompare/run', requireScreen('objectCompare'), objectCompareController.compare);
 router.post('/objectCompare/sourceDiff', requireScreen('objectCompare'), objectCompareController.getSourceDiff);
+router.post('/objectCompare/security/lists', requireScreen('objectCompare'), objectCompareController.getSecurityLists);
+router.post('/objectCompare/security/run', requireScreen('objectCompare'), objectCompareController.compareSecurity);
 
 export default router;

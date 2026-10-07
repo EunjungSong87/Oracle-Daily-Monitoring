@@ -2,6 +2,7 @@ import * as dataPumpModel from '../models/dataPumpModel';
 import type { DataPumpJob, DataPumpPlan, DbLinkInfo, DirectoryInfo, LogContent, TableSize, TargetInfo } from '../models/dataPumpModel';
 import type { DbmsIdParam } from '../models/dbmsModel';
 import * as historyService from './dataPumpHistoryService';
+import { cached, cacheKey } from './dataPumpSizeCache';
 import { buildManifest, buildRanges, manifestText, rangeLabel, safeFilePart } from './partitionRanges';
 import type { PartitionManifestEntry, PartitionRange } from './partitionRanges';
 
@@ -10,8 +11,10 @@ export interface DataPumpRequest {
   operation: 'EXPORT' | 'IMPORT';
   mode: 'SCHEMA' | 'TABLE' | 'FULL'; // FULL은 IMPORT만 (덤프에 든 것 전부)
   schemas?: string[]; // SCHEMA 모드
-  tableOwner?: string | null; // TABLE 모드
-  tables?: string[]; // TABLE 모드
+  tableOwner?: string | null; // TABLE 모드 (테이블이 한 스키마일 때)
+  tables?: string[]; // TABLE 모드 (테이블이 한 스키마일 때)
+  // TABLE 모드에서 여러 스키마의 테이블을 한 작업에 (expdp TABLES=HR.EMP,SCOTT.DEPT — 11.2부터 가능). 있으면 tableOwner/tables 대신 씀.
+  qualifiedTables?: { owner: string; table: string }[];
   excludeTables?: string[]; // SCHEMA 모드(스키마 하나)에서 뺄 테이블 — 분할 시 다른 작업으로 떼어 낸 큰 테이블
   directory: string;
   dumpfile: string;
@@ -30,7 +33,7 @@ export interface DataPumpRequest {
   // DB 링크 이름. EXPORT: 링크 너머 DB의 오브젝트를 이 DB의 DIRECTORY에 덤프로, IMPORT: 링크 너머 DB에서 덤프 없이 바로 가져옴.
   networkLink?: string | null;
   // 파티션 단위 EXPORT (TABLE 모드): 테이블마다 이 파티션만 내보냄 — expdp TABLES=OWNER.TAB:PART. 여기 없는 테이블은 통째로.
-  tablePartitions?: { table: string; partitions: string[] }[];
+  tablePartitions?: { owner?: string; table: string; partitions: string[] }[]; // owner가 없으면 tableOwner
   // 테이블이 하나일 때의 줄임 표기 (= tablePartitions [{ table: tables[0], partitions }])
   partitions?: string[];
   // 파티션 단위 IMPORT (TABLE 모드, 테이블 하나): 시작 전에 대상 테이블(REMAP_SCHEMA 반영)에서 이 파티션들을 비움
@@ -67,6 +70,25 @@ function identifier(value: unknown, label: string): string {
 function identifierList(values: unknown, label: string, allowEmpty = false): string[] {
   if (!Array.isArray(values) || (values.length === 0 && !allowEmpty)) fail(`${label}을(를) 하나 이상 지정해주세요.`);
   return Array.from(new Set(values.map((value) => identifier(value, label))));
+}
+
+// TABLE 모드 요청의 (소유자, 테이블) 목록. qualifiedTables가 있으면 그것, 없으면 tableOwner + tables.
+function tablePairs(request: DataPumpRequest): { owner: string; table: string }[] {
+  if (Array.isArray(request.qualifiedTables) && request.qualifiedTables.length > 0) {
+    const seen = new Set<string>();
+    const pairs: { owner: string; table: string }[] = [];
+    for (const entry of request.qualifiedTables) {
+      const pair = { owner: identifier(entry?.owner, '테이블 소유자'), table: identifier(entry?.table, '테이블') };
+      const key = `${pair.owner}.${pair.table}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        pairs.push(pair);
+      }
+    }
+    return pairs;
+  }
+  const owner = identifier(request.tableOwner, '테이블 소유자');
+  return identifierList(request.tables, '테이블').map((table) => ({ owner, table }));
 }
 
 // 비어 있으면 링크를 안 쓰는 것. 실제로 있는 링크인지는 DB를 거치는 단계에서 ensureDbLink로 확인한다.
@@ -156,6 +178,7 @@ function buildPlan(request: DataPumpRequest, now: Date = new Date()): DataPumpPl
   let nameExpr: string | null = null;
   let excludeTableExpr: string | null = null;
   const partitionFilters: DataPumpPlan['partitionFilters'] = [];
+  let multiSchemaTables = false;
   let truncateTarget: DataPumpPlan['truncateTarget'] = null;
   const shortPartitions = identifierList(request.partitions ?? [], '파티션', true);
   const requested = Array.isArray(request.tablePartitions) ? request.tablePartitions : [];
@@ -170,25 +193,35 @@ function buildPlan(request: DataPumpRequest, now: Date = new Date()): DataPumpPl
       excludeTableExpr = filterExpr('NOT IN', excluded, '제외 테이블');
     }
   } else if (mode === 'TABLE') {
-    const owner = identifier(request.tableOwner, '테이블 소유자');
-    const tables = identifierList(request.tables, '테이블');
-    schemaExpr = filterExpr('IN', [owner], '스키마');
-    nameExpr = filterExpr('IN', tables, '테이블');
-    if (shortPartitions.length > 0 && tables.length !== 1) fail('partitions는 테이블을 하나만 지정한 작업에서만 씁니다 (여러 테이블이면 tablePartitions).');
-    if (truncateList.length > 0 && tables.length !== 1) fail('파티션 비우기는 테이블을 하나만 지정한 작업에서만 쓸 수 있습니다.');
-    const byTable = new Map<string, string[]>();
-    if (shortPartitions.length > 0) byTable.set(tables[0], shortPartitions);
+    const pairs = tablePairs(request);
+    // DBMS_DATAPUMP는 스키마 목록 × 테이블 이름 목록으로 거른다. 여러 스키마를 섞으면 목록에 없는 같은 이름 테이블까지
+    // 걸릴 수 있어서, 섞어도 되는 조합인지는 분할 계획(planExportGroups)이 실제 테이블 목록과 대조해 정한다.
+    const owners = [...new Set(pairs.map((pair) => pair.owner))];
+    multiSchemaTables = owners.length > 1;
+    schemaExpr = filterExpr('IN', owners, '스키마');
+    nameExpr = filterExpr('IN', [...new Set(pairs.map((pair) => pair.table))], '테이블');
+    if (shortPartitions.length > 0 && pairs.length !== 1) fail('partitions는 테이블을 하나만 지정한 작업에서만 씁니다 (여러 테이블이면 tablePartitions).');
+    if (truncateList.length > 0 && pairs.length !== 1) fail('파티션 비우기는 테이블을 하나만 지정한 작업에서만 쓸 수 있습니다.');
+    const byTable = new Map<string, string[]>(); // OWNER.TABLE → 파티션
+    const keyOf = (owner: string, table: string) => `${owner}.${table}`;
+    if (shortPartitions.length > 0) byTable.set(keyOf(pairs[0].owner, pairs[0].table), shortPartitions);
     for (const entry of requested) {
       const table = identifier(entry?.table, '테이블');
-      if (!tables.includes(table)) fail(`파티션을 지정한 테이블 ${table}이(가) 작업의 테이블 목록에 없습니다.`);
+      const owner = entry?.owner ? identifier(entry.owner, '테이블 소유자') : owners.length === 1 ? owners[0] : fail('여러 스키마 작업의 파티션에는 owner가 필요합니다.');
+      const key = keyOf(owner, table);
+      if (!pairs.some((pair) => keyOf(pair.owner, pair.table) === key)) fail(`파티션을 지정한 테이블 ${key}이(가) 작업의 테이블 목록에 없습니다.`);
       const names = identifierList(entry?.partitions, '파티션');
-      byTable.set(table, [...new Set([...(byTable.get(table) ?? []), ...names])]);
+      byTable.set(key, [...new Set([...(byTable.get(key) ?? []), ...names])]);
     }
-    for (const [table, names] of byTable) partitionFilters.push({ owner, table, partitions: names });
+    for (const [key, names] of byTable) {
+      const [owner, table] = key.split('.');
+      partitionFilters.push({ owner, table, partitions: names });
+    }
     if (truncateList.length > 0) {
       // REMAP_SCHEMA가 있으면 실제로 데이터가 들어가는 쪽(대상 스키마)의 테이블을 비운다.
+      const { owner, table } = pairs[0];
       const remapped = remapList(request.remapSchemas, 'REMAP_SCHEMA').find((pair) => pair.from === owner)?.to ?? owner;
-      truncateTarget = { owner: remapped, name: tables[0] };
+      truncateTarget = { owner: remapped, name: table };
     }
   }
   if (hasPartitions) {
@@ -263,6 +296,7 @@ function buildPlan(request: DataPumpRequest, now: Date = new Date()): DataPumpPl
     remapTablespaces: isExport ? [] : remapList(request.remapTablespaces, 'REMAP_TABLESPACE'),
     networkLink,
     partitionFilters,
+    multiSchemaTables,
     truncateTarget,
     truncatePartitions: truncateList,
   };
@@ -297,11 +331,9 @@ function buildParfile(
     const excluded = identifierList(request.excludeTables ?? [], '제외 테이블', true);
     if (excluded.length > 0) lines.push(`EXCLUDE=TABLE:"IN (${excluded.map((name) => `'${name}'`).join(',')})"`);
   } else if (plan.jobMode === 'TABLE') {
-    const owner = identifier(request.tableOwner, '테이블 소유자');
-    const tables = identifierList(request.tables, '테이블');
-    // 파티션을 고른 테이블은 OWNER.TABLE:PART로 파티션마다, 나머지는 OWNER.TABLE로 통째.
-    const entries = tables.flatMap((table) => {
-      const filter = plan.partitionFilters.find((item) => item.table === table);
+    // 파티션을 고른 테이블은 OWNER.TABLE:PART로 파티션마다, 나머지는 OWNER.TABLE로 통째. 스키마가 여럿이어도 한 줄에.
+    const entries = tablePairs(request).flatMap(({ owner, table }) => {
+      const filter = plan.partitionFilters.find((item) => item.owner === owner && item.table === table);
       return filter ? filter.partitions.map((partition) => `${owner}.${table}:${partition}`) : [`${owner}.${table}`];
     });
     lines.push(`TABLES=${entries.join(',')}`);
@@ -343,7 +375,7 @@ export interface ExportSplitOptions {
 }
 
 // 어느 테이블의 파티션인지까지 붙인 파티션 (한 작업에 여러 테이블의 파티션이 섞일 수 있어서)
-export type TablePartition = PartitionRange & { table: string };
+export type TablePartition = PartitionRange & { owner: string; table: string };
 
 export interface TableListItem {
   owner: string;
@@ -372,7 +404,9 @@ function packPartitions(partitions: PartitionRange[], limit: number, perPartitio
 export type ExportSource =
   | { kind: 'SCHEMAS'; schemas: string[] }
   // 올린 목록. partition이 있는 줄은 그 테이블의 그 파티션만 (partitionRanges는 planExport가 DB에서 읽어 채움, 키 OWNER.TABLE)
-  | { kind: 'TABLES'; tables: TableListItem[]; partitionRanges?: Record<string, PartitionRange[]> }
+  // existingTables: 목록의 스키마들 × 목록의 테이블 이름 중 DB에 실제로 있는 OWNER.TABLE (여러 스키마를 한 작업에 묶어도 되는지 판단용).
+  // 없으면 sizes에 있는 테이블로 판단한다.
+  | { kind: 'TABLES'; tables: TableListItem[]; partitionRanges?: Record<string, PartitionRange[]>; existingTables?: string[] }
   // Range 파티션 테이블 하나에서 고른 파티션들 (planExport가 DB에서 범위/크기를 읽어 채움)
   | { kind: 'PARTITIONS'; owner: string; table: string; partitions: PartitionRange[] };
 
@@ -502,7 +536,7 @@ function planExportGroups(
         mode: 'TABLE',
         tables: [{ owner, name: table, bytes }],
         excludedTables: [],
-        partitions: bin.map((partition) => ({ ...partition, table })),
+        partitions: bin.map((partition) => ({ ...partition, owner, table })),
         bytes,
         oversize: bytes > limit,
       });
@@ -526,12 +560,11 @@ function planExportGroups(
 
     // 묶음 단위: 통째 테이블 하나, 또는 한 테이블의 파티션 묶음(분할 크기를 넘으면 기간 순서로 여러 개).
     type Unit = { owner: string; table: TableSize; partitions: TablePartition[] };
-    const unitsByOwner = new Map<string, Unit[]>();
-    const addUnit = (unit: Unit) => unitsByOwner.set(unit.owner, [...(unitsByOwner.get(unit.owner) ?? []), unit]);
+    const units: Unit[] = [];
     for (const key of wholeKeys) {
       const table = byKey.get(key);
       if (!table) missing.push(key);
-      else addUnit({ owner: table.owner, table, partitions: [] });
+      else units.push({ owner: table.owner, table, partitions: [] });
     }
     for (const [key, names] of partitionsByTable) {
       if (wholeKeys.includes(key)) continue; // 통째로 내보내는 테이블
@@ -546,33 +579,53 @@ function planExportGroups(
       const [owner, name] = key.split('.');
       for (const bin of packPartitions(picked, limit, perPartition)) {
         const bytes = bin.reduce((sum, partition) => sum + partition.bytes, 0);
-        addUnit({ owner, table: { owner, name, bytes }, partitions: bin.map((partition) => ({ ...partition, table: name })) });
+        units.push({ owner, table: { owner, name, bytes }, partitions: bin.map((partition) => ({ ...partition, owner, table: name })) });
       }
     }
 
-    for (const [owner, units] of unitsByOwner) {
-      // 큰 것부터 넣을 수 있는 첫 작업에 넣는다 (First-Fit Decreasing). "파티션마다 하나"면 묶지 않는다.
-      const bins: { bytes: number; units: Unit[] }[] = [];
-      for (const unit of [...units].sort((a, b) => b.table.bytes - a.table.bytes || a.table.name.localeCompare(b.table.name))) {
-        const bin = perPartition ? undefined : bins.find((candidate) => candidate.bytes + unit.table.bytes <= limit);
-        if (bin) {
-          bin.bytes += unit.table.bytes;
-          bin.units.push(unit);
-        } else {
-          bins.push({ bytes: unit.table.bytes, units: [unit] });
+    // 스키마가 달라도 분할 크기 안이면 한 작업(parfile)에 묶는다 (큰 것부터 First-Fit Decreasing). 다만 실행(DBMS_DATAPUMP)은
+    // "스키마 목록 × 테이블 이름 목록"으로 거르므로, 묶었을 때 목록에 없는 테이블(다른 스키마의 같은 이름 테이블 등)이
+    // 딸려 들어가는 조합은 묶지 않는다. 실제로 있는 테이블은 sizes(목록에 나온 스키마의 전체 테이블)로 판단한다.
+    const existing = new Set(source.existingTables ?? byKey.keys());
+    const bins: { bytes: number; units: Unit[]; owners: Set<string>; names: Set<string>; keys: Set<string> }[] = [];
+    const fitsWithoutStrays = (bin: (typeof bins)[number], unit: Unit): boolean => {
+      const owners = new Set([...bin.owners, unit.owner]);
+      const names = new Set([...bin.names, unit.table.name]);
+      const keys = new Set([...bin.keys, `${unit.owner}.${unit.table.name}`]);
+      for (const owner of owners) {
+        for (const name of names) {
+          const key = `${owner}.${name}`;
+          if (existing.has(key) && !keys.has(key)) return false;
         }
       }
-      for (const bin of bins) {
-        drafts.push({
-          owners: [owner],
-          mode: 'TABLE',
-          tables: bin.units.map((unit) => unit.table),
-          excludedTables: [],
-          partitions: bin.units.flatMap((unit) => unit.partitions),
-          bytes: bin.bytes,
-          oversize: bin.bytes > limit,
-        });
+      return true;
+    };
+    for (const unit of [...units].sort((a, b) => b.table.bytes - a.table.bytes || a.owner.localeCompare(b.owner) || a.table.name.localeCompare(b.table.name))) {
+      const key = `${unit.owner}.${unit.table.name}`;
+      // "파티션마다 하나"면 묶지 않고, 같은 테이블의 다른 파티션 묶음과도 한 작업에 넣지 않는다.
+      const bin = perPartition
+        ? undefined
+        : bins.find((candidate) => candidate.bytes + unit.table.bytes <= limit && !candidate.keys.has(key) && fitsWithoutStrays(candidate, unit));
+      if (bin) {
+        bin.bytes += unit.table.bytes;
+        bin.units.push(unit);
+        bin.owners.add(unit.owner);
+        bin.names.add(unit.table.name);
+        bin.keys.add(key);
+      } else {
+        bins.push({ bytes: unit.table.bytes, units: [unit], owners: new Set([unit.owner]), names: new Set([unit.table.name]), keys: new Set([key]) });
       }
+    }
+    for (const bin of bins) {
+      drafts.push({
+        owners: [...bin.owners].sort(),
+        mode: 'TABLE',
+        tables: bin.units.map((unit) => unit.table),
+        excludedTables: [],
+        partitions: bin.units.flatMap((unit) => unit.partitions),
+        bytes: bin.bytes,
+        oversize: bin.bytes > limit,
+      });
     }
   }
 
@@ -601,11 +654,17 @@ function planExportGroups(
       mode: draft.mode,
       ...(draft.mode === 'SCHEMA'
         ? { schemas: draft.owners, excludeTables: draft.excludedTables }
-        : { tableOwner: draft.owners[0], tables: draft.tables.map((table) => table.name) }),
+        : draft.owners.length === 1
+          ? { tableOwner: draft.owners[0], tables: draft.tables.map((table) => table.name) }
+          : { qualifiedTables: draft.tables.map((table) => ({ owner: table.owner, table: table.name })) }),
       ...(partitions.length > 0
         ? {
             tablePartitions: draft.tables
-              .map((table) => ({ table: table.name, partitions: partitions.filter((p) => p.table === table.name).map((p) => p.name) }))
+              .map((table) => ({
+                owner: table.owner,
+                table: table.name,
+                partitions: partitions.filter((p) => p.owner === table.owner && p.table === table.name).map((p) => p.name),
+              }))
               .filter((entry) => entry.partitions.length > 0),
           }
         : {}),
@@ -707,98 +766,136 @@ export interface ExportPlanResponse {
   groups: (ExportGroup & { jobName: string; parfile: string; parfileName: string; command: string })[];
   // 파티션을 내보내는 테이블마다 하나: 덤프와 같은 DIRECTORY에 둘 매니페스트 ("파티션 Import" 화면이 읽어서 기간으로 고름)
   manifests: { name: string; text: string }[];
+  // 크기를 대상 DB에서 읽은 시각 (10분간 재사용 — 화면에 표시)
+  sizesReadAt: string;
 }
 
 const MAX_PARTITIONS_PER_PLAN = 1000;
 
+// 파티션 범위/크기 (캐시 공유: 파티션 선택 화면에서 읽은 것을 계획 만들 때 다시 읽지 않는다).
+async function cachedTablePartitions(
+  dbmsid: DbmsIdParam,
+  owner: string,
+  table: string,
+  refresh = false
+): Promise<{ value: Awaited<ReturnType<typeof dataPumpModel.getTablePartitions>>; readAt: Date }> {
+  try {
+    return await cached(cacheKey(dbmsid.dbmsid, 'partitions', [`${owner}.${table}`]), () => dataPumpModel.getTablePartitions(dbmsid, owner, table), refresh);
+  } catch (error) {
+    throw new Error(`파티션 목록 조회 실패 (${owner}.${table})`, { cause: error });
+  }
+}
+
 // 파티션 대상: 고른 파티션 이름 → DB에서 범위/크기를 읽어 채운다.
 async function resolvePartitionSource(
   dbmsid: DbmsIdParam,
-  input: unknown
-): Promise<{ source: Extract<ExportSource, { kind: 'PARTITIONS' }>; table: dataPumpModel.PartitionTableInfo }> {
+  input: unknown,
+  refresh: boolean
+): Promise<{ source: Extract<ExportSource, { kind: 'PARTITIONS' }>; table: dataPumpModel.PartitionTableInfo; readAt: Date }> {
   const value = (input ?? {}) as { owner?: unknown; table?: unknown; partitions?: unknown };
   const owner = identifier(value.owner, '테이블 소유자');
   const table = identifier(value.table, '테이블');
   const names = identifierList(value.partitions, '파티션');
   if (names.length > MAX_PARTITIONS_PER_PLAN) fail(`한 번에 ${MAX_PARTITIONS_PER_PLAN}개 파티션까지 만들 수 있습니다 (${names.length}개 선택). 기간을 나눠주세요.`);
-  let result;
-  try {
-    result = await dataPumpModel.getTablePartitions(dbmsid, owner, table);
-  } catch (error) {
-    throw new Error(`파티션 목록 조회 실패 (${owner}.${table})`, { cause: error });
-  }
+  const { value: result, readAt } = await cachedTablePartitions(dbmsid, owner, table, refresh);
   if (!result.table) fail(`${owner}.${table}은(는) 파티션 키가 컬럼 하나인 RANGE 파티션 테이블이 아닙니다.`);
   const ranges = buildRanges(result.partitions);
   const missing = names.filter((name) => !ranges.some((range) => range.name === name));
   if (missing.length > 0) fail(`${owner}.${table}에 없는 파티션입니다: ${missing.slice(0, 10).join(', ')}`);
   const picked = new Set(names);
-  return { source: { kind: 'PARTITIONS', owner, table, partitions: ranges.filter((range) => picked.has(range.name)) }, table: result.table };
+  return {
+    source: { kind: 'PARTITIONS', owner, table, partitions: ranges.filter((range) => picked.has(range.name)) },
+    table: result.table,
+    readAt,
+  };
 }
 
-// 테이블 목록에 "OWNER.TABLE:PARTITION" 줄이 있으면 그 테이블들의 파티션 범위/크기를 읽어 붙인다.
-// RANGE 파티션 테이블이 아니어도(LIST/HASH 등) 파티션 이름으로 내보낼 수는 있지만 매니페스트는 기간을 알 때만 쓸모 있어서
-// (키 하나짜리 RANGE만 범위를 읽음) 그 외 테이블은 "없는 파티션"으로 알린다.
-async function resolveListPartitions(
+// 테이블 목록: 목록에 나온 테이블만, 접속 한 번에 크기 + 같은 이름 테이블 존재 여부 + 파티션 정보를 읽는다 (캐시).
+// RANGE 파티션 테이블이 아닌 테이블의 파티션 줄은 범위를 몰라 "없는 파티션"으로 알린다.
+async function resolveTableList(
   dbmsid: DbmsIdParam,
-  source: Extract<ExportSource, { kind: 'TABLES' }>,
+  tables: TableListItem[],
   partitionTables: Map<string, dataPumpModel.PartitionTableInfo>,
-  link: string | null
-): Promise<Extract<ExportSource, { kind: 'TABLES' }>> {
-  const whole = new Set(source.tables.filter((item) => !item.partition).map((item) => `${item.owner}.${item.name}`));
-  const keys = [...new Set(source.tables.filter((item) => item.partition).map((item) => `${item.owner}.${item.name}`))].filter((key) => !whole.has(key));
-  if (keys.length === 0) return source;
-  if (link) fail('파티션 단위 export는 DB 링크 없이 이 DB에서만 지원합니다.');
-  const partitionRanges: Record<string, PartitionRange[]> = {};
-  for (const key of keys) {
+  link: string | null,
+  refresh: boolean
+): Promise<{ source: Extract<ExportSource, { kind: 'TABLES' }>; sizes: TableSize[]; readAt: Date }> {
+  const pairKeys = [...new Set(tables.map((item) => `${item.owner}.${item.name}`))].sort();
+  const pairs = pairKeys.map((key) => {
     const [owner, table] = key.split('.');
-    let result;
-    try {
-      result = await dataPumpModel.getTablePartitions(dbmsid, owner, table);
-    } catch (error) {
-      throw new Error(`파티션 목록 조회 실패 (${key})`, { cause: error });
-    }
+    return { owner, table };
+  });
+  const whole = new Set(tables.filter((item) => !item.partition).map((item) => `${item.owner}.${item.name}`));
+  const partitionKeys = [...new Set(tables.filter((item) => item.partition).map((item) => `${item.owner}.${item.name}`))].filter((key) => !whole.has(key)).sort();
+  if (partitionKeys.length > 0 && link) fail('파티션 단위 export는 DB 링크 없이 이 DB에서만 지원합니다.');
+  let sizing: { value: dataPumpModel.ListSizing; readAt: Date };
+  try {
+    sizing = await cached(
+      cacheKey(dbmsid.dbmsid, 'list', [link, pairKeys.join(','), partitionKeys.join(',')]),
+      () => dataPumpModel.getListSizing(dbmsid, pairs, partitionKeys, link),
+      refresh
+    );
+  } catch (error) {
+    throw new Error('테이블 크기 조회 실패', { cause: error });
+  }
+  const partitionRanges: Record<string, PartitionRange[]> = {};
+  for (const [key, result] of Object.entries(sizing.value.partitions)) {
     if (!result.table) continue;
     partitionTables.set(key, result.table);
     partitionRanges[key] = buildRanges(result.partitions);
   }
-  return { ...source, partitionRanges };
+  return {
+    source: { kind: 'TABLES', tables, partitionRanges, existingTables: sizing.value.existing },
+    sizes: sizing.value.sizes,
+    readAt: sizing.readAt,
+  };
 }
 
 // 스키마 선택 / 테이블 목록 / Range 파티션 → 테이블(파티션) 크기를 보고 분할 크기 이하의 export 작업들 + 각 작업의 parfile.
+// 크기는 대상 DB 딕셔너리에서 읽고 10분간 재사용한다 (refreshSizes면 새로 읽음) — 옵션만 바꿔 다시 만들 때 대상 DB를 다시 조회하지 않게.
 async function planExport(
   dbmsid: DbmsIdParam,
-  input: { schemas?: unknown; tableList?: unknown; partitionSource?: unknown },
+  input: { schemas?: unknown; tableList?: unknown; partitionSource?: unknown; refreshSizes?: unknown },
   options: ExportSplitOptions
 ): Promise<ExportPlanResponse> {
   const now = new Date();
+  const refresh = input.refreshSizes === true;
   let source: ExportSource;
   let sizes: TableSize[] = [];
+  let sizesReadAt: Date;
   // 파티션을 내보내는 테이블 (OWNER.TABLE → 정보) — 매니페스트용
   const partitionTables = new Map<string, dataPumpModel.PartitionTableInfo>();
-  let target: TargetInfo;
 
   if (input.partitionSource) {
     if (options.networkLink) fail('Range 파티션 export는 DB 링크 없이 이 DB에서만 지원합니다.');
-    const resolved = await resolvePartitionSource(dbmsid, input.partitionSource);
+    const resolved = await resolvePartitionSource(dbmsid, input.partitionSource, refresh);
     source = resolved.source;
+    sizesReadAt = resolved.readAt;
     partitionTables.set(`${resolved.table.owner}.${resolved.table.name}`, resolved.table);
-    target = await dataPumpModel.getTargetInfo(dbmsid);
   } else {
-    source =
-      typeof input.tableList === 'string' && input.tableList.trim() !== ''
-        ? { kind: 'TABLES', tables: parseTableList(input.tableList) }
-        : { kind: 'SCHEMAS', schemas: identifierList(input.schemas, '스키마') };
-    const owners =
-      source.kind === 'SCHEMAS' ? source.schemas.map((schema) => schema.toUpperCase()) : Array.from(new Set(source.tables.map((t) => t.owner)));
     const link = await ensureDbLink(dbmsid, options.networkLink);
     options = { ...options, networkLink: link };
-    try {
-      [sizes, target] = await Promise.all([dataPumpModel.getTableSizes(dbmsid, owners, link), dataPumpModel.getTargetInfo(dbmsid)]);
-    } catch (error) {
-      throw new Error('테이블 크기 조회 실패', { cause: error });
+    if (typeof input.tableList === 'string' && input.tableList.trim() !== '') {
+      const resolved = await resolveTableList(dbmsid, parseTableList(input.tableList), partitionTables, link, refresh);
+      source = resolved.source;
+      sizes = resolved.sizes;
+      sizesReadAt = resolved.readAt;
+    } else {
+      const schemas = identifierList(input.schemas, '스키마');
+      source = { kind: 'SCHEMAS', schemas };
+      try {
+        const result = await cached(
+          cacheKey(dbmsid.dbmsid, 'schemas', [link, [...schemas].sort().join(',')]),
+          () => dataPumpModel.getTableSizes(dbmsid, schemas, link),
+          refresh
+        );
+        sizes = result.value;
+        sizesReadAt = result.readAt;
+      } catch (error) {
+        throw new Error('테이블 크기 조회 실패', { cause: error });
+      }
     }
-    if (source.kind === 'TABLES') source = await resolveListPartitions(dbmsid, source, partitionTables, link);
   }
+  const target = await dataPumpModel.getTargetInfo(dbmsid); // 메타데이터 DB (대상 DB 아님)
 
   const { groups, totalBytes, chunkBytes, missing } = planExportGroups(source, sizes, options, now);
 
@@ -809,28 +906,35 @@ async function planExport(
   const prefix = String(options.filePrefix).trim();
   for (const info of partitionTables.values()) {
     const entries: PartitionManifestEntry[] = groups.flatMap((group) =>
-      group.owners[0] === info.owner
-        ? group.partitions.filter((partition) => partition.table === info.name).map(({ table: _table, ...partition }) => ({ ...partition, dumpfile: group.request.dumpfile }))
-        : []
+      group.partitions
+        .filter((partition) => partition.owner === info.owner && partition.table === info.name)
+        .map(({ owner: _owner, table: _table, ...partition }) => ({ ...partition, dumpfile: group.request.dumpfile }))
     );
     if (entries.length === 0) continue;
-    const name = source.kind === 'PARTITIONS' ? `${prefix}_manifest.json` : `${prefix}_${safeFilePart(info.name)}_manifest.json`;
+    // 테이블 목록은 여러 스키마에 같은 이름 테이블이 있을 수 있어, 스키마가 둘 이상이면 이름에 스키마도 넣는다.
+    const multiOwner = new Set([...partitionTables.values()].map((table) => table.owner)).size > 1;
+    const name =
+      source.kind === 'PARTITIONS'
+        ? `${prefix}_manifest.json`
+        : `${prefix}_${multiOwner ? `${safeFilePart(info.owner)}_` : ''}${safeFilePart(info.name)}_manifest.json`;
     manifests.push({ name, text: manifestText(buildManifest(info, target.dbname, groups[0].request.directory, entries, now)) });
   }
 
-  // parfile 첫 줄 설명: 작업에 든 테이블/파티션 요약
+  // parfile 첫 줄 설명: 작업에 든 테이블/파티션 요약 (스키마가 여럿이면 테이블마다 OWNER.TABLE)
   const describe = (group: ExportGroup): string => {
     if (group.mode === 'SCHEMA') {
       return `스키마 ${group.owners.join(', ')} (테이블 ${group.tables.length}개${group.excludedTables.length ? `, 큰 테이블 ${group.excludedTables.length}개는 다른 작업으로 분리` : ''})`;
     }
-    if (group.partitions.length === 0) return `${group.owners[0]} 테이블 ${group.tables.length}개`;
+    if (group.partitions.length === 0) return `${group.owners.join(', ')} 테이블 ${group.tables.length}개`;
+    const qualified = group.owners.length > 1;
     const perTable = group.tables.map((table) => {
-      const parts = group.partitions.filter((partition) => partition.table === table.name);
-      if (parts.length === 0) return `${table.name}(통째)`;
+      const label = qualified ? `${table.owner}.${table.name}` : table.name;
+      const parts = group.partitions.filter((partition) => partition.owner === table.owner && partition.table === table.name);
+      if (parts.length === 0) return `${label}(통째)`;
       const range = rangeLabel({ ...parts[0], high: parts[parts.length - 1].high, known: parts.every((p) => p.known) });
-      return `${table.name} 파티션 ${parts.length}개(${parts.length === 1 ? parts[0].name : `${parts[0].name} … ${parts[parts.length - 1].name}`}, ${range})`;
+      return `${label} 파티션 ${parts.length}개(${parts.length === 1 ? parts[0].name : `${parts[0].name} … ${parts[parts.length - 1].name}`}, ${range})`;
     });
-    return `${group.owners[0]}.${perTable.join(', ')}`;
+    return qualified ? perTable.join(', ') : `${group.owners[0]}.${perTable.join(', ')}`;
   };
 
   return {
@@ -838,6 +942,7 @@ async function planExport(
     chunkBytes,
     missing,
     manifests,
+    sizesReadAt: sizesReadAt.toISOString(),
     groups: groups.map((group) => {
       const plan = buildPlan(group.request, now);
       const comment = `작업 ${group.no}/${groups.length}: ${describe(group)}, 예상 약 ${(group.bytes / UNIT.G).toFixed(1)} GB`;
@@ -988,6 +1093,7 @@ export {
   planExportGroups,
   parseTableList,
   getMeta,
+  cachedTablePartitions,
   getLinkSchemas,
   planExport,
   getCurrentScn,

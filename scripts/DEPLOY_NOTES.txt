@@ -1,5 +1,5 @@
 내부망 등 이미 예전 버전이 돌고 있는 환경을 최신 main으로 올릴 때 필요한 작업 순서입니다.
-위에서부터 순서대로 진행하세요. (마지막 갱신: 2026-10-02, Data Pump 이력 + 사용자별 화면 권한 추가)
+위에서부터 순서대로 진행하세요. (마지막 갱신: 2026-10-07, 계정·권한 비교 + Data Pump 개선)
 
 내부망에 어느 시점 버전이 깔려 있는지 모르면, 3번의 스키마 스크립트는 전부 순서대로 실행해도
 됩니다 — 이미 반영된 것은 "이미 존재" 에러만 나고 아무 영향이 없습니다.
@@ -133,6 +133,8 @@ SYSTEM 등 DBA 계정으로 등록돼 있다면 대부분 이미 있습니다.
                        DBA_TABLES, DBA_TAB_COLUMNS, DBA_INDEXES, DBA_IND_COLUMNS,
                        DBA_IND_EXPRESSIONS, DBA_VIEWS, DBA_MVIEWS, DBA_SEQUENCES,
                        DBA_SYNONYMS, DBA_SOURCE, DBA_OBJECTS
+                       "계정·권한" 탭: DBA_USERS, DBA_ROLES, DBA_PROFILES, DBA_TS_QUOTAS, DBA_SYS_PRIVS,
+                       DBA_ROLE_PRIVS, DBA_TAB_PRIVS, DBA_COL_PRIVS 조회 (비밀번호 해시는 읽지 않음).
   - Parameter Compare: 비교하는 양쪽 DB 모두에서 V$SYSTEM_PARAMETER, V$INSTANCE 조회.
                        hidden(_) 파라미터까지 전부 비교하려면 각 DB에서 SYS로
                        scripts/grant_hidden_parameter_views.sql <접속계정> 을 1회 실행
@@ -239,6 +241,21 @@ reports/ 폴더에 쓰기 권한이 있어야 예약 실행 리포트가 저장�
 ============================================================
 참고: 버전별 주요 변경 (스키마 변경은 3번에도 적혀 있음)
 ============================================================
+2026-10-07
+  - Compare > Object Compare에 "계정·권한" 탭: 기준/대상 DB를 고르고 계정(User)·Role·Profile을 검색 드롭다운으로
+    여러 개 골라 같은 이름끼리 비교. 계정·Role은 속성(상태/Profile/기본·임시 테이블스페이스/인증 방식),
+    시스템 권한, 받은 Role(Role 안의 Role 포함), 오브젝트 권한, 컬럼 권한(계정은 테이블스페이스 할당량도),
+    Profile은 제한값. 직접 부여된 권한만 비교 (Role로 받은 권한은 "받은 Role"로 표시). 오라클 기본 계정·Role은
+    기본으로 목록에서 숨김. 필요 권한은 4번 Object Compare 참고.
+  - Data Pump 테이블 목록: 스키마가 달라도 분할 크기 안이면 한 작업(parfile, TABLES=HR.EMP,SCOTT.DEPT)으로 묶음.
+    앱 실행(DBMS_DATAPUMP)은 TABLE 모드가 스키마 하나만 받아서(ORA-39040) 여러 스키마 작업은 SCHEMA 모드 +
+    테이블만(INCLUDE_PATH_EXPR=TABLE)으로 실행 — 덤프 내용은 TABLE 모드와 같음. 묶으면 목록에 없는 같은 이름
+    테이블(예: SCOTT.EMP)이 딸려 오는 조합은 자동으로 나눔.
+  - Data Pump 분할 계획 속도/대상 DB 부하: 테이블 목록은 올린 테이블만 조회, 파티션 정보까지 접속 한 번에 읽음,
+    읽은 크기는 앱 서버 메모리에 10분간 재사용("크기 새로 읽기"로 다시 읽음). 작업 현황 갱신 5초 → 15초,
+    브라우저 탭이 안 보이면 조회 안 함.
+  - Data Pump 작업 이력 마무리: 대상 DB에 접속이 안 되면(ORA-12170 등) 그 DB는 10분간 건너뛰고 경고는 처음
+    한 번만 (매분 같은 경고가 쌓이던 문제).
 2026-10-06
   - Data Pump Range 파티션 기간 export/import:
     Export 탭 "1. 대상"에 "Range 파티션 (기간)" 추가 — 키 컬럼 하나짜리 RANGE(INTERVAL 포함) 파티션
