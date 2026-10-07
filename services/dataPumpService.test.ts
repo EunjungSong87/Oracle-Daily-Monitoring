@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildParfile,
   buildPlan,
+  assertParfilesCover,
   assertSourceCovered,
   executionPlans,
   schemaFileName,
@@ -474,6 +475,32 @@ describe('planExportGroups — 테이블 목록', () => {
     expect(() => assertSourceCovered(source, extra, [], sizes)).toThrow(/목록에 없는 항목.*A\.T3/);
     const schemaDropped = planExportGroups({ kind: 'SCHEMAS', schemas: ['A'] }, sizes, splitOptions(), NOW).groups.map((group) => ({ ...group, tables: group.tables.slice(1) }));
     expect(() => assertSourceCovered({ kind: 'SCHEMAS', schemas: ['A'] }, schemaDropped, [], sizes)).toThrow(DataPumpValidationError);
+  });
+
+  it('parfile 원문 검증: 만들어진 parfile의 TABLES=/SCHEMAS=에 대상이 빠짐없이 정확히 한 번씩', () => {
+    const parfilesOf = (groups: { request: DataPumpRequest }[]) => groups.map((group) => buildParfile(buildPlan(group.request, NOW), group.request, TARGET).parfile);
+
+    // 테이블 목록 (여러 스키마, 분할 크기로 여러 작업, 중복 줄, DB에 없는 줄)
+    const list = parseTableList('A.T1\nB.T2\nC.T3\nA.T1\nZ.NOPE');
+    const source = { kind: 'TABLES' as const, tables: list };
+    const tableSizes = [table('A', 'T1', 700 * G), table('B', 'T2', 600 * G), table('C', 'T3', 300 * G)];
+    const tablePlan = planExportGroups(source, tableSizes, splitOptions(), NOW);
+    const tableParfiles = parfilesOf(tablePlan.groups);
+    expect(tableParfiles).toHaveLength(2);
+    expect(() => assertParfilesCover(source, tablePlan.missing, tableParfiles)).not.toThrow();
+    // 한 줄을 빼거나, 두 번 넣거나, 목록 밖을 넣으면 잡는다
+    expect(() => assertParfilesCover(source, tablePlan.missing, tableParfiles.map((text) => text.replace(/,?C\.T3/, '')))).toThrow(/TABLES=에서 빠짐: C\.T3/);
+    expect(() => assertParfilesCover(source, tablePlan.missing, [...tableParfiles, 'TABLES=A.T1\n'])).toThrow(/두 번 들어감: A\.T1/);
+    expect(() => assertParfilesCover(source, tablePlan.missing, [...tableParfiles, 'TABLES=A.T9\n'])).toThrow(/대상 밖 항목: A\.T9/);
+    expect(() => assertParfilesCover(source, [], tableParfiles)).toThrow(/빠짐: Z\.NOPE/); // DB에 없다고 알리지 않은 줄이 빠져도 잡음
+
+    // 스키마 선택 (큰 테이블을 떼어 낸 스키마 작업 + 떼어 낸 테이블 작업)
+    const schemaSource = { kind: 'SCHEMAS' as const, schemas: ['HR', 'SH'] };
+    const schemaPlan = planExportGroups(schemaSource, [table('HR', 'BIG1', 900 * G), table('HR', 'BIG2', 800 * G), table('HR', 'S1', 10 * G), table('SH', 'X', 1 * G)], splitOptions(), NOW);
+    const schemaParfiles = parfilesOf(schemaPlan.groups);
+    expect(() => assertParfilesCover(schemaSource, [], schemaParfiles)).not.toThrow();
+    expect(() => assertParfilesCover(schemaSource, [], schemaParfiles.map((text) => text.replace(/^TABLES=HR\.BIG1\n/m, '')))).toThrow(/떼어 낸 테이블의 TABLES=에서 빠짐: HR\.BIG1/);
+    expect(() => assertParfilesCover(schemaSource, [], schemaParfiles.map((text) => text.replace(/^SCHEMAS=SH$/m, 'SCHEMAS=')))).toThrow(/SCHEMAS=에서 빠짐: SH/);
   });
 
   it('스키마별 덤프/로그 이름', () => {

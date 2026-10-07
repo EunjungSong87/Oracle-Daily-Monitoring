@@ -1362,6 +1362,13 @@ async function planExport(
     return qualified ? perTable.join(', ') : `${group.owners[0]}.${perTable.join(', ')}`;
   };
 
+  const withParfiles = groups.map((group) => {
+    const plan = buildPlan(group.request, now, env);
+    const comment = `작업 ${group.no}/${groups.length}: ${describe(group)}, 예상 약 ${(group.bytes / UNIT.G).toFixed(1)} GB`;
+    return { ...group, jobName: plan.jobName, ...buildParfile(plan, group.request, target, comment) };
+  });
+  assertParfilesCover(source, missing, withParfiles.map((group) => group.parfile));
+
   return {
     totalBytes,
     chunkBytes,
@@ -1370,12 +1377,57 @@ async function planExport(
     sizesReadAt: sizesReadAt.toISOString(),
     sizeNotes,
     summary,
-    groups: groups.map((group) => {
-      const plan = buildPlan(group.request, now, env);
-      const comment = `작업 ${group.no}/${groups.length}: ${describe(group)}, 예상 약 ${(group.bytes / UNIT.G).toFixed(1)} GB`;
-      return { ...group, jobName: plan.jobName, ...buildParfile(plan, group.request, target, comment) };
-    }),
+    groups: withParfiles,
   };
+}
+
+// 불변식 (parfile 원문 기준): 만들어진 parfile들의 TABLES= 항목을 다시 읽어, 올린 대상이 빠짐없이 정확히 한 번씩 들어갔는지 본다.
+//  - 테이블 목록 / Range 파티션: TABLES= 항목(OWNER.TABLE 또는 OWNER.TABLE:PART)의 합 = 목록 줄 − DB에 없어 뺀 줄 − 통째에 합쳐진 파티션 줄
+//  - 스키마 선택: 스키마마다 SCHEMAS=에 정확히 한 번, 그 스키마 작업이 바로 다음 줄 EXCLUDE=TABLE로 뺀 큰 테이블은 TABLES=에 정확히 한 번
+// 오브젝트 필터(INCLUDE/EXCLUDE)로 사용자가 일부러 빼는 것은 별개 — 여기서는 목록이 parfile 구조에 다 들어갔는지만 본다.
+function assertParfilesCover(source: ExportSource, missing: string[], parfiles: string[]): void {
+  const entries: string[] = [];
+  const schemaLines: string[] = [];
+  const excluded: string[] = []; // OWNER.TABLE (스키마 작업에서 다른 작업으로 떼어 낸 테이블)
+  for (const text of parfiles) {
+    const lines = text.split('\n').filter((line) => line && !line.startsWith('#'));
+    for (const [index, line] of lines.entries()) {
+      if (line.startsWith('TABLES=')) entries.push(...line.slice('TABLES='.length).split(','));
+      if (line.startsWith('SCHEMAS=')) {
+        const schemas = line.slice('SCHEMAS='.length).split(',');
+        schemaLines.push(...schemas);
+        const next = lines[index + 1] ?? '';
+        const match = next.match(/^EXCLUDE=TABLE:"IN \((.*)\)"$/);
+        if (match && schemas.length === 1) excluded.push(...match[1].split(',').map((name) => `${schemas[0]}.${name.replace(/'/g, '')}`));
+      }
+    }
+  }
+  const fault = (what: string, items: string[]): never =>
+    fail(`내부 오류: parfile 검증 실패 — ${what}: ${items.slice(0, 10).join(', ')}${items.length > 10 ? ' …' : ''}. 계획을 다시 만들어 주세요.`);
+  const counts = (items: string[]) => items.reduce((map, item) => map.set(item, (map.get(item) ?? 0) + 1), new Map<string, number>());
+  const compare = (expected: string[], actual: string[], label: string) => {
+    const got = counts(actual);
+    const lost = expected.filter((item) => !got.has(item));
+    if (lost.length > 0) fault(`${label}에서 빠짐`, lost);
+    const dup = [...got].filter(([, n]) => n > 1).map(([item]) => item);
+    if (dup.length > 0) fault(`${label}에 두 번 들어감`, dup);
+    const extra = [...got.keys()].filter((item) => !expected.includes(item));
+    if (extra.length > 0) fault(`${label}에 대상 밖 항목`, extra);
+  };
+
+  if (source.kind === 'SCHEMAS') {
+    compare(source.schemas.map((schema) => String(schema).toUpperCase()), schemaLines, 'SCHEMAS=');
+    compare(excluded, entries, '떼어 낸 테이블의 TABLES=');
+    return;
+  }
+  const lines =
+    source.kind === 'PARTITIONS'
+      ? source.partitions.map((p) => `${source.owner.toUpperCase()}.${source.table.toUpperCase()}:${p.name}`)
+      : [...new Set(source.tables.map((item) => `${item.owner.toUpperCase()}.${item.name.toUpperCase()}${item.partition ? `:${item.partition.toUpperCase()}` : ''}`))];
+  const whole = new Set(lines.filter((line) => !line.includes(':')));
+  const missingSet = new Set(missing);
+  const expected = lines.filter((line) => !missingSet.has(line) && !(line.includes(':') && whole.has(line.split(':')[0])));
+  compare(expected, entries, 'TABLES=');
 }
 
 // link가 있으면 링크 너머(데이터를 읽는) DB의 SCN.
@@ -1541,6 +1593,7 @@ export {
   executionPlans,
   schemaFileName,
   assertSourceCovered,
+  assertParfilesCover,
   isDestructive,
   parseSize,
   suggestFilesize,
