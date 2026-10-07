@@ -405,7 +405,7 @@ export function startDataPump(
   request: DataPumpRequest,
   confirmDbname?: string,
   estimatedBytes?: number
-): Promise<{ jobName: string }> {
+): Promise<{ jobName: string; jobNames?: string[] }> {
   return postJson('/api/dataPump/start', { dbmsid, request, confirmDbname, estimatedBytes });
 }
 

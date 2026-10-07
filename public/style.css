@@ -2312,3 +2312,25 @@ textarea.dp-table-list {
 .pc-warning-text {
     color: var(--danger);
 }
+
+/* Data Pump 계획 요약 / 스키마별로 나눠 실행한 하위 작업 행 */
+.dp-plan-summary {
+    margin: 8px 0;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+}
+
+.dp-plan-summary .pc-warning {
+    margin: 6px 0 0;
+}
+
+.dp-sub-row td {
+    font-size: 0.92em;
+    opacity: 0.85;
+}
+
+.dp-sub-row td:first-child,
+.dp-sub-row .oc-name {
+    padding-left: 18px;
+}

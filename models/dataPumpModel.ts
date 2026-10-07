@@ -54,9 +54,9 @@ export interface DataPumpPlan {
   networkLink: string | null; // DB 링크 (EXPORT: 링크 너머 DB를 이 DB 덤프로, IMPORT: 링크 너머 DB에서 덤프 없이 바로)
   // 파티션 단위 EXPORT: 테이블마다 DATA_FILTER PARTITION_EXPR (expdp TABLES=OWNER.TAB:PART). 여기 없는 테이블은 통째로.
   partitionFilters: { owner: string; table: string; partitions: string[] }[];
-  // TABLE 모드인데 테이블이 여러 스키마에 걸친 작업. DBMS_DATAPUMP TABLE 모드는 스키마 하나만 받으므로(ORA-39040)
-  // SCHEMA 모드로 열고 "테이블만"이 되도록 테이블이 아닌 유형을 EXCLUDE한다 (filters.excludePaths에 들어 있음).
-  multiSchemaTables: boolean;
+  // TABLE 모드 작업의 정확한 (소유자, 테이블) 목록 = parfile TABLES=. DBMS_DATAPUMP TABLE 모드는 스키마 하나만 받으므로(ORA-39040)
+  // 스키마가 여럿이면 서비스가 실행할 때 스키마마다 작업 하나로 나눈다 (startJob에는 늘 스키마 하나짜리만 온다).
+  tables: { owner: string; table: string }[];
   // 오브젝트 필터(INCLUDE/EXCLUDE) + 데이터 필터·옵션 — services/dataPumpFilters.ts가 검증해서 만든 값
   filters: PlanFilters;
   // 파티션 단위 IMPORT: 작업 시작 전에 대상 테이블(REMAP_SCHEMA 반영)에서 비울 파티션.
@@ -256,11 +256,9 @@ async function getTableSizes(dbmsid: DbmsIdParam, owners: string[], link: string
 
 // 테이블 목록 export용 크기/파티션 정보를 접속 한 번에 읽는다 (테이블마다 따로 접속하면 대상 DB에 로그온이 몰려서).
 //  - sizes: 목록에 나온 (소유자, 테이블)만
-//  - existing: 목록의 스키마들 × 목록의 테이블 이름 중 실제로 있는 테이블 (여러 스키마를 한 작업에 묶어도 되는지 판단용, DBA_TABLES만)
 //  - partitions: 파티션 줄이 있는 테이블의 파티션 범위/크기
 export interface ListSizing {
   sizes: TableSize[];
-  existing: string[]; // OWNER.TABLE
   partitions: Record<string, { table: PartitionTableInfo | null; partitions: PartitionRow[] }>;
 }
 
@@ -271,27 +269,15 @@ async function getListSizing(
   link: string | null = null
 ): Promise<ListSizing> {
   const owners = [...new Set(pairs.map((pair) => pair.owner))];
-  const names = [...new Set(pairs.map((pair) => pair.table))];
   return withConnection(dbmsid, async (connection) => {
     const sizes = await loadTableSizes(connection, owners, link, pairs);
-    const existing: string[] = [];
-    for (let i = 0; i < names.length; i += 500) {
-      const binds: Record<string, string> = {};
-      const ownerList = owners.map((owner, index) => ((binds[`o${index}`] = owner), `:o${index}`)).join(', ');
-      const nameList = names
-        .slice(i, i + 500)
-        .map((name, index) => ((binds[`n${index}`] = name), `:n${index}`))
-        .join(', ');
-      const rows = await query(connection, `SELECT owner, table_name FROM dba_tables${remote(link)} WHERE owner IN (${ownerList}) AND table_name IN (${nameList})`, binds);
-      existing.push(...rows.map((row) => `${row.OWNER}.${row.TABLE_NAME}`));
-    }
     const partitions: ListSizing['partitions'] = {};
     if (partitionKeys.length > 0 && link) throw new Error('파티션 단위 export는 DB 링크 없이 이 DB에서만 지원합니다.');
     for (const key of partitionKeys) {
       const [owner, table] = key.split('.');
       partitions[key] = await loadTablePartitions(connection, owner, table);
     }
-    return { sizes, existing, partitions };
+    return { sizes, partitions };
   });
 }
 
@@ -366,6 +352,10 @@ function dataOptionsStatement(constants: string[]): string {
 // DBMS_DATAPUMP로 작업을 시작하고 바로 DETACH합니다 (작업은 DB 서버에서 계속 돌고, 화면은 작업 목록/로그로 지켜봄).
 // 시작 단계에서 실패하면 만들어진 작업(마스터 테이블)이 남지 않게 정리하고 원래 에러를 다시 던집니다.
 async function startJob(dbmsid: DbmsIdParam, plan: DataPumpPlan): Promise<void> {
+  // 마지막 방어선: 스키마 × 테이블 이름 교차곱으로 거르는 실행이라, 스키마가 둘 이상이면 목록 밖 테이블이 딸려 나간다.
+  if (plan.jobMode === 'TABLE' && new Set(plan.tables.map((item) => item.owner)).size > 1) {
+    throw new Error('테이블 모드 작업에 스키마가 둘 이상입니다 (스키마별로 나눠 실행해야 함).');
+  }
   await withConnection(dbmsid, async (connection) => {
     await connection.execute(
       `DECLARE
@@ -414,7 +404,7 @@ async function startJob(dbmsid: DbmsIdParam, plan: DataPumpPlan): Promise<void> 
            IF :excludeTableExpr IS NOT NULL THEN
              DBMS_DATAPUMP.METADATA_FILTER(handle => h, name => 'NAME_EXPR', value => :excludeTableExpr, object_path => 'TABLE');
            END IF;
-           -- 오브젝트 필터: 유형 포함/제외 (통계 제외, 여러 스키마 테이블 작업의 "테이블만"도 여기 들어 있다)
+           -- 오브젝트 필터: 유형 포함/제외 (통계 제외도 여기 들어 있다)
            IF :includePathExpr IS NOT NULL THEN
              DBMS_DATAPUMP.METADATA_FILTER(handle => h, name => 'INCLUDE_PATH_EXPR', value => :includePathExpr);
            END IF;
@@ -530,7 +520,7 @@ async function startJob(dbmsid: DbmsIdParam, plan: DataPumpPlan): Promise<void> 
        END;`,
       {
         operation: plan.operation,
-        jobMode: plan.multiSchemaTables ? 'SCHEMA' : plan.jobMode,
+        jobMode: plan.jobMode,
         jobName: plan.jobName,
         dumpfile: plan.dumpfile,
         directory: plan.directory,

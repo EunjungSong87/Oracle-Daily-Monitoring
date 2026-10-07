@@ -15,6 +15,7 @@ import type {
   DataPumpMeta,
   ExportGroup,
   ExportPlanResponse,
+  ExportPlanSummary,
   ExportSplitOptions,
   DataFilter,
   ObjectFilter,
@@ -236,8 +237,8 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
 
   async function startGroup(group: ExportGroup, flashbackScn: string | null): Promise<boolean> {
     try {
-      const { jobName } = await startDataPump(dbmsId, { ...group.request, flashbackScn }, undefined, group.bytes);
-      setStarted((current) => new Map(current).set(group.no, jobName));
+      const { jobName, jobNames } = await startDataPump(dbmsId, { ...group.request, flashbackScn }, undefined, group.bytes);
+      setStarted((current) => new Map(current).set(group.no, jobNames && jobNames.length > 1 ? jobNames.join(', ') : jobName));
       return true;
     } catch (error) {
       console.error('Error starting export:', error);
@@ -619,6 +620,7 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
               가져올 수 있습니다.
             </p>
           )}
+          <PlanSummaryBox summary={plan.summary} />
           {plan.sizeNotes.map((note) => (
             <p key={note} className="oc-hint">
               {note}
@@ -669,13 +671,20 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
                           }
                         >
                           {open ? '▾' : '▸'}{' '}
-                          {group.partitions.length === 0
+                          {group.views.length > 0
+                            ? `뷰 ${group.views.length}개 (VIEWS_AS_TABLES)`
+                            : group.partitions.length === 0
                             ? `테이블 ${group.tables.length}개`
                             : group.tables.length === 1
                               ? `${group.tables[0].name} 파티션 ${group.partitions.length}개`
                               : `테이블 ${group.tables.length}개 · 파티션 ${group.partitions.length}개`}
                         </button>
                         {group.mode === 'SCHEMA' && <span className="oc-subtle">+ 테이블 외 오브젝트</span>}
+                        {group.mode === 'TABLE' && group.owners.length > 1 && (
+                          <div className="dp-hint-line" title="DBMS_DATAPUMP 테이블 모드는 스키마 하나만 받아서, 화면 실행은 스키마마다 작업 하나로 나눠 동시에 돌립니다 (덤프 이름에 스키마가 붙음).">
+                            실행 시 스키마별 작업 {group.owners.length}개로 나눠 실행
+                          </div>
+                        )}
                         {group.excludedTables.length > 0 && <span className="oc-subtle">(큰 테이블 {group.excludedTables.length}개 제외)</span>}
                       </td>
                       <td>
@@ -786,5 +795,28 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
       />
       {serverSave.confirmNode}
     </>
+  );
+}
+
+// 계획 요약: 목록 N개 / 계획 포함 N개 / DB에 없어 뺀 N개 / 뷰 작업 / 적용 중인 필터 / 남은 설정 경고
+function PlanSummaryBox({ summary }: { summary: ExportPlanSummary }): ReactElement {
+  const parts = [
+    summary.listed !== null ? `목록 ${summary.listed}개` : null,
+    `계획 포함 ${summary.planned}개`,
+    summary.listed !== null ? `DB에 없어 뺀 ${summary.missing}개` : null,
+    `뷰 작업 ${summary.viewJobs}개${summary.views > 0 ? ` (뷰 ${summary.views}개)` : ''}`,
+  ].filter(Boolean);
+  return (
+    <div className="dp-plan-summary">
+      <div>
+        <strong>계획 요약</strong> {parts.join(' / ')}
+      </div>
+      <div className="dp-hint-line">적용 중인 오브젝트·데이터 필터: {summary.filters.length > 0 ? summary.filters.join(' / ') : '없음'}</div>
+      {summary.warnings.map((warning) => (
+        <p key={warning} className="pc-warning">
+          {warning}
+        </p>
+      ))}
+    </div>
   );
 }

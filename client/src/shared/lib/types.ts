@@ -646,6 +646,17 @@ export interface ExportPlanResponse {
   manifests: { name: string; text: string }[];
   sizesReadAt: string; // 크기를 대상 DB에서 읽은 시각 (서버가 10분간 재사용)
   sizeNotes: string[]; // 크기 안내 (서브쿼리/QUERY로 어림, 뷰 크기 미반영)
+  summary: ExportPlanSummary;
+}
+
+export interface ExportPlanSummary {
+  listed: number | null; // 올린 목록 줄 수 / 고른 파티션 수 (스키마 선택이면 null)
+  planned: number; // 계획에 들어간 줄(통째 테이블 + 파티션), 스키마 선택이면 테이블 수
+  missing: number; // DB에 없어서 뺀 줄
+  viewJobs: number;
+  views: number;
+  filters: string[]; // 적용 중인 오브젝트·데이터 필터
+  warnings: string[]; // 대상과 안 맞는 남은 설정
 }
 
 export interface ParfilePreview {

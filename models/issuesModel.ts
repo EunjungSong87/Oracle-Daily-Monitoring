@@ -48,7 +48,7 @@ const ISSUE_COLUMNS = `id, dbms_id, dbname, task_id, task_name, column_name, cle
                         latest_run_history_id, created_at, updated_at`;
 
 function mapIssueRow(row: Record<string, any>): IssueRow {
-  let details: Record<string, any>[] = [];
+  let details: Record<string, any>[];
   try {
     details = row.DETAILS ? JSON.parse(row.DETAILS) : [];
   } catch {

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   buildParfile,
   buildPlan,
+  executionPlans,
+  schemaFileName,
   DataPumpValidationError,
   expectedFileCount,
   isDestructive,
@@ -351,12 +353,94 @@ describe('planExportGroups — 테이블 목록', () => {
     expect(buildParfile(plan, groups[0].request, TARGET).parfile).toContain('TABLES=HR.EMP,HR.LOC,SH.SALES\n');
   });
 
-  it('묶으면 목록에 없는 같은 이름 테이블이 딸려 오는 스키마 조합은 나눈다', () => {
-    // HR.EMP와 SCOTT.DEPT를 묶으면 실행 필터가 (HR,SCOTT) × (EMP,DEPT)라 목록에 없는 SCOTT.EMP까지 들어간다.
-    const sizes = [table('HR', 'EMP', 1 * G), table('SCOTT', 'DEPT', 1 * G), table('SCOTT', 'EMP', 1 * G), table('SH', 'SALES', 1 * G)];
-    const list = parseTableList('HR.EMP\nSCOTT.DEPT\nSH.SALES');
+  it('같은 이름 테이블이 있는 스키마도 한 작업 — parfile과 실행 필터 모두 목록의 테이블만 (스키마별 실행 작업)', () => {
+    // A, B 둘 다 T1, T2가 있고(각 300G) 목록엔 A.T1, B.T2만. 예전에는 (A,B) × (T1,T2) 교차곱으로 실행해서 A.T2, B.T1이 딸려 나갔다.
+    const list = parseTableList('A.T1\nB.T2');
+    const { groups, summary } = planExportGroups({ kind: 'TABLES', tables: list }, [table('A', 'T1', 300 * G), table('B', 'T2', 300 * G)], splitOptions(), NOW);
+    expect(groups).toHaveLength(1);
+    const plan = buildPlan(groups[0].request, NOW);
+    expect(buildParfile(plan, groups[0].request, TARGET).parfile).toMatch(/^TABLES=A\.T1,B\.T2$/m);
+
+    const runs = executionPlans(plan);
+    expect(runs.map((run) => [run.jobMode, run.jobName, run.schemaExpr, run.nameExpr, run.dumpfile, run.logfile, run.parallel])).toEqual([
+      ['TABLE', 'DBC_EXP_20261002140509_01_S1', "IN ('A')", "IN ('T1')", 'exp_20261002_01_A_%U.dmp', 'exp_20261002_01_A.log', 2],
+      ['TABLE', 'DBC_EXP_20261002140509_01_S2', "IN ('B')", "IN ('T2')", 'exp_20261002_01_B_%U.dmp', 'exp_20261002_01_B.log', 2],
+    ]);
+    // 실행 필터가 고르는 테이블 = 스키마 × 이름 교차곱의 합집합 = 목록
+    const selected = runs.flatMap((run) => run.tables.map((pair) => `${pair.owner}.${pair.table}`));
+    expect(selected).toEqual(['A.T1', 'B.T2']);
+    expect(runs.every((run) => run.filters.excludePaths.every((path) => path === 'STATISTICS'))).toBe(true); // 예전 "테이블만" EXCLUDE 없음
+    expect(summary).toMatchObject({ listed: 2, planned: 2, missing: 0, viewJobs: 0, warnings: [] });
+  });
+
+  it('서로 다른 스키마의 작은 테이블은 분할 크기까지 채워 작업 수를 최소로 (First-Fit Decreasing)', () => {
+    const owners = ['A', 'B', 'C', 'D', 'E', 'F'];
+    const sizes = owners.flatMap((owner) => [table(owner, 'T1', 200 * G), table(owner, 'T2', 100 * G)]); // 합 1.8T
+    const list = parseTableList(sizes.map((item) => `${item.owner}.${item.name}`).join('\n'));
     const { groups } = planExportGroups({ kind: 'TABLES', tables: list }, sizes, splitOptions(), NOW);
-    expect(groups.map((g) => g.tables.map((t) => `${t.owner}.${t.name}`).join(','))).toEqual(['HR.EMP,SH.SALES', 'SCOTT.DEPT']);
+    expect(groups).toHaveLength(2); // ceil(1.8T / 1T)
+    expect(groups.map((group) => group.bytes / G)).toEqual([1000, 800]);
+    expect(groups[0].owners.length).toBeGreaterThan(1);
+  });
+
+  it('INCLUDE 규칙이 있어도 여러 스키마를 묶는다 (실행이 스키마별이라 충돌 없음)', () => {
+    const list = parseTableList('A.T1\nB.T2');
+    const { groups } = planExportGroups(
+      { kind: 'TABLES', tables: list },
+      [table('A', 'T1', 1 * G), table('B', 'T2', 1 * G)],
+      splitOptions({ objectFilter: { rules: [{ kind: 'INCLUDE', path: 'TABLE', op: 'ALL', values: [] }] }, excludeStatistics: false }),
+      NOW
+    );
+    expect(groups).toHaveLength(1);
+    expect(executionPlans(buildPlan(groups[0].request, NOW)).map((run) => run.filters.includePaths)).toEqual([['TABLE'], ['TABLE']]);
+  });
+
+  it('남아 있던 VIEWS_AS_TABLES/QUERY가 다른 스키마를 가리키면 계획 요약에 드러난다', () => {
+    const list = parseTableList('A.T1\nA.NOPE');
+    const { groups, summary } = planExportGroups(
+      { kind: 'TABLES', tables: list },
+      [table('A', 'T1', 1 * G)],
+      splitOptions({
+        dataFilter: {
+          queries: [{ owner: 'OLD', table: 'ORDERS', where: 'WHERE 1=1' }],
+          viewsAsTables: [{ owner: 'OLD', view: 'V_ORDERS' }],
+        },
+      }),
+      NOW
+    );
+    expect(groups.map((group) => [group.tables.length, group.views])).toEqual([
+      [1, []],
+      [0, ['OLD.V_ORDERS']],
+    ]);
+    expect(groups[0].request.dataFilter?.queries).toEqual([]); // 목록 밖 테이블 QUERY는 어느 작업에도 안 걸림
+    expect(summary).toMatchObject({ listed: 2, planned: 1, missing: 1, viewJobs: 1, views: 1 });
+    expect(summary.warnings).toEqual([
+      expect.stringMatching(/VIEWS_AS_TABLES에 대상에 없는 스키마의 뷰 1개.*OLD\.V_ORDERS/),
+      expect.stringMatching(/QUERY 대상 OLD\.ORDERS은\(는\) 계획에 없는 테이블/),
+    ]);
+  });
+
+  it('불변식: 목록 밖 테이블/QUERY 대상/스키마가 둘인 실행 작업은 오류', () => {
+    // 요청과 그룹 테이블이 어긋난 경우는 assertGroupsWithinSource가, 테이블 모드의 목록 밖 QUERY 대상은 buildPlan이 막는다.
+    expect(() =>
+      buildPlan(
+        exportRequest({ mode: 'TABLE', qualifiedTables: [{ owner: 'A', table: 'T1' }], dataFilter: { queries: [{ owner: 'B', table: 'T9', where: 'WHERE 1=1' }] } }),
+        NOW
+      )
+    ).toThrow(/QUERY 대상 B\.T9이\(가\) 작업의 테이블 목록에 없습니다/);
+    const plan = buildPlan(exportRequest({ mode: 'TABLE', qualifiedTables: [{ owner: 'A', table: 'T1' }] }), NOW);
+    expect(() => executionPlans({ ...plan, schemaExpr: "IN ('A','B')" })).toThrow(DataPumpValidationError);
+    expect(() => executionPlans({ ...plan, nameExpr: "IN ('T1','T2')" })).toThrow(/목록 밖 A\.T2/);
+    expect(() => buildPlan(exportRequest({ mode: 'TABLE', jobName: 'J'.repeat(28), qualifiedTables: [{ owner: 'A', table: 'T' }, { owner: 'B', table: 'T' }] }), NOW)).toThrow(
+      /작업 이름이 27자 이하/
+    );
+  });
+
+  it('스키마별 덤프/로그 이름', () => {
+    expect(schemaFileName('exp_01_%U.dmp', 'HR')).toBe('exp_01_HR_%U.dmp');
+    expect(schemaFileName('exp%U.dmp', 'HR')).toBe('exp_HR%U.dmp');
+    expect(schemaFileName('exp_01.log', 'APP$X')).toMatch(/^exp_01_APP.X\.log$/);
+    expect(schemaFileName('noext', 'HR')).toBe('noext_HR');
   });
 
   it('형식이 틀린 줄은 거부', () => {

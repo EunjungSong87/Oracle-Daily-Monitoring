@@ -152,14 +152,12 @@ interface CleanRule {
 
 export interface FilterContext {
   operation: 'EXPORT' | 'IMPORT';
-  jobMode: 'SCHEMA' | 'TABLE' | 'FULL'; // 논리 모드 (여러 스키마 테이블 작업도 TABLE)
+  jobMode: 'SCHEMA' | 'TABLE' | 'FULL';
   networkLink: string | null;
   content: 'ALL' | 'METADATA_ONLY' | 'DATA_ONLY';
   tableExistsAction: string | null;
   excludeStatistics: boolean;
-  multiSchemaTables: boolean; // 실행은 SCHEMA 모드 + 테이블만
   hasTables: boolean; // TABLE 모드에 테이블이 있는지 (뷰만 있는 작업이면 false)
-  tableOwners: string[]; // TABLE 모드 작업의 테이블 소유자
 }
 
 // DBMS_DATAPUMP 호출과 parfile에 쓸 값
@@ -238,9 +236,6 @@ function compileFilters(
   if (includes.length > 0 && excludes.length > 0 && version !== null && version < 21) {
     fail(`INCLUDE와 EXCLUDE를 같이 쓰는 것은 Oracle 21c부터 됩니다 (이 DB는 ${version}).`);
   }
-  if (includes.length > 0 && ctx.multiSchemaTables) {
-    fail('여러 스키마의 테이블을 묶은 작업에는 INCLUDE를 쓸 수 없습니다 (스키마별로 나눠서 실행하세요).');
-  }
 
   const includePaths: string[] = [];
   const excludePaths: string[] = [];
@@ -294,20 +289,6 @@ function compileFilters(
   if (statsExcluded && !excludePaths.includes('STATISTICS')) {
     excludePaths.push('STATISTICS');
     parfileLines.push('EXCLUDE=STATISTICS');
-  }
-
-  // 여러 스키마 테이블 작업(SCHEMA 모드 실행)은 "테이블만": 스키마의 테이블이 아닌 최상위 유형을 EXCLUDE로 뺀다 (INCLUDE와 섞지 않아
-  // 19c에서도 되게). parfile은 TABLES= 한 줄이라 여기 줄은 안 쓴다. 경로 목록이 없으면(테스트) INCLUDE TABLE로 대신한다.
-  if (ctx.multiSchemaTables) {
-    if (env) {
-      const tableTop = new Set(env.paths.TABLE.filter((info) => !info.path.includes('/')).map((info) => info.path));
-      for (const info of env.paths.SCHEMA) {
-        if (info.path.includes('/') || tableTop.has(info.path) || info.path === 'TABLE' || info.path === 'TABLE_DATA') continue;
-        if (!excludePaths.includes(info.path)) excludePaths.push(info.path);
-      }
-    } else {
-      includePaths.push('TABLE');
-    }
   }
 
   const describeRule = (rule: CleanRule) =>
@@ -386,10 +367,9 @@ function compileFilters(
   for (const [index, item] of (Array.isArray(data.viewsAsTables) ? data.viewsAsTables : []).entries()) {
     const label = `VIEWS_AS_TABLES ${index + 1}번`;
     if (!isExport && !networkImport) fail(`${label}: VIEWS_AS_TABLES는 Export와 DB 링크 Import에서만 씁니다.`);
-    if (ctx.jobMode !== 'TABLE' || ctx.multiSchemaTables) fail(`${label}: VIEWS_AS_TABLES는 테이블 모드 작업에서만 쓸 수 있습니다 (스키마/전체 모드와 같이 못 씀).`);
+    if (ctx.jobMode !== 'TABLE') fail(`${label}: VIEWS_AS_TABLES는 테이블 모드 작업에서만 쓸 수 있습니다 (스키마/전체 모드와 같이 못 씀).`);
     const owner = ident(item?.owner, label);
     const view = ident(item?.view, label);
-    if (ctx.hasTables && !ctx.tableOwners.includes(owner)) fail(`${label}: 테이블과 같이 쓸 때는 뷰도 같은 스키마여야 합니다 (${ctx.tableOwners.join(', ')}).`);
     const template = item?.template ? ident(item.template, label) : null;
     const value = `${owner}.${view}${template ? `:${template}` : ''}`;
     if (!viewsAsTables.includes(value)) viewsAsTables.push(value);

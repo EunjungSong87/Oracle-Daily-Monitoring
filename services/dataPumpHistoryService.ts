@@ -95,8 +95,12 @@ function describeTarget(plan: DataPumpPlan): string {
     parts.push(`SCHEMAS=${list(plan.schemaExpr)}`);
     if (plan.excludeTableExpr) parts.push(`제외 테이블 ${list(plan.excludeTableExpr).split(',').length}개`);
   } else if (plan.jobMode === 'TABLE') {
-    const tables = list(plan.nameExpr).split(',');
-    parts.push(`${list(plan.schemaExpr)} 테이블 ${tables.length}개: ${tables.slice(0, 10).join(', ')}${tables.length > 10 ? ' …' : ''}`);
+    // 실제 목록(소유자, 테이블) 기준 — 스키마가 하나면 이름만, 여럿이면 OWNER.TABLE
+    const owners = [...new Set(plan.tables.map((pair) => pair.owner))];
+    const names = plan.tables.map((pair) => (owners.length > 1 ? `${pair.owner}.${pair.table}` : pair.table));
+    if (names.length > 0) {
+      parts.push(`${owners.join(',')} 테이블 ${names.length}개: ${names.slice(0, 10).join(', ')}${names.length > 10 ? ' …' : ''}`);
+    }
   } else {
     parts.push('덤프 전체');
   }
@@ -119,7 +123,9 @@ async function recordStart(
   target: { dbname: string; user: string },
   plan: DataPumpPlan,
   startedBy: string | null,
-  estimatedBytes: number | null
+  estimatedBytes: number | null,
+  // 여러 스키마 작업을 스키마별로 나눠 실행한 하위 작업이면 묶음 정보 (화면은 jobName의 _S1, _S2…로 한 줄에 묶어 보여 줌)
+  group: { jobName: string; index: number; count: number } | null = null
 ): Promise<void> {
   if (historyTableMissing) return;
   const row: NewHistory = {
@@ -129,7 +135,7 @@ async function recordStart(
     jobName: plan.jobName,
     operation: plan.operation,
     jobMode: plan.jobMode,
-    targetDesc: describeTarget(plan),
+    targetDesc: `${group ? `[${group.jobName} 스키마별 ${group.index}/${group.count}] ` : ''}${describeTarget(plan)}`,
     directory: plan.directory,
     dumpfile: plan.dumpfile,
     logfile: plan.logfile,

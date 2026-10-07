@@ -30,9 +30,7 @@ const ctx = (overrides: Partial<FilterContext> = {}): FilterContext => ({
   content: 'ALL',
   tableExistsAction: null,
   excludeStatistics: false,
-  multiSchemaTables: false,
   hasTables: false,
-  tableOwners: [],
   ...overrides,
 });
 
@@ -114,13 +112,10 @@ describe('INCLUDE + EXCLUDE 버전 분기', () => {
     expect(compile([rule('INCLUDE', 'TABLE')], { excludeStatistics: true }, 21).excludePaths).toEqual(['STATISTICS']);
   });
 
-  it('여러 스키마 테이블 작업: INCLUDE 거부, "테이블만"은 테이블이 아닌 최상위 유형 EXCLUDE (19c에서도 INCLUDE 없이)', () => {
-    invalid(() => compile([rule('INCLUDE', 'TABLE')], { jobMode: 'TABLE', multiSchemaTables: true }), /여러 스키마/);
-    const result = compile([], { jobMode: 'TABLE', multiSchemaTables: true, excludeStatistics: true });
-    expect(result.includePaths).toEqual([]);
-    expect(result.excludePaths).toEqual(expect.arrayContaining(['STATISTICS', 'VIEW', 'PROCEDURE', 'FUNCTION', 'PACKAGE', 'SEQUENCE', 'USER']));
-    expect(result.excludePaths).not.toEqual(expect.arrayContaining(['INDEX']));
-    expect(result.parfileLines).toEqual(['EXCLUDE=STATISTICS']); // parfile은 TABLES= 한 줄이라 내부 제외는 안 씀
+  it('테이블 모드는 스키마 수와 상관없이 같은 필터 (여러 스키마는 실행 때 스키마별 작업으로 나뉨) — INCLUDE도 허용', () => {
+    const result = compile([rule('INCLUDE', 'TABLE')], { jobMode: 'TABLE', hasTables: true });
+    expect(result).toMatchObject({ includePaths: ['TABLE'], excludePaths: [], parfileLines: ['INCLUDE=TABLE'] });
+    expect(compile([], { jobMode: 'TABLE', hasTables: true, excludeStatistics: true }).excludePaths).toEqual(['STATISTICS']);
   });
 });
 
@@ -242,10 +237,10 @@ describe('VIEWS_AS_TABLES', () => {
     invalid(() => compileFilters(null, views([{ owner: 'HR', view: "V'X" }]), ctx({ jobMode: 'TABLE' }), env(19)), /이름이 올바르지/);
   });
 
-  it('SCHEMA/FULL 모드, 덤프 Import, 다른 스키마 테이블과 같이는 거부', () => {
+  it('SCHEMA/FULL 모드, 덤프 Import는 거부 (다른 스키마의 뷰는 실행 때 그 스키마 작업으로 나뉨)', () => {
     invalid(() => compileFilters(null, views([{ owner: 'HR', view: 'V' }]), ctx({ jobMode: 'SCHEMA' }), env(19)), /테이블 모드/);
     invalid(() => compileFilters(null, views([{ owner: 'HR', view: 'V' }]), ctx({ jobMode: 'TABLE', operation: 'IMPORT' }), env(19)), /DB 링크 Import/);
-    invalid(() => compileFilters(null, views([{ owner: 'HR', view: 'V' }]), ctx({ jobMode: 'TABLE', hasTables: true, tableOwners: ['SALES'] }), env(19)), /같은 스키마/);
+    expect(compileFilters(null, views([{ owner: 'HR', view: 'V' }]), ctx({ jobMode: 'TABLE', hasTables: true }), env(19)).excludeTablesOnly).toBe(false);
   });
 });
 

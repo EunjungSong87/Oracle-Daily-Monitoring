@@ -109,7 +109,7 @@ async function start(req: Request, res: Response): Promise<void> {
   const dbmsid = requireDbmsid(req, res);
   if (dbmsid === null) return;
   try {
-    const { jobName, plan } = await dataPumpService.start(
+    const { jobName, jobNames, plan } = await dataPumpService.start(
       { dbmsid },
       req.body.request ?? {},
       req.body.confirmDbname,
@@ -120,13 +120,14 @@ async function start(req: Request, res: Response): Promise<void> {
     logger.info(
       'DataPump',
       `${req.session.username} 작업 시작: ${jobName} (dbmsid=${dbmsid}, ${plan.operation} ${plan.jobMode}` +
-        `${plan.tableExistsAction ? `, TABLE_EXISTS_ACTION=${plan.tableExistsAction}` : ''}, ${plan.directory}/${plan.dumpfile})`
+        `${plan.tableExistsAction ? `, TABLE_EXISTS_ACTION=${plan.tableExistsAction}` : ''}, ${plan.directory}/${plan.dumpfile})` +
+        `${jobNames.length > 1 ? ` — 스키마별 ${jobNames.length}개로 나눠 실행: ${jobNames.join(', ')}` : ''}`
     );
     // 필터·옵션 감사: QUERY/서브쿼리 원문, SAMPLE, DATA_OPTIONS, VIEWS_AS_TABLES
     if (plan.filters.audit.length > 0) {
       logger.info('DataPump', `${req.session.username} 작업 ${jobName} 필터: ${plan.filters.audit.join(' / ')}`);
     }
-    res.json({ jobName });
+    res.json({ jobName, jobNames });
   } catch (error) {
     handleError(res, error, `작업 시작 오류 (dbmsid=${dbmsid})`);
   }

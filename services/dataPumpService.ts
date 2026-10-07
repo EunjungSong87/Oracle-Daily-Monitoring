@@ -184,8 +184,7 @@ function buildPlan(request: DataPumpRequest, now: Date = new Date(), env: Filter
   let nameExpr: string | null = null;
   let excludeTableExpr: string | null = null;
   const partitionFilters: DataPumpPlan['partitionFilters'] = [];
-  let multiSchemaTables = false;
-  let tableOwners: string[] = [];
+  let tables: DataPumpPlan['tables'] = [];
   let truncateTarget: DataPumpPlan['truncateTarget'] = null;
   const shortPartitions = identifierList(request.partitions ?? [], '파티션', true);
   const requested = Array.isArray(request.tablePartitions) ? request.tablePartitions : [];
@@ -202,11 +201,10 @@ function buildPlan(request: DataPumpRequest, now: Date = new Date(), env: Filter
   } else if (mode === 'TABLE') {
     const hasViews = Array.isArray(request.dataFilter?.viewsAsTables) && request.dataFilter.viewsAsTables.length > 0;
     const pairs = tablePairs(request, hasViews);
-    tableOwners = [...new Set(pairs.map((pair) => pair.owner))];
-    // DBMS_DATAPUMP는 스키마 목록 × 테이블 이름 목록으로 거른다. 여러 스키마를 섞으면 목록에 없는 같은 이름 테이블까지
-    // 걸릴 수 있어서, 섞어도 되는 조합인지는 분할 계획(planExportGroups)이 실제 테이블 목록과 대조해 정한다.
+    tables = pairs;
+    // DBMS_DATAPUMP는 스키마 목록 × 테이블 이름 목록으로 거른다. 스키마가 여럿이면 실행할 때 스키마마다 작업 하나로
+    // 나누므로(executionPlans) 각 작업의 교차곱이 곧 그 스키마의 목록이다. 아래 식은 parfile/이력 요약용 전체 목록.
     const owners = [...new Set(pairs.map((pair) => pair.owner))];
-    multiSchemaTables = owners.length > 1;
     // 뷰만 있는 작업이면 테이블 필터 없이 VIEWS_AS_TABLES만 (filters.excludeTablesOnly)
     schemaExpr = pairs.length > 0 ? filterExpr('IN', owners, '스키마') : null;
     nameExpr = pairs.length > 0 ? filterExpr('IN', [...new Set(pairs.map((pair) => pair.table))], '테이블') : null;
@@ -294,9 +292,7 @@ function buildPlan(request: DataPumpRequest, now: Date = new Date(), env: Filter
       content,
       tableExistsAction,
       excludeStatistics: !!request.excludeStatistics,
-      multiSchemaTables,
-      hasTables: tableOwners.length > 0,
-      tableOwners,
+      hasTables: tables.length > 0,
     },
     env
   );
@@ -314,7 +310,15 @@ function buildPlan(request: DataPumpRequest, now: Date = new Date(), env: Filter
     audit: compiled.audit,
   };
 
-  return {
+  // 테이블 모드에서 테이블을 지정한 QUERY/SAMPLE은 작업의 테이블이어야 한다 (목록 밖 테이블을 가리키는 남은 설정 방지).
+  if (mode === 'TABLE') {
+    const listed = new Set(tables.map((pair) => `${pair.owner}.${pair.table}`));
+    for (const item of [...compiled.queries.map((q) => ({ ...q, kind: 'QUERY' })), ...compiled.samples.map((q) => ({ ...q, kind: 'SAMPLE' }))]) {
+      if (item.table && !listed.has(`${item.owner}.${item.table}`)) fail(`${item.kind} 대상 ${item.owner}.${item.table}이(가) 작업의 테이블 목록에 없습니다.`);
+    }
+  }
+
+  const plan: DataPumpPlan = {
     operation,
     jobMode: mode,
     jobName,
@@ -337,11 +341,88 @@ function buildPlan(request: DataPumpRequest, now: Date = new Date(), env: Filter
     remapTablespaces: isExport ? [] : remapList(request.remapTablespaces, 'REMAP_TABLESPACE'),
     networkLink,
     partitionFilters,
-    multiSchemaTables,
+    tables,
     filters,
     truncateTarget,
     truncatePartitions: truncateList,
   };
+  executionPlans(plan); // 실행 단위로 나눠지는지(작업 이름 길이 등)와 불변식을 미리 확인
+  return plan;
+}
+
+// ── 실행 단위: 여러 스키마 테이블 작업 → 스키마별 작업 ──
+// DBMS_DATAPUMP TABLE 모드는 SCHEMA_EXPR에 스키마 하나만 받고(ORA-39040), expdp가 여러 스키마 TABLES=에 쓰는 소유자별 필터
+// (CUSTOM_FILTER)는 API에 열려 있지 않다(ORA-39036). 그래서 화면 실행은 스키마마다 TABLE 모드 작업 하나로 나눠 동시에 시작한다.
+// parfile/계획은 한 작업(TABLES=A.T1,B.T2) 그대로이고, 하위 작업은 이름에 _S1, _S2…를 붙여 이력/진행 화면에서 한 묶음으로 보인다.
+
+// 그룹 덤프/로그 이름 + 스키마 접미어: exp_01_%U.dmp → exp_01_HR_%U.dmp, exp_01.log → exp_01_HR.log
+function schemaFileName(name: string, owner: string): string {
+  const part = safeFilePart(owner);
+  if (/%U/i.test(name)) return name.replace(/(_?)%U/i, (_match, sep: string) => `_${part}${sep}%U`);
+  const dot = name.lastIndexOf('.');
+  return dot > 0 ? `${name.slice(0, dot)}_${part}${name.slice(dot)}` : `${name}_${part}`;
+}
+
+function planOwners(plan: DataPumpPlan): string[] {
+  const owners = new Set(plan.tables.map((pair) => pair.owner));
+  for (const view of plan.filters.viewsAsTables) owners.add(view.split('.')[0]);
+  return [...owners].sort();
+}
+
+function executionPlans(plan: DataPumpPlan): DataPumpPlan[] {
+  const owners = plan.jobMode === 'TABLE' ? planOwners(plan) : [];
+  if (owners.length <= 1) {
+    if (plan.jobMode === 'TABLE') assertExecutionWithinList(plan, [plan]);
+    return [plan];
+  }
+  const suffixLength = 2 + String(owners.length).length;
+  if (plan.jobName.length + suffixLength > 30) fail(`여러 스키마 작업은 스키마별로 나눠 실행해서 작업 이름이 ${30 - suffixLength}자 이하여야 합니다 (${plan.jobName}).`);
+  const parallel = Math.max(1, Math.floor(plan.parallel / owners.length)); // 동시에 도는 작업자 수를 계획과 비슷하게
+  const runs = owners.map((owner, index): DataPumpPlan => {
+    const tables = plan.tables.filter((pair) => pair.owner === owner);
+    const views = plan.filters.viewsAsTables.filter((view) => view.split('.')[0] === owner);
+    const mine = <T extends { owner: string | null; table: string | null }>(items: T[]) => items.filter((item) => !item.table || item.owner === owner);
+    return {
+      ...plan,
+      jobName: `${plan.jobName}_S${index + 1}`,
+      dumpfile: plan.dumpfile ? schemaFileName(plan.dumpfile, owner) : null,
+      logfile: schemaFileName(plan.logfile, owner),
+      parallel,
+      schemaExpr: tables.length > 0 ? filterExpr('IN', [owner], '스키마') : null,
+      nameExpr: tables.length > 0 ? filterExpr('IN', [...new Set(tables.map((pair) => pair.table))], '테이블') : null,
+      tables,
+      partitionFilters: plan.partitionFilters.filter((filter) => filter.owner === owner),
+      filters: {
+        ...plan.filters,
+        queries: mine(plan.filters.queries),
+        samples: mine(plan.filters.samples),
+        viewsAsTables: views,
+        excludeTablesOnly: views.length > 0 && tables.length === 0,
+      },
+    };
+  });
+  assertExecutionWithinList(plan, runs);
+  return runs;
+}
+
+// 불변식: 실행 작업들이 고르는 테이블(스키마 × 이름 교차곱)은 계획의 목록과 정확히 같고, 작업마다 스키마는 하나.
+function assertExecutionWithinList(plan: DataPumpPlan, runs: DataPumpPlan[]): void {
+  const list = (expr: string | null) => (expr ? expr.replace(/^IN \(|\)$/g, '').split(',').map((item) => item.replace(/'/g, '')) : []);
+  const expected = new Set(plan.tables.map((pair) => `${pair.owner}.${pair.table}`));
+  const selected = new Set<string>();
+  for (const run of runs) {
+    const schemas = list(run.schemaExpr);
+    if (schemas.length > 1) fail(`내부 오류: 실행 작업 ${run.jobName}에 스키마가 둘 이상입니다.`);
+    for (const schema of schemas) for (const name of list(run.nameExpr)) selected.add(`${schema}.${name}`);
+    for (const filter of run.partitionFilters) {
+      if (!run.tables.some((pair) => pair.owner === filter.owner && pair.table === filter.table)) fail(`내부 오류: ${run.jobName}의 파티션 대상 ${filter.owner}.${filter.table}이 목록에 없습니다.`);
+    }
+  }
+  const strays = [...selected].filter((key) => !expected.has(key));
+  const lost = [...expected].filter((key) => !selected.has(key));
+  if (strays.length > 0 || lost.length > 0) {
+    fail(`내부 오류: 실행 필터가 목록과 다릅니다 (목록 밖 ${strays.join(', ') || '없음'} / 빠짐 ${lost.join(', ') || '없음'}).`);
+  }
 }
 
 function isDestructive(plan: DataPumpPlan): boolean {
@@ -379,6 +460,16 @@ function buildParfile(
       return filter ? filter.partitions.map((partition) => `${owner}.${table}:${partition}`) : [`${owner}.${table}`];
     });
     if (entries.length > 0) lines.push(`TABLES=${entries.join(',')}`); // 뷰만 내보내는 작업은 VIEWS_AS_TABLES 줄만
+    const runs = executionPlans(plan);
+    if (runs.length > 1) {
+      lines.splice(
+        comment ? 1 : 0,
+        0,
+        `# 화면에서 실행하면 스키마별 작업 ${runs.length}개로 나눠 동시에 실행합니다 (DBMS_DATAPUMP 테이블 모드는 스키마 하나만):`,
+        ...runs.map((run) => `#   ${run.jobName}: ${planOwners(run).join(',')} → ${run.dumpfile ?? '(덤프 없음)'}`),
+        '# 이 parfile로 expdp를 직접 돌리면 아래 DUMPFILE 하나에 모두 들어갑니다 (파티션 매니페스트는 화면 실행 기준 덤프 이름).'
+      );
+    }
   } else {
     lines.push('FULL=Y');
   }
@@ -450,9 +541,7 @@ function packPartitions(partitions: PartitionRange[], limit: number, perPartitio
 export type ExportSource =
   | { kind: 'SCHEMAS'; schemas: string[] }
   // 올린 목록. partition이 있는 줄은 그 테이블의 그 파티션만 (partitionRanges는 planExport가 DB에서 읽어 채움, 키 OWNER.TABLE)
-  // existingTables: 목록의 스키마들 × 목록의 테이블 이름 중 DB에 실제로 있는 OWNER.TABLE (여러 스키마를 한 작업에 묶어도 되는지 판단용).
-  // 없으면 sizes에 있는 테이블로 판단한다.
-  | { kind: 'TABLES'; tables: TableListItem[]; partitionRanges?: Record<string, PartitionRange[]>; existingTables?: string[] }
+  | { kind: 'TABLES'; tables: TableListItem[]; partitionRanges?: Record<string, PartitionRange[]> }
   // Range 파티션 테이블 하나에서 고른 파티션들 (planExport가 DB에서 범위/크기를 읽어 채움)
   | { kind: 'PARTITIONS'; owner: string; table: string; partitions: PartitionRange[] };
 
@@ -510,7 +599,7 @@ function planExportGroups(
   options: ExportSplitOptions,
   now: Date = new Date(),
   env: FilterEnv | null = null
-): { groups: ExportGroup[]; totalBytes: number; chunkBytes: number | null; missing: string[]; sizeApprox: boolean } {
+): { groups: ExportGroup[]; totalBytes: number; chunkBytes: number | null; missing: string[]; sizeApprox: boolean; summary: ExportPlanSummary } {
   const directory = identifier(options.directory, 'DIRECTORY');
   const prefix = typeof options.filePrefix === 'string' ? options.filePrefix.trim() : '';
   if (!FILE_PREFIX.test(prefix)) fail('파일 이름 접두어는 영문/숫자/_ - 만 쓸 수 있습니다.');
@@ -529,7 +618,6 @@ function planExportGroups(
   // 서브쿼리 조건이나 QUERY는 미리 알 수 없어 그대로 두고 "어림"으로 표시한다.
   const objectFilter = options.objectFilter ?? null;
   const dataFilter = options.dataFilter ?? null;
-  const hasIncludes = (objectFilter?.rules ?? []).some((rule) => rule?.kind === 'INCLUDE');
   let sizeApprox = false;
   const factorOf = (owner: string, table: string): number => {
     const result = tableSizeFactor(objectFilter, dataFilter, owner, table);
@@ -618,8 +706,8 @@ function planExportGroups(
       });
     }
   } else {
-    // 올린 목록을 DB의 실제 테이블/파티션과 맞춰 보고, 없는 건 따로 알려줍니다. 소유자가 다르면 작업을 따로 만듭니다.
-    // 같은 스키마는 분할 크기 안에서 되도록 한 작업(= 한 parfile)에 모읍니다. 통째로 적은 테이블과 파티션을 적은 테이블이
+    // 올린 목록을 DB의 실제 테이블/파티션과 맞춰 보고, 없는 건 따로 알려줍니다. 스키마와 상관없이 분할 크기 안에서
+    // 되도록 한 작업(= 한 parfile)에 모읍니다. 통째로 적은 테이블과 파티션을 적은 테이블이
     // 섞여도 같은 작업에 담고(TABLES=O.T1,O.T2:P1,O.T2:P2), 한 테이블의 파티션은 그 테이블 혼자 분할 크기를 넘을 때만
     // 기간 순서로 나눕니다. 같은 테이블을 통째로도 적었으면 통째로 내보냅니다.
     const byKey = new Map(sizes.map((table) => [`${table.owner}.${table.name}`, table]));
@@ -659,39 +747,21 @@ function planExportGroups(
       }
     }
 
-    // 스키마가 달라도 분할 크기 안이면 한 작업(parfile)에 묶는다 (큰 것부터 First-Fit Decreasing). 다만 실행(DBMS_DATAPUMP)은
-    // "스키마 목록 × 테이블 이름 목록"으로 거르므로, 묶었을 때 목록에 없는 테이블(다른 스키마의 같은 이름 테이블 등)이
-    // 딸려 들어가는 조합은 묶지 않는다. 실제로 있는 테이블은 sizes(목록에 나온 스키마의 전체 테이블)로 판단한다.
-    const existing = new Set(source.existingTables ?? byKey.keys());
-    const bins: { bytes: number; units: Unit[]; owners: Set<string>; names: Set<string>; keys: Set<string> }[] = [];
-    const fitsWithoutStrays = (bin: (typeof bins)[number], unit: Unit): boolean => {
-      // INCLUDE 규칙이 있으면 여러 스키마를 섞지 않는다 (여러 스키마 작업은 "테이블만"을 EXCLUDE로 처리해서 INCLUDE와 같이 못 씀).
-      if (hasIncludes && !bin.owners.has(unit.owner)) return false;
-      const owners = new Set([...bin.owners, unit.owner]);
-      const names = new Set([...bin.names, unit.table.name]);
-      const keys = new Set([...bin.keys, `${unit.owner}.${unit.table.name}`]);
-      for (const owner of owners) {
-        for (const name of names) {
-          const key = `${owner}.${name}`;
-          if (existing.has(key) && !keys.has(key)) return false;
-        }
-      }
-      return true;
-    };
+    // 스키마와 상관없이 분할 크기까지 채워 묶는다 (큰 것부터 First-Fit Decreasing). 실행은 스키마별 작업으로 나뉘므로
+    // (executionPlans) 다른 스키마의 같은 이름 테이블이 딸려 들어가지 않는다. 같은 테이블의 파티션 묶음끼리는 한 작업에
+    // 넣지 않는다 (그 테이블 혼자 분할 크기를 넘어서 나뉜 것이므로).
+    const bins: { bytes: number; units: Unit[]; owners: Set<string>; keys: Set<string> }[] = [];
     for (const unit of [...units].sort((a, b) => b.table.bytes - a.table.bytes || a.owner.localeCompare(b.owner) || a.table.name.localeCompare(b.table.name))) {
       const key = `${unit.owner}.${unit.table.name}`;
-      // "파티션마다 하나"면 묶지 않고, 같은 테이블의 다른 파티션 묶음과도 한 작업에 넣지 않는다.
-      const bin = perPartition
-        ? undefined
-        : bins.find((candidate) => candidate.bytes + unit.table.bytes <= limit && !candidate.keys.has(key) && fitsWithoutStrays(candidate, unit));
+      // "파티션마다 하나"면 묶지 않는다.
+      const bin = perPartition ? undefined : bins.find((candidate) => candidate.bytes + unit.table.bytes <= limit && !candidate.keys.has(key));
       if (bin) {
         bin.bytes += unit.table.bytes;
         bin.units.push(unit);
         bin.owners.add(unit.owner);
-        bin.names.add(unit.table.name);
         bin.keys.add(key);
       } else {
-        bins.push({ bytes: unit.table.bytes, units: [unit], owners: new Set([unit.owner]), names: new Set([unit.table.name]), keys: new Set([key]) });
+        bins.push({ bytes: unit.table.bytes, units: [unit], owners: new Set([unit.owner]), keys: new Set([key]) });
       }
     }
     for (const bin of bins) {
@@ -786,13 +856,128 @@ function planExportGroups(
       dataFilter: groupDataFilter,
     };
     buildPlan(request, now, env); // 그룹마다 실제로 실행 가능한 요청인지 미리 확인 (목록이 너무 길면 여기서 걸림)
-    const viewNames = draftViews.map((view) => `${String(view.owner).toUpperCase()}.${String(view.view).toUpperCase()}${view.template ? `:${String(view.template).toUpperCase()}` : ''}`);
+    const viewNames = draftViews.map(viewKey);
     return { ...draft, partitions, views: viewNames, no, filesize, expectedFiles: expectedFileCount(draft.bytes, parallel, filesize), request };
   });
 
-  const dumpNames = groups.map((group) => group.request.dumpfile);
+  // 화면 실행은 여러 스키마 작업을 스키마별 덤프로 나누므로 그 이름까지 겹치지 않아야 한다.
+  const dumpNames = groups.flatMap((group) => executionPlans(buildPlan(group.request, now, env)).map((run) => run.dumpfile));
   if (new Set(dumpNames).size !== dumpNames.length) fail('덤프 파일 이름이 겹치는 파티션이 있습니다 (특수문자만 다른 이름). 분할 크기로 묶어 주세요.');
-  return { groups, totalBytes: groups.reduce((sum, group) => sum + group.bytes, 0), chunkBytes, missing, sizeApprox };
+  assertGroupsWithinSource(source, groups, views, now, env);
+  const summary = summarizePlan(source, groups, missing, dataFilter, now, env);
+  return { groups, totalBytes: groups.reduce((sum, group) => sum + group.bytes, 0), chunkBytes, missing, sizeApprox, summary };
+}
+
+function viewKey(view: ViewAsTable): string {
+  return `${String(view.owner).toUpperCase()}.${String(view.view).toUpperCase()}${view.template ? `:${String(view.template).toUpperCase()}` : ''}`;
+}
+
+// 불변식: 모든 작업의 테이블/파티션, 요청(parfile TABLES=), 실행 필터가 고르는 테이블은 올린 대상(목록 줄, 고른 스키마/파티션) 안에만
+// 있고, 뷰 작업은 VIEWS_AS_TABLES로 명시한 뷰만. 어긋나면 계획 자체를 내보내지 않는다.
+function assertGroupsWithinSource(source: ExportSource, groups: ExportGroup[], views: ViewAsTable[], now: Date, env: FilterEnv | null): void {
+  const allowedViews = new Set(views.map(viewKey));
+  const wholeKeys = new Set<string>();
+  const partitionLines = new Set<string>();
+  if (source.kind === 'TABLES') {
+    for (const item of source.tables) {
+      const key = `${item.owner.toUpperCase()}.${item.name.toUpperCase()}`;
+      if (item.partition) partitionLines.add(`${key}:${item.partition.toUpperCase()}`);
+      else wholeKeys.add(key);
+    }
+  } else if (source.kind === 'PARTITIONS') {
+    for (const partition of source.partitions) partitionLines.add(`${source.owner.toUpperCase()}.${source.table.toUpperCase()}:${partition.name}`);
+  }
+  const schemas = source.kind === 'SCHEMAS' ? new Set(source.schemas.map((schema) => String(schema).toUpperCase())) : null;
+  const outside = (what: string): never => fail(`내부 오류: 올린 대상 밖의 ${what}이(가) 계획에 들어갔습니다. 계획을 다시 만들어 주세요.`);
+
+  for (const group of groups) {
+    for (const view of group.views) if (!allowedViews.has(view)) outside(`뷰 ${view}`);
+    const plan = buildPlan(group.request, now, env);
+    if (schemas) {
+      for (const owner of group.owners) if (!schemas.has(owner)) outside(`스키마 ${owner}`);
+      for (const table of group.tables) if (!schemas.has(table.owner)) outside(`테이블 ${table.owner}.${table.name}`);
+      continue;
+    }
+    // 그룹의 테이블 = 요청의 테이블(parfile TABLES=) = 실행 계획의 테이블
+    const keysOf = (pairs: { owner: string; table: string }[]) => pairs.map((pair) => `${pair.owner}.${pair.table}`).sort().join(',');
+    const groupKeys = keysOf(group.tables.map((table) => ({ owner: table.owner, table: table.name })));
+    if (groupKeys !== keysOf(tablePairs(group.request, group.views.length > 0)) || groupKeys !== keysOf(plan.tables)) outside(`테이블 (작업 ${group.no})`);
+    for (const table of group.tables) {
+      const key = `${table.owner}.${table.name}`;
+      const filter = plan.partitionFilters.find((item) => item.owner === table.owner && item.table === table.name);
+      if (!filter) {
+        if (!wholeKeys.has(key)) outside(`테이블 ${key}`);
+        continue;
+      }
+      for (const partition of filter.partitions) if (!partitionLines.has(`${key}:${partition}`)) outside(`파티션 ${key}:${partition}`);
+    }
+    executionPlans(plan); // 실행 필터가 고르는 테이블 = 계획의 목록 (assertExecutionWithinList)
+  }
+}
+
+export interface ExportPlanSummary {
+  listed: number | null; // 올린 목록 줄 수 / 고른 파티션 수 (스키마 선택이면 null)
+  planned: number; // 계획에 들어간 줄(통째 테이블 + 파티션) 수 — 스키마 선택이면 테이블 수
+  missing: number; // DB에 없어서 뺀 줄
+  viewJobs: number;
+  views: number;
+  filters: string[]; // 적용 중인 오브젝트·데이터 필터 요약
+  warnings: string[]; // 대상과 안 맞는 남은 설정 (다른 스키마를 가리키는 뷰/QUERY/SAMPLE)
+}
+
+function summarizePlan(
+  source: ExportSource,
+  groups: ExportGroup[],
+  missing: string[],
+  dataFilter: DataFilter | null,
+  now: Date,
+  env: FilterEnv | null
+): ExportPlanSummary {
+  const tableGroups = groups.filter((group) => group.views.length === 0);
+  const wholeCount = (group: ExportGroup) => group.tables.filter((table) => !group.partitions.some((p) => p.owner === table.owner && p.table === table.name)).length;
+  const planned =
+    source.kind === 'SCHEMAS'
+      ? tableGroups.reduce((sum, group) => sum + group.tables.length, 0)
+      : tableGroups.reduce((sum, group) => sum + wholeCount(group) + group.partitions.length, 0);
+  const filters = [...new Set(groups.flatMap((group) => buildPlan(group.request, now, env).filters.summary))];
+
+  const warnings: string[] = [];
+  const sourceOwners = new Set(
+    source.kind === 'SCHEMAS'
+      ? source.schemas.map((schema) => String(schema).toUpperCase())
+      : source.kind === 'PARTITIONS'
+        ? [source.owner.toUpperCase()]
+        : source.tables.map((item) => item.owner.toUpperCase())
+  );
+  const views = Array.isArray(dataFilter?.viewsAsTables) ? dataFilter.viewsAsTables : [];
+  const foreignViews = views.filter((view) => !sourceOwners.has(String(view.owner).toUpperCase()));
+  if (foreignViews.length > 0) {
+    warnings.push(
+      `VIEWS_AS_TABLES에 대상에 없는 스키마의 뷰 ${foreignViews.length}개가 있어 뷰 작업으로 따로 나갑니다: ${foreignViews.slice(0, 5).map(viewKey).join(', ')} — 이전 설정이 남아 있는지 확인하세요.`
+    );
+  }
+  const plannedKeys = new Set(tableGroups.flatMap((group) => group.tables.map((table) => `${table.owner}.${table.name}`)));
+  const targeted: [string, { owner?: string | null; table?: string | null }[]][] = [
+    ['QUERY', dataFilter?.queries ?? []],
+    ['SAMPLE', dataFilter?.samples ?? []],
+  ];
+  for (const [kind, items] of targeted) {
+    for (const item of items) {
+      if (!item.table) continue;
+      const key = `${String(item.owner ?? '').toUpperCase()}.${String(item.table).toUpperCase()}`;
+      if (source.kind !== 'SCHEMAS' && !plannedKeys.has(key)) warnings.push(`${kind} 대상 ${key}은(는) 계획에 없는 테이블이라 적용되지 않습니다 — 이전 설정이 남아 있는지 확인하세요.`);
+      if (source.kind === 'SCHEMAS' && !sourceOwners.has(key.split('.')[0])) warnings.push(`${kind} 대상 ${key}은(는) 고른 스키마에 없어 적용되지 않습니다 — 이전 설정이 남아 있는지 확인하세요.`);
+    }
+  }
+  return {
+    listed: source.kind === 'TABLES' ? source.tables.length : source.kind === 'PARTITIONS' ? source.partitions.length : null,
+    planned,
+    missing: missing.length,
+    viewJobs: groups.length - tableGroups.length,
+    views: groups.reduce((sum, group) => sum + group.views.length, 0),
+    filters,
+    warnings,
+  };
 }
 
 // "OWNER.TABLE" (또는 OWNER TABLE / OWNER,TABLE) 한 줄에 하나씩 붙여 넣거나 올린 목록을 읽습니다.
@@ -913,6 +1098,7 @@ export interface ExportPlanResponse {
   sizesReadAt: string;
   // 크기 안내: 서브쿼리/QUERY 조건 때문에 어림인 경우, 뷰(VIEWS_AS_TABLES)가 있어 크기를 모르는 경우
   sizeNotes: string[];
+  summary: ExportPlanSummary; // 목록 N개 / 계획 포함 N개 / DB에 없어 뺀 N개 / 뷰 작업 / 적용 중인 필터 / 남은 설정 경고
 }
 
 const MAX_PARTITIONS_PER_PLAN = 1000;
@@ -989,7 +1175,7 @@ async function resolveTableList(
     partitionRanges[key] = buildRanges(result.partitions);
   }
   return {
-    source: { kind: 'TABLES', tables, partitionRanges, existingTables: sizing.value.existing },
+    source: { kind: 'TABLES', tables, partitionRanges },
     sizes: sizing.value.sizes,
     readAt: sizing.readAt,
   };
@@ -1044,7 +1230,7 @@ async function planExport(
   }
   const target = await dataPumpModel.getTargetInfo(dbmsid); // 메타데이터 DB (대상 DB 아님)
 
-  const { groups, totalBytes, chunkBytes, missing, sizeApprox } = planExportGroups(source, sizes, options, now, env);
+  const { groups, totalBytes, chunkBytes, missing, sizeApprox, summary } = planExportGroups(source, sizes, options, now, env);
   const viewCount = groups.reduce((sum, group) => sum + group.views.length, 0);
   const sizeNotes = [
     ...(sizeApprox ? ['서브쿼리/QUERY 조건이 있어 예상 크기가 실제와 다를 수 있습니다.'] : []),
@@ -1060,7 +1246,11 @@ async function planExport(
     const entries: PartitionManifestEntry[] = groups.flatMap((group) =>
       group.partitions
         .filter((partition) => partition.owner === info.owner && partition.table === info.name)
-        .map(({ owner: _owner, table: _table, ...partition }) => ({ ...partition, dumpfile: group.request.dumpfile }))
+        // 여러 스키마 작업은 화면 실행 시 스키마별 덤프로 나뉘므로 그 테이블 스키마의 덤프 이름
+        .map(({ owner: _owner, table: _table, ...partition }) => ({
+          ...partition,
+          dumpfile: group.owners.length > 1 ? schemaFileName(String(group.request.dumpfile), info.owner) : group.request.dumpfile,
+        }))
     );
     if (entries.length === 0) continue;
     // 테이블 목록은 여러 스키마에 같은 이름 테이블이 있을 수 있어, 스키마가 둘 이상이면 이름에 스키마도 넣는다.
@@ -1097,6 +1287,7 @@ async function planExport(
     manifests,
     sizesReadAt: sizesReadAt.toISOString(),
     sizeNotes,
+    summary,
     groups: groups.map((group) => {
       const plan = buildPlan(group.request, now, env);
       const comment = `작업 ${group.no}/${groups.length}: ${describe(group)}, 예상 약 ${(group.bytes / UNIT.G).toFixed(1)} GB`;
@@ -1134,7 +1325,7 @@ async function start(
   startedBy: string | null = null,
   estimatedBytes: unknown = null,
   role: string | null = null
-): Promise<{ jobName: string; plan: DataPumpPlan }> {
+): Promise<{ jobName: string; jobNames: string[]; plan: DataPumpPlan }> {
   const plan = buildPlan(request, new Date(), await getFilterEnv(dbmsid, role));
   await ensureDbLink(dbmsid, plan.networkLink);
   const target = await dataPumpModel.getTargetInfo(dbmsid);
@@ -1149,15 +1340,35 @@ async function start(
   if (plan.truncateTarget && plan.truncatePartitions.length > 0) {
     await truncateBeforeImport(dbmsid, plan.truncateTarget, plan.truncatePartitions);
   }
-  try {
-    await dataPumpModel.startJob(dbmsid, plan);
-  } catch (error) {
-    const truncated = plan.truncatePartitions.length > 0 ? ` (파티션 ${plan.truncatePartitions.join(', ')}은(는) 이미 비웠습니다)` : '';
-    throw new Error(`Data Pump 작업 시작 실패${truncated}`, { cause: error });
+  // 여러 스키마 테이블 작업은 스키마별 작업으로 나눠 동시에 시작한다. 일관성 옵션이면 SCN을 한 번만 읽어 모두 같은 시점으로.
+  let runs = executionPlans(plan);
+  if (runs.length > 1 && plan.flashbackConsistent && !plan.flashbackScn) {
+    const scn = await getCurrentScn(dbmsid, plan.networkLink);
+    runs = runs.map((run) => ({ ...run, flashbackScn: scn }));
+  }
+  const started: DataPumpPlan[] = [];
+  for (const run of runs) {
+    try {
+      await dataPumpModel.startJob(dbmsid, run);
+      started.push(run);
+    } catch (error) {
+      // 한 묶음이므로 먼저 시작한 스키마 작업도 멈춘다 (일부만 나간 덤프가 남지 않게).
+      for (const done of started) {
+        await dataPumpModel.cancelJob(dbmsid, target.user.toUpperCase(), done.jobName).catch(() => undefined);
+      }
+      const truncated = plan.truncatePartitions.length > 0 ? ` (파티션 ${plan.truncatePartitions.join(', ')}은(는) 이미 비웠습니다)` : '';
+      const which = runs.length > 1 ? ` — ${run.jobName}${started.length > 0 ? `, 먼저 시작한 ${started.length}개는 취소함` : ''}` : '';
+      throw new Error(`Data Pump 작업 시작 실패${which}${truncated}`, { cause: error });
+    }
   }
   const estimate = Number(estimatedBytes);
-  await historyService.recordStart(dbmsid.dbmsid, target, plan, startedBy, Number.isFinite(estimate) && estimate > 0 ? estimate : null);
-  return { jobName: plan.jobName, plan };
+  const estimated = Number.isFinite(estimate) && estimate > 0 ? estimate : null;
+  for (const [index, run] of started.entries()) {
+    // 스키마별로 나눈 작업은 예상 크기를 나눌 근거가 없어 비워 둔다 (끝나면 실제 덤프 크기가 남음).
+    const group = started.length > 1 ? { jobName: plan.jobName, index: index + 1, count: started.length } : null;
+    await historyService.recordStart(dbmsid.dbmsid, target, run, startedBy, group ? null : estimated, group);
+  }
+  return { jobName: plan.jobName, jobNames: started.map((run) => run.jobName), plan };
 }
 
 // 비울 파티션이 대상 테이블에 실제로 있는지 다시 확인하고 비운다 (화면 계획 이후 파티션이 바뀌었을 수도 있음).
@@ -1245,6 +1456,8 @@ export {
   timestamp,
   buildPlan,
   buildParfile,
+  executionPlans,
+  schemaFileName,
   isDestructive,
   parseSize,
   suggestFilesize,
