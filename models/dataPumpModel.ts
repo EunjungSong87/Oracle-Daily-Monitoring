@@ -55,11 +55,29 @@ export interface DataPumpPlan {
   // 파티션 단위 EXPORT: 테이블마다 DATA_FILTER PARTITION_EXPR (expdp TABLES=OWNER.TAB:PART). 여기 없는 테이블은 통째로.
   partitionFilters: { owner: string; table: string; partitions: string[] }[];
   // TABLE 모드인데 테이블이 여러 스키마에 걸친 작업. DBMS_DATAPUMP TABLE 모드는 스키마 하나만 받으므로(ORA-39040)
-  // SCHEMA 모드 + "테이블만"(INCLUDE_PATH_EXPR = TABLE)으로 연다 — 덤프 내용은 TABLE 모드와 같다 (테이블과 그 인덱스/제약조건/권한).
+  // SCHEMA 모드로 열고 "테이블만"이 되도록 테이블이 아닌 유형을 EXCLUDE한다 (filters.excludePaths에 들어 있음).
   multiSchemaTables: boolean;
+  // 오브젝트 필터(INCLUDE/EXCLUDE) + 데이터 필터·옵션 — services/dataPumpFilters.ts가 검증해서 만든 값
+  filters: PlanFilters;
   // 파티션 단위 IMPORT: 작업 시작 전에 대상 테이블(REMAP_SCHEMA 반영)에서 비울 파티션.
   truncateTarget: { owner: string; name: string } | null;
   truncatePartitions: string[];
+}
+
+// 실행에 쓰는 필터 값 (모두 서비스에서 형식/허용 목록 검증을 마친 값 — 식/조건은 바인드 변수로 넘긴다)
+export interface PlanFilters {
+  includePaths: string[]; // INCLUDE_PATH_EXPR IN (...)
+  excludePaths: string[]; // EXCLUDE_PATH_EXPR IN (...) — 통계 제외(STATISTICS) 포함
+  nameFilters: { path: string; expr: string }[]; // NAME_EXPR (object_path별, 여러 개는 AND)
+  queries: { owner: string | null; table: string | null; where: string }[]; // DATA_FILTER SUBQUERY
+  samples: { owner: string | null; table: string | null; percent: number }[]; // DATA_FILTER SAMPLE
+  dataOptionConstants: string[]; // DBMS_DATAPUMP.KU$_DATAOPT_* 상수 이름 (고정 목록에서만)
+  viewsAsTables: string[]; // OWNER.VIEW[:TEMPLATE]
+  excludeTablesOnly: boolean; // 뷰만 있는 테이블 모드 작업 — 실제 테이블은 빼기 (EXCLUDE_TABLES=Y)
+  // 실행에는 안 쓰고 parfile / 작업 이력 요약 / 시작 감사 로그에 쓰는 값
+  parfileLines: string[];
+  summary: string[];
+  audit: string[];
 }
 
 export interface TableSize {
@@ -277,6 +295,48 @@ async function getListSizing(
   });
 }
 
+
+// 필터 검증용 대상 DB 정보: 버전(v$instance.version — 예: 19.0.0.0.0)과 모드별 오브젝트 경로 목록(*_EXPORT_OBJECTS).
+// 경로 목록은 버전마다 다르고 수백 행이라 서비스가 캐시해서 쓴다.
+export interface ObjectPathRow {
+  path: string;
+  named: boolean;
+  comments: string;
+}
+
+export interface FilterEnvRaw {
+  version: string;
+  paths: { SCHEMA: ObjectPathRow[]; TABLE: ObjectPathRow[]; DATABASE: ObjectPathRow[] };
+}
+
+async function getFilterEnv(dbmsid: DbmsIdParam): Promise<FilterEnvRaw> {
+  return withConnection(dbmsid, async (connection) => {
+    const version = (await query(connection, `SELECT version FROM v$instance`))[0]?.VERSION ?? '';
+    const read = async (view: string): Promise<ObjectPathRow[]> =>
+      (await query(connection, `SELECT object_path, named, comments FROM ${view} ORDER BY object_path`)).map((row) => ({
+        path: row.OBJECT_PATH,
+        named: row.NAMED === 'Y',
+        comments: row.COMMENTS ?? '',
+      }));
+    return {
+      version,
+      paths: {
+        SCHEMA: await read('schema_export_objects'),
+        TABLE: await read('table_export_objects'),
+        DATABASE: await read('database_export_objects'),
+      },
+    };
+  });
+}
+
+// 스키마의 뷰 목록 (VIEWS_AS_TABLES 고르기용, DB 링크면 링크 너머)
+async function getViews(dbmsid: DbmsIdParam, owner: string, link: string | null = null): Promise<string[]> {
+  return withConnection(dbmsid, async (connection) => {
+    const rows = await query(connection, `SELECT view_name FROM dba_views${remote(link)} WHERE owner = :owner ORDER BY view_name`, { owner });
+    return rows.map((row) => row.VIEW_NAME);
+  });
+}
+
 // 여러 export 작업을 같은 시점의 데이터로 맞추기 위한 현재 SCN (모든 작업에 FLASHBACK_SCN으로 넘김).
 // SCN은 JS number 정밀도를 넘을 수 있어 문자열로 받습니다.
 async function getCurrentScn(dbmsid: DbmsIdParam, link: string | null = null): Promise<string> {
@@ -284,6 +344,23 @@ async function getCurrentScn(dbmsid: DbmsIdParam, link: string | null = null): P
     const rows = await query(connection, `SELECT TO_CHAR(current_scn) AS scn FROM v$database${remote(link)}`);
     return rows[0].SCN;
   });
+}
+
+// 목록 바인드: 항목은 CHR(30), 항목 안의 칸은 CHR(31)로 구분 (PL/SQL의 piece/pieces가 나눈다). 비면 NULL.
+function joinItems(items: string[][]): string | null {
+  if (items.length === 0) return null;
+  return items.map((fields) => fields.join(String.fromCharCode(31))).join(String.fromCharCode(30));
+}
+
+// DATA_OPTIONS: 고정 목록(services/dataPumpFilters.ts DATA_OPTIONS)의 상수 이름만 받아 PL/SQL 안에서 더한다. 버전에 없는 상수를
+// 참조하면 블록 전체가 컴파일되지 않으므로 고른 것만 넣는다 (서비스가 DB 버전으로 허용 여부를 이미 확인).
+const DATA_OPTION_CONSTANT = /^KU\$_DATAOPT_[A-Z_]+$/;
+function dataOptionsStatement(constants: string[]): string {
+  if (constants.length === 0) return 'NULL; -- DATA_OPTIONS 없음';
+  for (const constant of constants) {
+    if (!DATA_OPTION_CONSTANT.test(constant)) throw new Error(`DATA_OPTIONS 상수 이름이 올바르지 않습니다: ${constant}`);
+  }
+  return `DBMS_DATAPUMP.SET_PARAMETER(handle => h, name => 'DATA_OPTIONS', value => ${constants.map((constant) => `DBMS_DATAPUMP.${constant}`).join(' + ')});`;
 }
 
 // DBMS_DATAPUMP로 작업을 시작하고 바로 DETACH합니다 (작업은 DB 서버에서 계속 돌고, 화면은 작업 목록/로그로 지켜봄).
@@ -297,6 +374,25 @@ async function startJob(dbmsid: DbmsIdParam, plan: DataPumpPlan): Promise<void> 
          err VARCHAR2(32767);
          job_state VARCHAR2(30);
          sts ku$_Status;
+         -- 목록 바인드는 항목을 CHR(30), 항목 안의 칸을 CHR(31)로 구분한다 (값 검증에서 제어 문자는 막혀 있음).
+         FUNCTION piece(s VARCHAR2, sep VARCHAR2, n PLS_INTEGER) RETURN VARCHAR2 IS
+           startpos PLS_INTEGER := 1;
+           endpos PLS_INTEGER;
+         BEGIN
+           FOR i IN 1 .. n - 1 LOOP
+             startpos := INSTR(s, sep, startpos);
+             IF startpos = 0 THEN RETURN NULL; END IF;
+             startpos := startpos + 1;
+           END LOOP;
+           endpos := INSTR(s, sep, startpos);
+           IF endpos = 0 THEN endpos := LENGTH(s) + 1; END IF;
+           RETURN SUBSTR(s, startpos, endpos - startpos);
+         END;
+         FUNCTION pieces(s VARCHAR2, sep VARCHAR2) RETURN PLS_INTEGER IS
+         BEGIN
+           IF s IS NULL THEN RETURN 0; END IF;
+           RETURN LENGTH(s) - NVL(LENGTH(REPLACE(s, sep)), 0) + 1;
+         END;
        BEGIN
          h := DBMS_DATAPUMP.OPEN(operation => :operation, job_mode => :jobMode, job_name => :jobName,
                                  remote_link => :networkLink);
@@ -312,15 +408,31 @@ async function startJob(dbmsid: DbmsIdParam, plan: DataPumpPlan): Promise<void> 
            IF :schemaExpr IS NOT NULL THEN
              DBMS_DATAPUMP.METADATA_FILTER(handle => h, name => 'SCHEMA_EXPR', value => :schemaExpr);
            END IF;
-           IF :tablesOnly = 1 THEN
-             -- 여러 스키마의 테이블을 SCHEMA 모드로 돌릴 때: 테이블(과 그 하위 오브젝트)만, 스키마의 다른 오브젝트는 빼고.
-             DBMS_DATAPUMP.METADATA_FILTER(handle => h, name => 'INCLUDE_PATH_EXPR', value => 'IN (''TABLE'')');
-           END IF;
            IF :nameExpr IS NOT NULL THEN
-             DBMS_DATAPUMP.METADATA_FILTER(handle => h, name => 'NAME_EXPR', value => :nameExpr, object_type => 'TABLE');
+             DBMS_DATAPUMP.METADATA_FILTER(handle => h, name => 'NAME_EXPR', value => :nameExpr, object_path => 'TABLE');
            END IF;
            IF :excludeTableExpr IS NOT NULL THEN
-             DBMS_DATAPUMP.METADATA_FILTER(handle => h, name => 'NAME_EXPR', value => :excludeTableExpr, object_type => 'TABLE');
+             DBMS_DATAPUMP.METADATA_FILTER(handle => h, name => 'NAME_EXPR', value => :excludeTableExpr, object_path => 'TABLE');
+           END IF;
+           -- 오브젝트 필터: 유형 포함/제외 (통계 제외, 여러 스키마 테이블 작업의 "테이블만"도 여기 들어 있다)
+           IF :includePathExpr IS NOT NULL THEN
+             DBMS_DATAPUMP.METADATA_FILTER(handle => h, name => 'INCLUDE_PATH_EXPR', value => :includePathExpr);
+           END IF;
+           IF :excludePathExpr IS NOT NULL THEN
+             DBMS_DATAPUMP.METADATA_FILTER(handle => h, name => 'EXCLUDE_PATH_EXPR', value => :excludePathExpr);
+           END IF;
+           -- 오브젝트 필터: 이름 조건 ("경로 CHR(31) 식"). 같은 유형에 여러 개면 AND로 합쳐진다.
+           FOR i IN 1 .. pieces(:nameFilters, CHR(30)) LOOP
+             DBMS_DATAPUMP.METADATA_FILTER(handle => h, name => 'NAME_EXPR',
+                                           value => piece(piece(:nameFilters, CHR(30), i), CHR(31), 2),
+                                           object_path => piece(piece(:nameFilters, CHR(30), i), CHR(31), 1));
+           END LOOP;
+           -- 뷰를 테이블처럼 (OWNER.VIEW[:TEMPLATE]). 뷰만 있는 작업이면 실제 테이블은 뺀다.
+           FOR i IN 1 .. pieces(:viewsAsTables, CHR(30)) LOOP
+             DBMS_DATAPUMP.METADATA_FILTER(handle => h, name => 'VIEWS_AS_TABLES', value => piece(:viewsAsTables, CHR(30), i));
+           END LOOP;
+           IF :excludeTablesOnly = 1 THEN
+             DBMS_DATAPUMP.METADATA_FILTER(handle => h, name => 'EXCLUDE_TABLES', value => 'Y');
            END IF;
            -- 파티션 단위 export (expdp TABLES=OWNER.TAB:PART와 같음). 테이블마다 한 줄씩 "OWNER.TABLE:P1,P2;OWNER.TABLE2:P3"로 넘어오고,
            -- 하위 파티션이 있으면 그 파티션의 하위 파티션 전부. 이름은 서비스가 식별자 형식으로 검증한 값이라 따옴표를 붙여 IN 목록을 만든다.
@@ -339,9 +451,21 @@ async function startJob(dbmsid: DbmsIdParam, plan: DataPumpPlan): Promise<void> 
            ELSIF :content = 'DATA_ONLY' THEN
              DBMS_DATAPUMP.SET_PARAMETER(handle => h, name => 'INCLUDE_METADATA', value => 0);
            END IF;
-           IF :excludeStats = 1 THEN
-             DBMS_DATAPUMP.METADATA_FILTER(handle => h, name => 'EXCLUDE_PATH_EXPR', value => 'LIKE ''%STATISTICS%''');
-           END IF;
+           -- QUERY (행 조건): "소유자 CHR(31) 테이블 CHR(31) WHERE절" — 소유자/테이블이 비면 모든 테이블
+           FOR i IN 1 .. pieces(:queries, CHR(30)) LOOP
+             DBMS_DATAPUMP.DATA_FILTER(handle => h, name => 'SUBQUERY',
+                                       value => piece(piece(:queries, CHR(30), i), CHR(31), 3),
+                                       table_name => piece(piece(:queries, CHR(30), i), CHR(31), 2),
+                                       schema_name => piece(piece(:queries, CHR(30), i), CHR(31), 1));
+           END LOOP;
+           -- SAMPLE (비율, 소수점은 '.')
+           FOR i IN 1 .. pieces(:samples, CHR(30)) LOOP
+             DBMS_DATAPUMP.DATA_FILTER(handle => h, name => 'SAMPLE',
+                                       value => TO_NUMBER(piece(piece(:samples, CHR(30), i), CHR(31), 3), '99999990D9999999', 'NLS_NUMERIC_CHARACTERS=''.,'''),
+                                       table_name => piece(piece(:samples, CHR(30), i), CHR(31), 2),
+                                       schema_name => piece(piece(:samples, CHR(30), i), CHR(31), 1));
+           END LOOP;
+           ${dataOptionsStatement(plan.filters.dataOptionConstants)}
            IF :flashbackScn IS NOT NULL THEN
              -- 여러 작업을 같은 시점으로 맞출 때: 화면이 미리 받아 둔 SCN을 모든 작업에 똑같이 건다.
              DBMS_DATAPUMP.SET_PARAMETER(handle => h, name => 'FLASHBACK_SCN', value => TO_NUMBER(:flashbackScn));
@@ -407,7 +531,6 @@ async function startJob(dbmsid: DbmsIdParam, plan: DataPumpPlan): Promise<void> 
       {
         operation: plan.operation,
         jobMode: plan.multiSchemaTables ? 'SCHEMA' : plan.jobMode,
-        tablesOnly: plan.multiSchemaTables ? 1 : 0,
         jobName: plan.jobName,
         dumpfile: plan.dumpfile,
         directory: plan.directory,
@@ -420,7 +543,6 @@ async function startJob(dbmsid: DbmsIdParam, plan: DataPumpPlan): Promise<void> 
         excludeTableExpr: plan.excludeTableExpr,
         flashbackScn: plan.flashbackScn,
         content: plan.content,
-        excludeStats: plan.excludeStatistics ? 1 : 0,
         flashback: plan.flashbackConsistent ? 1 : 0,
         tableExistsAction: plan.tableExistsAction,
         remapSchemas: plan.remapSchemas.map((pair) => `${pair.from}:${pair.to}`).join(',') || null,
@@ -429,6 +551,13 @@ async function startJob(dbmsid: DbmsIdParam, plan: DataPumpPlan): Promise<void> 
         networkLink: plan.networkLink,
         partitionFilters:
           plan.partitionFilters.map((filter) => `${filter.owner}.${filter.table}:${filter.partitions.join(',')}`).join(';') || null,
+        includePathExpr: plan.filters.includePaths.length > 0 ? `IN (${plan.filters.includePaths.map((path) => `'${path}'`).join(',')})` : null,
+        excludePathExpr: plan.filters.excludePaths.length > 0 ? `IN (${plan.filters.excludePaths.map((path) => `'${path}'`).join(',')})` : null,
+        nameFilters: joinItems(plan.filters.nameFilters.map((filter) => [filter.path, filter.expr])),
+        viewsAsTables: joinItems(plan.filters.viewsAsTables.map((view) => [view])),
+        excludeTablesOnly: plan.filters.excludeTablesOnly ? 1 : 0,
+        queries: joinItems(plan.filters.queries.map((query) => [query.owner ?? '', query.table ?? '', query.where])),
+        samples: joinItems(plan.filters.samples.map((sample) => [sample.owner ?? '', sample.table ?? '', String(sample.percent)])),
       }
     );
   });
@@ -866,6 +995,8 @@ export {
   getSchemas,
   getTableSizes,
   getListSizing,
+  getFilterEnv,
+  getViews,
   getCurrentScn,
   startJob,
   getJobs,

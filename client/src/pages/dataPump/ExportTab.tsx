@@ -16,6 +16,8 @@ import type {
   ExportGroup,
   ExportPlanResponse,
   ExportSplitOptions,
+  DataFilter,
+  ObjectFilter,
   PartitionRange,
   PartitionTableInfo,
 } from '../../shared/lib/types';
@@ -24,6 +26,10 @@ import { downloadText, estimateSeconds, formatBytes, formatDuration, todayPrefix
 import { ParfileModal, type ParfileView } from './ParfileModal';
 import { PartitionPicker } from './PartitionPicker';
 import { SchemaMultiSelect } from '../../shared/components/SchemaMultiSelect';
+import { DataFilterEditor } from './DataFilterEditor';
+import { cleanDataFilter, cleanObjectFilter, hasIncludeRules } from './filterHelpers';
+import { FilterSummary } from './FilterSummary';
+import { ObjectFilterEditor } from './ObjectFilterEditor';
 import { useServerSave } from './useServerSave';
 
 const CHUNK_PRESETS = [
@@ -37,11 +43,12 @@ const CHUNK_PRESETS = [
 interface Props {
   dbmsId: string;
   meta: DataPumpMeta;
+  sqlAllowed: boolean; // DBA 이상 — QUERY/서브쿼리 SQL 조건
 }
 
 // Export: 스키마를 고르거나 "OWNER.TABLE" 목록을 올리면, 테이블 크기를 보고 분할 크기(기본 1TB) 이하의 작업들로 나눈다.
 // 작업마다 바로 실행하거나 parfile을 받을 수 있다.
-export function ExportTab({ dbmsId, meta }: Props): ReactElement {
+export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
   // 원본: 빈 값 = 이 DB, 아니면 DB 링크 이름 (링크 너머 DB의 오브젝트를 이 DB의 DIRECTORY에 덤프로).
   const [networkLink, setNetworkLink] = useState('');
   const [linkSchemas, setLinkSchemas] = useState<string[] | null>(null);
@@ -68,6 +75,12 @@ export function ExportTab({ dbmsId, meta }: Props): ReactElement {
   const [excludeStatistics, setExcludeStatistics] = useState(true);
   const [flashbackConsistent, setFlashbackConsistent] = useState(true);
   const [reuseDumpfiles, setReuseDumpfiles] = useState(false);
+  // 오브젝트 필터(INCLUDE/EXCLUDE)와 데이터 필터·옵션 — 분할된 모든 작업에 걸린다
+  const [objectFilter, setObjectFilter] = useState<ObjectFilter>({ rules: [] });
+  const [dataFilter, setDataFilter] = useState<DataFilter>({});
+  const [sqlEnabled, setSqlEnabled] = useState(false);
+  // 21c 미만에서 INCLUDE를 쓰면 통계 제외(EXCLUDE)를 같이 못 쓴다
+  const statsLocked = hasIncludeRules(objectFilter) && meta.versionNumber < 21;
 
   const [planning, setPlanning] = useState(false);
   const [plan, setPlan] = useState<ExportPlanResponse | null>(null);
@@ -199,6 +212,8 @@ export function ExportTab({ dbmsId, meta }: Props): ReactElement {
         flashbackConsistent,
         reuseDumpfiles,
         networkLink: networkLink || null,
+        objectFilter: cleanObjectFilter(objectFilter),
+        dataFilter: cleanDataFilter(dataFilter),
       };
       const source =
         sourceKind === 'PARTITIONS'
@@ -512,8 +527,8 @@ export function ExportTab({ dbmsId, meta }: Props): ReactElement {
         </div>
         <div className="oc-types">
           <label className="oc-check">
-            <input type="checkbox" checked={excludeStatistics} onChange={(e) => setExcludeStatistics(e.target.checked)} />
-            통계 제외 (EXCLUDE=STATISTICS)
+            <input type="checkbox" checked={excludeStatistics && !statsLocked} disabled={statsLocked} onChange={(e) => setExcludeStatistics(e.target.checked)} />
+            통계 제외 (EXCLUDE=STATISTICS){statsLocked && ' — INCLUDE를 쓰면 포함 목록이 정함 (21c 미만)'}
           </label>
           <label className="oc-check">
             <input type="checkbox" checked={flashbackConsistent} onChange={(e) => setFlashbackConsistent(e.target.checked)} />
@@ -524,6 +539,28 @@ export function ExportTab({ dbmsId, meta }: Props): ReactElement {
             같은 이름의 덤프 파일 덮어쓰기 (REUSE_DUMPFILES)
           </label>
         </div>
+        <ObjectFilterEditor
+          value={objectFilter}
+          onChange={setObjectFilter}
+          jobMode={sourceKind === 'SCHEMAS' ? 'SCHEMA' : 'TABLE'}
+          objectPaths={meta.objectPaths}
+          versionNumber={meta.versionNumber}
+          sqlEnabled={sqlAllowed && sqlEnabled}
+        />
+        <DataFilterEditor
+          value={dataFilter}
+          onChange={setDataFilter}
+          operation="EXPORT"
+          networkLink={networkLink || null}
+          versionNumber={meta.versionNumber}
+          sqlAllowed={sqlAllowed}
+          sqlEnabled={sqlAllowed && sqlEnabled}
+          onSqlEnabledChange={setSqlEnabled}
+          allowViews
+          viewSchemas={schemaOptions}
+          dbmsId={dbmsId}
+        />
+
         <div className="oc-actions dp-buttons">
           <button type="button" disabled={planning || !directory} onClick={() => makePlan(false)}>
             {planning ? '테이블 크기 확인 중...' : '분할 계획 만들기'}
@@ -582,6 +619,11 @@ export function ExportTab({ dbmsId, meta }: Props): ReactElement {
               가져올 수 있습니다.
             </p>
           )}
+          {plan.sizeNotes.map((note) => (
+            <p key={note} className="oc-hint">
+              {note}
+            </p>
+          ))}
           {plan.missing.length > 0 && (
             <p className="pc-warning">DB에 없는 테이블/파티션이라 뺀 항목 {plan.missing.length}개: {plan.missing.slice(0, 20).join(', ')}{plan.missing.length > 20 ? ' …' : ''}</p>
           )}
@@ -733,6 +775,7 @@ export function ExportTab({ dbmsId, meta }: Props): ReactElement {
           DB 서버의 CPU/IO와 {directory} 디스크 여유 공간(약 {formatBytes(plan?.totalBytes)} 필요)을 확인하세요.
           {flashbackConsistent && ' 모든 작업이 같은 SCN 시점의 데이터로 내보내집니다 (작업이 길면 UNDO 보존 기간이 충분해야 합니다).'}
         </p>
+        <FilterSummary objectFilter={cleanObjectFilter(objectFilter)} dataFilter={cleanDataFilter(dataFilter)} />
       </ConfirmModal>
       <ParfileModal
         view={parfileView}

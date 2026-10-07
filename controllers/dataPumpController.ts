@@ -49,6 +49,17 @@ async function getMeta(req: Request, res: Response): Promise<void> {
   }
 }
 
+// 스키마의 뷰 목록 (VIEWS_AS_TABLES 고르기용, networkLink면 링크 너머).
+async function views(req: Request, res: Response): Promise<void> {
+  const dbmsid = requireDbmsid(req, res);
+  if (dbmsid === null) return;
+  try {
+    res.json({ views: await dataPumpService.getViews({ dbmsid }, req.body.owner, req.body.networkLink) });
+  } catch (error) {
+    handleError(res, error, `뷰 목록 조회 오류 (dbmsid=${dbmsid})`);
+  }
+}
+
 // DB 링크 너머 DB의 스키마 목록 (링크로 export할 때).
 async function linkSchemas(req: Request, res: Response): Promise<void> {
   const dbmsid = requireDbmsid(req, res);
@@ -66,7 +77,7 @@ async function exportPlan(req: Request, res: Response): Promise<void> {
   if (dbmsid === null) return;
   try {
     const { schemas, tableList, partitionSource, refreshSizes, options } = req.body;
-    res.json(await dataPumpService.planExport({ dbmsid }, { schemas, tableList, partitionSource, refreshSizes }, options ?? {}));
+    res.json(await dataPumpService.planExport({ dbmsid }, { schemas, tableList, partitionSource, refreshSizes }, options ?? {}, req.session.role ?? null));
   } catch (error) {
     handleError(res, error, `분할 계획 생성 오류 (dbmsid=${dbmsid})`);
   }
@@ -87,7 +98,7 @@ async function preview(req: Request, res: Response): Promise<void> {
   const dbmsid = requireDbmsid(req, res);
   if (dbmsid === null) return;
   try {
-    res.json(await dataPumpService.preview({ dbmsid }, req.body.request ?? {}));
+    res.json(await dataPumpService.preview({ dbmsid }, req.body.request ?? {}, req.session.role ?? null));
   } catch (error) {
     handleError(res, error, `parfile 생성 오류 (dbmsid=${dbmsid})`);
   }
@@ -103,13 +114,18 @@ async function start(req: Request, res: Response): Promise<void> {
       req.body.request ?? {},
       req.body.confirmDbname,
       req.session.username ?? null,
-      req.body.estimatedBytes
+      req.body.estimatedBytes,
+      req.session.role ?? null
     );
     logger.info(
       'DataPump',
       `${req.session.username} 작업 시작: ${jobName} (dbmsid=${dbmsid}, ${plan.operation} ${plan.jobMode}` +
         `${plan.tableExistsAction ? `, TABLE_EXISTS_ACTION=${plan.tableExistsAction}` : ''}, ${plan.directory}/${plan.dumpfile})`
     );
+    // 필터·옵션 감사: QUERY/서브쿼리 원문, SAMPLE, DATA_OPTIONS, VIEWS_AS_TABLES
+    if (plan.filters.audit.length > 0) {
+      logger.info('DataPump', `${req.session.username} 작업 ${jobName} 필터: ${plan.filters.audit.join(' / ')}`);
+    }
     res.json({ jobName });
   } catch (error) {
     handleError(res, error, `작업 시작 오류 (dbmsid=${dbmsid})`);
@@ -214,7 +230,7 @@ async function partitionImportPlan(req: Request, res: Response): Promise<void> {
   if (dbmsid === null) return;
   try {
     const { manifest, partitions, options } = req.body;
-    res.json(await partitionService.planImport({ dbmsid }, manifest, partitions, options ?? {}));
+    res.json(await partitionService.planImport({ dbmsid }, manifest, partitions, options ?? {}, req.session.role ?? null));
   } catch (error) {
     handleError(res, error, `파티션 import 계획 생성 오류 (dbmsid=${dbmsid})`);
   }
@@ -222,6 +238,7 @@ async function partitionImportPlan(req: Request, res: Response): Promise<void> {
 
 export {
   getMeta,
+  views,
   linkSchemas,
   exportPlan,
   currentScn,

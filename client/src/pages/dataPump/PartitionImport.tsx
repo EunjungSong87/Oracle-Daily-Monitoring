@@ -1,22 +1,27 @@
 import { useRef, useState, type ChangeEvent, type ReactElement } from 'react';
 import { planPartitionImport, readPartitionManifest, startDataPump } from '../../shared/lib/api';
 import { showToast } from '../../shared/lib/toastStore';
-import type { DataPumpMeta, PartitionImportPlan, PartitionImportJobView, PartitionManifest } from '../../shared/lib/types';
+import type { DataFilter, DataPumpMeta, ObjectFilter, PartitionImportPlan, PartitionImportJobView, PartitionManifest } from '../../shared/lib/types';
 import { ConfirmModal } from './ConfirmModal';
 import { formatBytes, todayPrefix } from './helpers';
 import { PartitionJobList } from './PartitionJobList';
 import { PartitionPicker } from './PartitionPicker';
 import { ParfileModal, type ParfileView } from './ParfileModal';
+import { DataFilterEditor } from './DataFilterEditor';
+import { cleanDataFilter, cleanObjectFilter } from './filterHelpers';
+import { FilterSummary } from './FilterSummary';
+import { ObjectFilterEditor } from './ObjectFilterEditor';
 
 interface Props {
   dbmsId: string;
   meta: DataPumpMeta;
+  sqlAllowed: boolean; // DBA 이상 — QUERY/서브쿼리 SQL 조건
 }
 
 // 파티션 export의 매니페스트(.json)를 읽어 기간으로 파티션을 고르고, 파티션 하나당 import 작업 하나로 가져온다.
 // 대상 테이블이 있으면 데이터만 APPEND하고, "비우고 넣기"면 같은 범위의 대상 파티션을 먼저 TRUNCATE한다
 // (대상 파티션은 이름이 아니라 범위로 맞춤 — 인터벌 파티션은 DB마다 SYS_P… 이름이 다르기 때문).
-export function PartitionImport({ dbmsId, meta }: Props): ReactElement {
+export function PartitionImport({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [directory, setDirectory] = useState(meta.directories.find((dir) => dir.name === 'DATA_PUMP_DIR')?.name ?? meta.directories[0]?.name ?? '');
   const [manifestFile, setManifestFile] = useState('');
@@ -30,6 +35,9 @@ export function PartitionImport({ dbmsId, meta }: Props): ReactElement {
   const [content, setContent] = useState<'ALL' | 'DATA_ONLY'>('DATA_ONLY');
   const [excludeStatistics, setExcludeStatistics] = useState(true);
   const [truncateBeforeLoad, setTruncateBeforeLoad] = useState(false);
+  const [objectFilter, setObjectFilter] = useState<ObjectFilter>({ rules: [] });
+  const [dataFilter, setDataFilter] = useState<DataFilter>({});
+  const [sqlEnabled, setSqlEnabled] = useState(false);
 
   const [plan, setPlan] = useState<PartitionImportPlan | null>(null);
   const [planning, setPlanning] = useState(false);
@@ -87,6 +95,8 @@ export function PartitionImport({ dbmsId, meta }: Props): ReactElement {
         content,
         excludeStatistics,
         truncateBeforeLoad,
+        objectFilter: cleanObjectFilter(objectFilter),
+        dataFilter: { ...cleanDataFilter(dataFilter), viewsAsTables: [] },
       });
       setPlan(result);
       setStarted(new Map());
@@ -213,6 +223,28 @@ export function PartitionImport({ dbmsId, meta }: Props): ReactElement {
           {truncateBeforeLoad && (
             <p className="pc-warning">대상 파티션의 기존 데이터를 지웁니다. 실행할 때 대상 DB명({meta.target.dbname})을 직접 입력해야 합니다.</p>
           )}
+          <ObjectFilterEditor
+            value={objectFilter}
+            onChange={setObjectFilter}
+            jobMode="TABLE"
+            objectPaths={meta.objectPaths}
+            versionNumber={meta.versionNumber}
+            sqlEnabled={sqlAllowed && sqlEnabled}
+          />
+          <DataFilterEditor
+            value={dataFilter}
+            onChange={setDataFilter}
+            operation="IMPORT"
+            networkLink={null}
+            versionNumber={meta.versionNumber}
+            sqlAllowed={sqlAllowed}
+            sqlEnabled={sqlAllowed && sqlEnabled}
+            onSqlEnabledChange={setSqlEnabled}
+            tableExistsAction="APPEND"
+            allowViews={false}
+            dbmsId={dbmsId}
+            partitionImport
+          />
           <div className="oc-actions dp-buttons">
             <button type="button" disabled={planning || selected.size === 0} onClick={makePlan}>
               {planning ? '만드는 중...' : `작업 만들기 (${selected.size}개 파티션)`}
@@ -280,6 +312,7 @@ export function PartitionImport({ dbmsId, meta }: Props): ReactElement {
             시작 전에 대상 파티션 {confirmTruncates.join(', ')}의 데이터를 지웁니다 (TRUNCATE PARTITION … UPDATE INDEXES).
           </p>
         )}
+        <FilterSummary objectFilter={cleanObjectFilter(objectFilter)} dataFilter={cleanDataFilter(dataFilter)} />
       </ConfirmModal>
       <ParfileModal view={parfileView} onClose={() => setParfileView(null)} />
     </>

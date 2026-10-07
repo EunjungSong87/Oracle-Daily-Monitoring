@@ -370,6 +370,12 @@ export function getDataPumpMeta(dbmsid: string | number): Promise<DataPumpMeta> 
 }
 
 // 스키마(schemas) 또는 "OWNER.TABLE" 목록 텍스트(tableList) 중 하나로 분할 계획을 만든다.
+// 스키마의 뷰 목록 (VIEWS_AS_TABLES, networkLink면 링크 너머)
+export async function getDataPumpViews(dbmsid: string | number, owner: string, networkLink: string | null = null): Promise<string[]> {
+  const { views } = await postJson<{ views: string[] }>('/api/dataPump/views', { dbmsid, owner, networkLink });
+  return views;
+}
+
 export async function getDataPumpLinkSchemas(dbmsid: string | number, networkLink: string): Promise<string[]> {
   const { schemas } = await postJson<{ schemas: string[] }>('/api/dataPump/linkSchemas', { dbmsid, networkLink });
   return schemas;

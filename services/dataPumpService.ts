@@ -1,6 +1,9 @@
 import * as dataPumpModel from '../models/dataPumpModel';
 import type { DataPumpJob, DataPumpPlan, DbLinkInfo, DirectoryInfo, LogContent, TableSize, TargetInfo } from '../models/dataPumpModel';
 import type { DbmsIdParam } from '../models/dbmsModel';
+import { DataPumpValidationError, fail } from './dataPumpErrors';
+import { compileFilters, tableSizeFactor } from './dataPumpFilters';
+import type { DataFilter, FilterEnv, ObjectFilter, ViewAsTable } from './dataPumpFilters';
 import * as historyService from './dataPumpHistoryService';
 import { cached, cacheKey } from './dataPumpSizeCache';
 import { buildManifest, buildRanges, manifestText, rangeLabel, safeFilePart } from './partitionRanges';
@@ -15,6 +18,9 @@ export interface DataPumpRequest {
   tables?: string[]; // TABLE 모드 (테이블이 한 스키마일 때)
   // TABLE 모드에서 여러 스키마의 테이블을 한 작업에 (expdp TABLES=HR.EMP,SCOTT.DEPT — 11.2부터 가능). 있으면 tableOwner/tables 대신 씀.
   qualifiedTables?: { owner: string; table: string }[];
+  // 오브젝트 필터(INCLUDE/EXCLUDE)와 데이터 필터·옵션(QUERY, SAMPLE, DATA_OPTIONS, VIEWS_AS_TABLES) — services/dataPumpFilters.ts
+  objectFilter?: ObjectFilter | null;
+  dataFilter?: DataFilter | null;
   excludeTables?: string[]; // SCHEMA 모드(스키마 하나)에서 뺄 테이블 — 분할 시 다른 작업으로 떼어 낸 큰 테이블
   directory: string;
   dumpfile: string;
@@ -40,7 +46,8 @@ export interface DataPumpRequest {
   truncatePartitions?: string[];
 }
 
-export class DataPumpValidationError extends Error {}
+
+export { DataPumpValidationError };
 
 // 따옴표 없는 일반 Oracle 식별자만 받습니다 (대문자로 바꿔서 비교). PL/SQL에는 바인드 변수로 넘기지만,
 // 필터식(IN ('A','B'))을 문자열로 조립하므로 따옴표 같은 문자가 끼어들 여지를 아예 막아 둡니다.
@@ -57,10 +64,6 @@ const MAX_FILTER_LENGTH = 30000;
 // 기존 데이터를 건드리는 TABLE_EXISTS_ACTION — 실행 전에 대상 DB명을 직접 입력해 확인받습니다.
 export const DESTRUCTIVE_ACTIONS = ['APPEND', 'TRUNCATE', 'REPLACE'] as const;
 
-function fail(message: string): never {
-  throw new DataPumpValidationError(message);
-}
-
 function identifier(value: unknown, label: string): string {
   const upper = typeof value === 'string' ? value.trim().toUpperCase() : '';
   if (!IDENTIFIER.test(upper)) fail(`${label} 이름이 올바르지 않습니다: ${String(value ?? '')}`);
@@ -73,7 +76,8 @@ function identifierList(values: unknown, label: string, allowEmpty = false): str
 }
 
 // TABLE 모드 요청의 (소유자, 테이블) 목록. qualifiedTables가 있으면 그것, 없으면 tableOwner + tables.
-function tablePairs(request: DataPumpRequest): { owner: string; table: string }[] {
+// allowEmpty: 뷰만 내보내는 작업(VIEWS_AS_TABLES)은 테이블이 없어도 된다.
+function tablePairs(request: DataPumpRequest, allowEmpty = false): { owner: string; table: string }[] {
   if (Array.isArray(request.qualifiedTables) && request.qualifiedTables.length > 0) {
     const seen = new Set<string>();
     const pairs: { owner: string; table: string }[] = [];
@@ -87,6 +91,7 @@ function tablePairs(request: DataPumpRequest): { owner: string; table: string }[
     }
     return pairs;
   }
+  if (allowEmpty && (!Array.isArray(request.tables) || request.tables.length === 0)) return [];
   const owner = identifier(request.tableOwner, '테이블 소유자');
   return identifierList(request.tables, '테이블').map((table) => ({ owner, table }));
 }
@@ -160,7 +165,8 @@ function expectedFileCount(bytes: number, parallel: number, filesize: string | n
 
 // ── 요청 → 실행 계획 (DB 접근 없는 순수 함수, 단위 테스트로 검증) ──
 
-function buildPlan(request: DataPumpRequest, now: Date = new Date()): DataPumpPlan {
+// env: 대상 DB 버전/오브젝트 경로 목록/SQL 조건 허용 여부 — 있으면 필터를 그 기준으로도 검증한다 (서버의 실행/미리보기/계획은 항상 넘김).
+function buildPlan(request: DataPumpRequest, now: Date = new Date(), env: FilterEnv | null = null): DataPumpPlan {
   const operation = request.operation;
   if (operation !== 'EXPORT' && operation !== 'IMPORT') fail('operation은 EXPORT 또는 IMPORT여야 합니다.');
   const isExport = operation === 'EXPORT';
@@ -179,6 +185,7 @@ function buildPlan(request: DataPumpRequest, now: Date = new Date()): DataPumpPl
   let excludeTableExpr: string | null = null;
   const partitionFilters: DataPumpPlan['partitionFilters'] = [];
   let multiSchemaTables = false;
+  let tableOwners: string[] = [];
   let truncateTarget: DataPumpPlan['truncateTarget'] = null;
   const shortPartitions = identifierList(request.partitions ?? [], '파티션', true);
   const requested = Array.isArray(request.tablePartitions) ? request.tablePartitions : [];
@@ -193,13 +200,16 @@ function buildPlan(request: DataPumpRequest, now: Date = new Date()): DataPumpPl
       excludeTableExpr = filterExpr('NOT IN', excluded, '제외 테이블');
     }
   } else if (mode === 'TABLE') {
-    const pairs = tablePairs(request);
+    const hasViews = Array.isArray(request.dataFilter?.viewsAsTables) && request.dataFilter.viewsAsTables.length > 0;
+    const pairs = tablePairs(request, hasViews);
+    tableOwners = [...new Set(pairs.map((pair) => pair.owner))];
     // DBMS_DATAPUMP는 스키마 목록 × 테이블 이름 목록으로 거른다. 여러 스키마를 섞으면 목록에 없는 같은 이름 테이블까지
     // 걸릴 수 있어서, 섞어도 되는 조합인지는 분할 계획(planExportGroups)이 실제 테이블 목록과 대조해 정한다.
     const owners = [...new Set(pairs.map((pair) => pair.owner))];
     multiSchemaTables = owners.length > 1;
-    schemaExpr = filterExpr('IN', owners, '스키마');
-    nameExpr = filterExpr('IN', [...new Set(pairs.map((pair) => pair.table))], '테이블');
+    // 뷰만 있는 작업이면 테이블 필터 없이 VIEWS_AS_TABLES만 (filters.excludeTablesOnly)
+    schemaExpr = pairs.length > 0 ? filterExpr('IN', owners, '스키마') : null;
+    nameExpr = pairs.length > 0 ? filterExpr('IN', [...new Set(pairs.map((pair) => pair.table))], '테이블') : null;
     if (shortPartitions.length > 0 && pairs.length !== 1) fail('partitions는 테이블을 하나만 지정한 작업에서만 씁니다 (여러 테이블이면 tablePartitions).');
     if (truncateList.length > 0 && pairs.length !== 1) fail('파티션 비우기는 테이블을 하나만 지정한 작업에서만 쓸 수 있습니다.');
     const byTable = new Map<string, string[]>(); // OWNER.TABLE → 파티션
@@ -273,6 +283,37 @@ function buildPlan(request: DataPumpRequest, now: Date = new Date()): DataPumpPl
     : `DBC_${isExport ? 'EXP' : 'IMP'}_${timestamp(now)}`;
   if (jobName.length > 30) fail('작업 이름은 30자 이하여야 합니다.');
 
+  // 오브젝트 필터(INCLUDE/EXCLUDE) + 데이터 필터·옵션. 통계 제외와 여러 스키마 테이블 작업의 "테이블만"도 여기서 하나로 정리한다.
+  const compiled = compileFilters(
+    request.objectFilter,
+    request.dataFilter,
+    {
+      operation,
+      jobMode: mode,
+      networkLink,
+      content,
+      tableExistsAction,
+      excludeStatistics: !!request.excludeStatistics,
+      multiSchemaTables,
+      hasTables: tableOwners.length > 0,
+      tableOwners,
+    },
+    env
+  );
+  const filters: DataPumpPlan['filters'] = {
+    includePaths: compiled.includePaths,
+    excludePaths: compiled.excludePaths,
+    nameFilters: compiled.nameFilters,
+    queries: compiled.queries,
+    samples: compiled.samples,
+    dataOptionConstants: compiled.dataOptionConstants,
+    viewsAsTables: compiled.viewsAsTables,
+    excludeTablesOnly: compiled.excludeTablesOnly,
+    parfileLines: compiled.parfileLines,
+    summary: compiled.summary,
+    audit: compiled.audit,
+  };
+
   return {
     operation,
     jobMode: mode,
@@ -297,6 +338,7 @@ function buildPlan(request: DataPumpRequest, now: Date = new Date()): DataPumpPl
     networkLink,
     partitionFilters,
     multiSchemaTables,
+    filters,
     truncateTarget,
     truncatePartitions: truncateList,
   };
@@ -332,16 +374,17 @@ function buildParfile(
     if (excluded.length > 0) lines.push(`EXCLUDE=TABLE:"IN (${excluded.map((name) => `'${name}'`).join(',')})"`);
   } else if (plan.jobMode === 'TABLE') {
     // 파티션을 고른 테이블은 OWNER.TABLE:PART로 파티션마다, 나머지는 OWNER.TABLE로 통째. 스키마가 여럿이어도 한 줄에.
-    const entries = tablePairs(request).flatMap(({ owner, table }) => {
+    const entries = tablePairs(request, plan.filters.viewsAsTables.length > 0).flatMap(({ owner, table }) => {
       const filter = plan.partitionFilters.find((item) => item.owner === owner && item.table === table);
       return filter ? filter.partitions.map((partition) => `${owner}.${table}:${partition}`) : [`${owner}.${table}`];
     });
-    lines.push(`TABLES=${entries.join(',')}`);
+    if (entries.length > 0) lines.push(`TABLES=${entries.join(',')}`); // 뷰만 내보내는 작업은 VIEWS_AS_TABLES 줄만
   } else {
     lines.push('FULL=Y');
   }
   if (plan.content !== 'ALL') lines.push(`CONTENT=${plan.content}`);
-  if (plan.excludeStatistics) lines.push('EXCLUDE=STATISTICS');
+  // INCLUDE/EXCLUDE(통계 제외 포함), QUERY, SAMPLE, DATA_OPTIONS, VIEWS_AS_TABLES
+  lines.push(...plan.filters.parfileLines);
   if (plan.parallel > 1) lines.push(`PARALLEL=${plan.parallel}`);
   if (plan.filesize) lines.push(`FILESIZE=${plan.filesize}`);
   if (plan.reuseDumpfiles) lines.push('REUSE_DUMPFILES=YES');
@@ -372,6 +415,9 @@ export interface ExportSplitOptions {
   flashbackConsistent?: boolean;
   reuseDumpfiles?: boolean;
   networkLink?: string | null; // 링크 너머 DB의 오브젝트를 export (크기/스키마도 그 DB 기준)
+  // 모든 작업에 그대로 거는 오브젝트 필터와 데이터 필터·옵션 (테이블을 지정한 QUERY/SAMPLE은 그 테이블이 든 작업에만, 뷰는 따로 한 작업)
+  objectFilter?: ObjectFilter | null;
+  dataFilter?: DataFilter | null;
 }
 
 // 어느 테이블의 파티션인지까지 붙인 파티션 (한 작업에 여러 테이블의 파티션이 섞일 수 있어서)
@@ -417,6 +463,7 @@ export interface ExportGroup {
   tables: TableSize[]; // 이 작업에 들어가는 테이블 (SCHEMA 모드면 스키마의 나머지 테이블)
   excludedTables: string[]; // SCHEMA 모드에서 다른 작업으로 떼어 낸 테이블
   partitions: TablePartition[]; // 파티션 단위로 내보내는 테이블의 파티션 (테이블별 기간 순), 없으면 빈 배열
+  views: string[]; // VIEWS_AS_TABLES 작업이면 뷰 (OWNER.VIEW[:TEMPLATE]), 아니면 빈 배열 — 크기는 알 수 없어 0
   bytes: number;
   oversize: boolean; // 테이블 하나가 분할 크기보다 커서 기준을 넘는 그룹
   filesize: string | null;
@@ -461,8 +508,9 @@ function planExportGroups(
   source: ExportSource,
   sizes: TableSize[],
   options: ExportSplitOptions,
-  now: Date = new Date()
-): { groups: ExportGroup[]; totalBytes: number; chunkBytes: number | null; missing: string[] } {
+  now: Date = new Date(),
+  env: FilterEnv | null = null
+): { groups: ExportGroup[]; totalBytes: number; chunkBytes: number | null; missing: string[]; sizeApprox: boolean } {
   const directory = identifier(options.directory, 'DIRECTORY');
   const prefix = typeof options.filePrefix === 'string' ? options.filePrefix.trim() : '';
   if (!FILE_PREFIX.test(prefix)) fail('파일 이름 접두어는 영문/숫자/_ - 만 쓸 수 있습니다.');
@@ -477,7 +525,35 @@ function planExportGroups(
     fail('FILESIZE 형식이 올바르지 않습니다 (예: 2G, 512M).');
   }
 
-  type Draft = Omit<ExportGroup, 'no' | 'filesize' | 'expectedFiles' | 'request' | 'partitions'> & { partitions?: TablePartition[] };
+  // 필터를 크기에 반영: EXCLUDE/INCLUDE TABLE 조건으로 빠지는 테이블은 0, SAMPLE은 그 비율.
+  // 서브쿼리 조건이나 QUERY는 미리 알 수 없어 그대로 두고 "어림"으로 표시한다.
+  const objectFilter = options.objectFilter ?? null;
+  const dataFilter = options.dataFilter ?? null;
+  const hasIncludes = (objectFilter?.rules ?? []).some((rule) => rule?.kind === 'INCLUDE');
+  let sizeApprox = false;
+  const factorOf = (owner: string, table: string): number => {
+    const result = tableSizeFactor(objectFilter, dataFilter, owner, table);
+    if (result.approx) sizeApprox = true;
+    return result.factor;
+  };
+  sizes = sizes.map((table) => ({ ...table, bytes: Math.round(table.bytes * factorOf(table.owner, table.name)) }));
+  if (source.kind === 'PARTITIONS') {
+    const factor = factorOf(source.owner.toUpperCase(), source.table.toUpperCase());
+    source = { ...source, partitions: source.partitions.map((partition) => ({ ...partition, bytes: Math.round(partition.bytes * factor) })) };
+  } else if (source.kind === 'TABLES' && source.partitionRanges) {
+    const adjusted: Record<string, PartitionRange[]> = {};
+    for (const [key, ranges] of Object.entries(source.partitionRanges)) {
+      const [owner, table] = key.split('.');
+      const factor = factorOf(owner, table);
+      adjusted[key] = ranges.map((range) => ({ ...range, bytes: Math.round(range.bytes * factor) }));
+    }
+    source = { ...source, partitionRanges: adjusted };
+  }
+
+  type Draft = Omit<ExportGroup, 'no' | 'filesize' | 'expectedFiles' | 'request' | 'partitions' | 'views'> & {
+    partitions?: TablePartition[];
+    views?: ViewAsTable[];
+  };
   const drafts: Draft[] = [];
   const missing: string[] = [];
 
@@ -589,6 +665,8 @@ function planExportGroups(
     const existing = new Set(source.existingTables ?? byKey.keys());
     const bins: { bytes: number; units: Unit[]; owners: Set<string>; names: Set<string>; keys: Set<string> }[] = [];
     const fitsWithoutStrays = (bin: (typeof bins)[number], unit: Unit): boolean => {
+      // INCLUDE 규칙이 있으면 여러 스키마를 섞지 않는다 (여러 스키마 작업은 "테이블만"을 EXCLUDE로 처리해서 INCLUDE와 같이 못 씀).
+      if (hasIncludes && !bin.owners.has(unit.owner)) return false;
       const owners = new Set([...bin.owners, unit.owner]);
       const names = new Set([...bin.names, unit.table.name]);
       const keys = new Set([...bin.keys, `${unit.owner}.${unit.table.name}`]);
@@ -629,34 +707,59 @@ function planExportGroups(
     }
   }
 
+  // VIEWS_AS_TABLES는 테이블 모드에서만 되고 크기를 알 수 없어서, 뷰는 따로 한 작업에 담는다 (크기 0).
+  const views = Array.isArray(dataFilter?.viewsAsTables) ? dataFilter.viewsAsTables : [];
+  if (views.length > 0) {
+    const owners = [...new Set(views.map((view) => String(view.owner).toUpperCase()))].sort();
+    drafts.push({ owners, mode: 'TABLE', tables: [], excludedTables: [], bytes: 0, oversize: false, views });
+  }
+
+  // 테이블을 지정한 QUERY/SAMPLE은 그 테이블이 든 작업에만 건다 (모든 테이블 대상은 모든 작업에).
+  const forTables = <T extends { owner?: string | null; table?: string | null }>(items: T[] | undefined, keys: Set<string>): T[] =>
+    (items ?? []).filter((item) => !item.table || keys.has(`${String(item.owner ?? '').toUpperCase()}.${String(item.table).toUpperCase()}`));
+
   const stamp = timestamp(now);
   const digits = Math.max(2, String(drafts.length).length);
   const groups = drafts.map((draft, index): ExportGroup => {
     const no = index + 1;
     const nn = String(no).padStart(digits, '0');
     const partitions = draft.partitions ?? [];
+    const draftViews = draft.views ?? [];
     // 파티션 하나짜리 작업은 덤프 이름에 파티션 이름을 넣는다 (예: exp_20261006_P202401_%U.dmp). 테이블 목록은 여러 테이블에
     // 같은 파티션 이름이 있을 수 있어 테이블 이름도 넣는다 (exp_20261006_ORDERS_P202401_%U.dmp).
     const base =
-      partitions.length !== 1 || draft.tables.length !== 1
-        ? `${prefix}_${nn}`
-        : source.kind === 'PARTITIONS'
-          ? `${prefix}_${safeFilePart(partitions[0].name)}`
-          : `${prefix}_${safeFilePart(draft.tables[0].name)}_${safeFilePart(partitions[0].name)}`;
+      draftViews.length > 0
+        ? `${prefix}_${nn}_views`
+        : partitions.length !== 1 || draft.tables.length !== 1
+          ? `${prefix}_${nn}`
+          : source.kind === 'PARTITIONS'
+            ? `${prefix}_${safeFilePart(partitions[0].name)}`
+            : `${prefix}_${safeFilePart(draft.tables[0].name)}_${safeFilePart(partitions[0].name)}`;
     const filesize =
-      options.filesizeMode === 'NONE'
+      options.filesizeMode === 'NONE' || draftViews.length > 0
         ? null
         : options.filesizeMode === 'CUSTOM'
           ? String(options.customFilesize).trim().toUpperCase()
           : suggestFilesize(draft.bytes, parallel);
+    const groupKeys = new Set(draft.tables.map((table) => `${table.owner}.${table.name}`));
+    const groupDataFilter: DataFilter | null = dataFilter
+      ? {
+          ...dataFilter,
+          queries: forTables(dataFilter.queries, groupKeys),
+          samples: forTables(dataFilter.samples, groupKeys),
+          viewsAsTables: draftViews,
+        }
+      : null;
     const request: DataPumpRequest = {
       operation: 'EXPORT',
       mode: draft.mode,
       ...(draft.mode === 'SCHEMA'
         ? { schemas: draft.owners, excludeTables: draft.excludedTables }
-        : draft.owners.length === 1
-          ? { tableOwner: draft.owners[0], tables: draft.tables.map((table) => table.name) }
-          : { qualifiedTables: draft.tables.map((table) => ({ owner: table.owner, table: table.name })) }),
+        : draftViews.length > 0
+          ? { tableOwner: null, tables: [] }
+          : draft.owners.length === 1
+            ? { tableOwner: draft.owners[0], tables: draft.tables.map((table) => table.name) }
+            : { qualifiedTables: draft.tables.map((table) => ({ owner: table.owner, table: table.name })) }),
       ...(partitions.length > 0
         ? {
             tablePartitions: draft.tables
@@ -679,14 +782,17 @@ function planExportGroups(
       flashbackConsistent: !!options.flashbackConsistent,
       reuseDumpfiles: !!options.reuseDumpfiles,
       networkLink: options.networkLink ?? null,
+      objectFilter,
+      dataFilter: groupDataFilter,
     };
-    buildPlan(request, now); // 그룹마다 실제로 실행 가능한 요청인지 미리 확인 (목록이 너무 길면 여기서 걸림)
-    return { ...draft, partitions, no, filesize, expectedFiles: expectedFileCount(draft.bytes, parallel, filesize), request };
+    buildPlan(request, now, env); // 그룹마다 실제로 실행 가능한 요청인지 미리 확인 (목록이 너무 길면 여기서 걸림)
+    const viewNames = draftViews.map((view) => `${String(view.owner).toUpperCase()}.${String(view.view).toUpperCase()}${view.template ? `:${String(view.template).toUpperCase()}` : ''}`);
+    return { ...draft, partitions, views: viewNames, no, filesize, expectedFiles: expectedFileCount(draft.bytes, parallel, filesize), request };
   });
 
   const dumpNames = groups.map((group) => group.request.dumpfile);
   if (new Set(dumpNames).size !== dumpNames.length) fail('덤프 파일 이름이 겹치는 파티션이 있습니다 (특수문자만 다른 이름). 분할 크기로 묶어 주세요.');
-  return { groups, totalBytes: groups.reduce((sum, group) => sum + group.bytes, 0), chunkBytes, missing };
+  return { groups, totalBytes: groups.reduce((sum, group) => sum + group.bytes, 0), chunkBytes, missing, sizeApprox };
 }
 
 // "OWNER.TABLE" (또는 OWNER TABLE / OWNER,TABLE) 한 줄에 하나씩 붙여 넣거나 올린 목록을 읽습니다.
@@ -719,18 +825,55 @@ async function getMeta(dbmsid: DbmsIdParam): Promise<{
   directories: DirectoryInfo[];
   schemas: string[];
   dbLinks: DbLinkInfo[];
+  dbVersion: string;
+  versionNumber: number;
+  objectPaths: dataPumpModel.FilterEnvRaw['paths'];
 }> {
   try {
-    const [target, edition, directories, schemas, dbLinks] = await Promise.all([
+    const [target, edition, directories, schemas, dbLinks, env] = await Promise.all([
       dataPumpModel.getTargetInfo(dbmsid),
       dataPumpModel.getEdition(dbmsid),
       dataPumpModel.getDirectories(dbmsid),
       dataPumpModel.getSchemas(dbmsid),
       dataPumpModel.getDbLinks(dbmsid),
+      cachedFilterEnv(dbmsid),
     ]);
-    return { target, edition, directories, schemas, dbLinks };
+    return { target, edition, directories, schemas, dbLinks, dbVersion: env.version, versionNumber: parseVersion(env.version), objectPaths: env.paths };
   } catch (error) {
     throw new Error('Data Pump 기본 정보 조회 실패', { cause: error });
+  }
+}
+
+// '19.0.0.0.0' → 19.0, '12.2.0.1.0' → 12.2 (기능별 지원 버전 비교용)
+function parseVersion(version: string): number {
+  const [major, minor] = String(version).split('.').map((part) => Number(part));
+  return Number.isFinite(major) ? major + (Number.isFinite(minor) ? minor / 10 : 0) : 0;
+}
+
+// 버전/오브젝트 경로 목록은 거의 안 바뀌고 수백 행이라 10분 캐시 (대상 DB 부하를 줄이려고).
+async function cachedFilterEnv(dbmsid: DbmsIdParam): Promise<dataPumpModel.FilterEnvRaw> {
+  return (await cached(cacheKey(dbmsid.dbmsid, 'env', []), () => dataPumpModel.getFilterEnv(dbmsid))).value;
+}
+
+// 필터 검증 기준: 대상 DB 버전/경로 + SQL 조건(QUERY, 서브쿼리) 허용 여부 — DBA 이상만.
+async function getFilterEnv(dbmsid: DbmsIdParam, role: string | null | undefined): Promise<FilterEnv> {
+  let raw: dataPumpModel.FilterEnvRaw;
+  try {
+    raw = await cachedFilterEnv(dbmsid);
+  } catch (error) {
+    throw new Error('대상 DB 버전/오브젝트 경로 조회 실패', { cause: error });
+  }
+  return { versionNumber: parseVersion(raw.version), paths: raw.paths, allowSql: role === 'DBA' || role === 'SUPER_ADMIN' };
+}
+
+// 스키마의 뷰 목록 (VIEWS_AS_TABLES)
+async function getViews(dbmsid: DbmsIdParam, owner: unknown, networkLink: unknown = null): Promise<string[]> {
+  const name = identifier(owner, '스키마');
+  const link = await ensureDbLink(dbmsid, networkLink);
+  try {
+    return await dataPumpModel.getViews(dbmsid, name, link);
+  } catch (error) {
+    throw new Error(`뷰 목록 조회 실패 (${name})`, { cause: error });
   }
 }
 
@@ -768,6 +911,8 @@ export interface ExportPlanResponse {
   manifests: { name: string; text: string }[];
   // 크기를 대상 DB에서 읽은 시각 (10분간 재사용 — 화면에 표시)
   sizesReadAt: string;
+  // 크기 안내: 서브쿼리/QUERY 조건 때문에 어림인 경우, 뷰(VIEWS_AS_TABLES)가 있어 크기를 모르는 경우
+  sizeNotes: string[];
 }
 
 const MAX_PARTITIONS_PER_PLAN = 1000;
@@ -855,9 +1000,11 @@ async function resolveTableList(
 async function planExport(
   dbmsid: DbmsIdParam,
   input: { schemas?: unknown; tableList?: unknown; partitionSource?: unknown; refreshSizes?: unknown },
-  options: ExportSplitOptions
+  options: ExportSplitOptions,
+  role: string | null = null
 ): Promise<ExportPlanResponse> {
   const now = new Date();
+  const env = await getFilterEnv(dbmsid, role);
   const refresh = input.refreshSizes === true;
   let source: ExportSource;
   let sizes: TableSize[] = [];
@@ -897,7 +1044,12 @@ async function planExport(
   }
   const target = await dataPumpModel.getTargetInfo(dbmsid); // 메타데이터 DB (대상 DB 아님)
 
-  const { groups, totalBytes, chunkBytes, missing } = planExportGroups(source, sizes, options, now);
+  const { groups, totalBytes, chunkBytes, missing, sizeApprox } = planExportGroups(source, sizes, options, now, env);
+  const viewCount = groups.reduce((sum, group) => sum + group.views.length, 0);
+  const sizeNotes = [
+    ...(sizeApprox ? ['서브쿼리/QUERY 조건이 있어 예상 크기가 실제와 다를 수 있습니다.'] : []),
+    ...(viewCount > 0 ? [`뷰 ${viewCount}개 포함 (크기 미반영).`] : []),
+  ];
 
   // 파티션을 내보내는 테이블마다 매니페스트 하나. Range 파티션 대상은 테이블이 하나라 <접두어>_manifest.json,
   // 테이블 목록은 여러 테이블일 수 있어 <접두어>_<테이블>_manifest.json. 한 덤프에 여러 테이블이 들어 있어도
@@ -922,6 +1074,7 @@ async function planExport(
 
   // parfile 첫 줄 설명: 작업에 든 테이블/파티션 요약 (스키마가 여럿이면 테이블마다 OWNER.TABLE)
   const describe = (group: ExportGroup): string => {
+    if (group.views.length > 0) return `뷰 ${group.views.length}개를 테이블로 (VIEWS_AS_TABLES: ${group.views.slice(0, 5).join(', ')}${group.views.length > 5 ? ' …' : ''})`;
     if (group.mode === 'SCHEMA') {
       return `스키마 ${group.owners.join(', ')} (테이블 ${group.tables.length}개${group.excludedTables.length ? `, 큰 테이블 ${group.excludedTables.length}개는 다른 작업으로 분리` : ''})`;
     }
@@ -943,8 +1096,9 @@ async function planExport(
     missing,
     manifests,
     sizesReadAt: sizesReadAt.toISOString(),
+    sizeNotes,
     groups: groups.map((group) => {
-      const plan = buildPlan(group.request, now);
+      const plan = buildPlan(group.request, now, env);
       const comment = `작업 ${group.no}/${groups.length}: ${describe(group)}, 예상 약 ${(group.bytes / UNIT.G).toFixed(1)} GB`;
       return { ...group, jobName: plan.jobName, ...buildParfile(plan, group.request, target, comment) };
     }),
@@ -961,8 +1115,12 @@ async function getCurrentScn(dbmsid: DbmsIdParam, networkLink: unknown = null): 
   }
 }
 
-async function preview(dbmsid: DbmsIdParam, request: DataPumpRequest): Promise<{ jobName: string; parfile: string; command: string; parfileName: string }> {
-  const plan = buildPlan(request);
+async function preview(
+  dbmsid: DbmsIdParam,
+  request: DataPumpRequest,
+  role: string | null = null
+): Promise<{ jobName: string; parfile: string; command: string; parfileName: string }> {
+  const plan = buildPlan(request, new Date(), await getFilterEnv(dbmsid, role));
   const target = await dataPumpModel.getTargetInfo(dbmsid);
   return { jobName: plan.jobName, ...buildParfile(plan, request, target) };
 }
@@ -974,9 +1132,10 @@ async function start(
   request: DataPumpRequest,
   confirmDbname: unknown,
   startedBy: string | null = null,
-  estimatedBytes: unknown = null
+  estimatedBytes: unknown = null,
+  role: string | null = null
 ): Promise<{ jobName: string; plan: DataPumpPlan }> {
-  const plan = buildPlan(request);
+  const plan = buildPlan(request, new Date(), await getFilterEnv(dbmsid, role));
   await ensureDbLink(dbmsid, plan.networkLink);
   const target = await dataPumpModel.getTargetInfo(dbmsid);
   if (isDestructive(plan)) {
@@ -1093,6 +1252,8 @@ export {
   planExportGroups,
   parseTableList,
   getMeta,
+  getFilterEnv,
+  getViews,
   cachedTablePartitions,
   getLinkSchemas,
   planExport,

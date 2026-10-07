@@ -5,10 +5,11 @@ import { PartitionImport } from './PartitionImport';
 interface Props {
   dbmsId: string;
   meta: DataPumpMeta;
+  sqlAllowed: boolean;
 }
 
 // Range 파티션 덤프 가져오기. Export는 Export 탭의 "Range 파티션 (기간)" 대상으로 하고, 거기서 남긴 매니페스트를 여기서 읽는다.
-export function PartitionTab({ dbmsId, meta }: Props): ReactElement {
+export function PartitionTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
   return (
     <>
       <div className="rt-panel">
@@ -17,7 +18,7 @@ export function PartitionTab({ dbmsId, meta }: Props): ReactElement {
           (INTERVAL의 SYS_P…) 같은 기간의 파티션에 들어갑니다. "비우고 넣기"를 고르면 같은 범위의 대상 파티션을 먼저 비웁니다.
         </p>
       </div>
-      <PartitionImport dbmsId={dbmsId} meta={meta} />
+      <PartitionImport dbmsId={dbmsId} meta={meta} sqlAllowed={sqlAllowed} />
     </>
   );
 }

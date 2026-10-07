@@ -1,10 +1,14 @@
 import { useState, type ReactElement } from 'react';
 import { previewDataPump, startDataPump } from '../../shared/lib/api';
 import { showToast } from '../../shared/lib/toastStore';
-import type { DataPumpContent, DataPumpMeta, DataPumpRequest, TableExistsAction } from '../../shared/lib/types';
+import type { DataFilter, DataPumpContent, DataPumpMeta, DataPumpRequest, ObjectFilter, TableExistsAction } from '../../shared/lib/types';
 import { ConfirmModal } from './ConfirmModal';
 import { todayPrefix } from './helpers';
 import { ParfileModal, type ParfileView } from './ParfileModal';
+import { DataFilterEditor } from './DataFilterEditor';
+import { cleanDataFilter, cleanObjectFilter, hasIncludeRules } from './filterHelpers';
+import { FilterSummary } from './FilterSummary';
+import { ObjectFilterEditor } from './ObjectFilterEditor';
 import { useServerSave } from './useServerSave';
 
 interface RemapRow {
@@ -60,10 +64,11 @@ function RemapEditor({ label, rows, onChange }: { label: string; rows: RemapRow[
 interface Props {
   dbmsId: string;
   meta: DataPumpMeta;
+  sqlAllowed: boolean; // DBA 이상 — QUERY/서브쿼리 SQL 조건
 }
 
 // Import: 덤프 파일에서, 또는 DB 링크(NETWORK_LINK)로 덤프 없이 바로 가져오기. 기존 데이터를 건드리는 TABLE_EXISTS_ACTION은 대상 DB명을 입력해야 실행된다 (서버도 한 번 더 확인).
-export function ImportTab({ dbmsId, meta }: Props): ReactElement {
+export function ImportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
   const [directory, setDirectory] = useState(meta.directories.find((dir) => dir.name === 'DATA_PUMP_DIR')?.name ?? meta.directories[0]?.name ?? '');
   // 가져올 곳: 빈 값 = 덤프 파일, 아니면 DB 링크 이름 (덤프 없이 링크 너머 DB에서 바로)
   const [networkLink, setNetworkLink] = useState('');
@@ -80,6 +85,10 @@ export function ImportTab({ dbmsId, meta }: Props): ReactElement {
   const [content, setContent] = useState<DataPumpContent>('ALL');
   const [excludeStatistics, setExcludeStatistics] = useState(true);
   const [parallel, setParallel] = useState(meta.edition.parallelSupported ? 4 : 1);
+  const [objectFilter, setObjectFilter] = useState<ObjectFilter>({ rules: [] });
+  const [dataFilter, setDataFilter] = useState<DataFilter>({});
+  const [sqlEnabled, setSqlEnabled] = useState(false);
+  const statsLocked = hasIncludeRules(objectFilter) && meta.versionNumber < 21;
 
   const [parfileView, setParfileView] = useState<ParfileView | null>(null);
   const serverSave = useServerSave(dbmsId);
@@ -107,6 +116,9 @@ export function ImportTab({ dbmsId, meta }: Props): ReactElement {
       remapTablespaces: remapTablespaces.filter((row) => row.from || row.to),
       networkLink: networkLink || null,
       flashbackConsistent: networkLink ? flashbackConsistent : false,
+      objectFilter: cleanObjectFilter(objectFilter),
+      // VIEWS_AS_TABLES는 DB 링크 Import에서만
+      dataFilter: { ...cleanDataFilter(dataFilter), viewsAsTables: networkLink ? (dataFilter.viewsAsTables ?? []) : [] },
     };
   }
 
@@ -278,10 +290,32 @@ export function ImportTab({ dbmsId, meta }: Props): ReactElement {
         </div>
         <div className="oc-types">
           <label className="oc-check">
-            <input type="checkbox" checked={excludeStatistics} onChange={(e) => setExcludeStatistics(e.target.checked)} />
-            통계 제외 (EXCLUDE=STATISTICS)
+            <input type="checkbox" checked={excludeStatistics && !statsLocked} disabled={statsLocked} onChange={(e) => setExcludeStatistics(e.target.checked)} />
+            통계 제외 (EXCLUDE=STATISTICS){statsLocked && ' — INCLUDE를 쓰면 포함 목록이 정함 (21c 미만)'}
           </label>
         </div>
+        <ObjectFilterEditor
+          value={objectFilter}
+          onChange={setObjectFilter}
+          jobMode={mode}
+          objectPaths={meta.objectPaths}
+          versionNumber={meta.versionNumber}
+          sqlEnabled={sqlAllowed && sqlEnabled}
+        />
+        <DataFilterEditor
+          value={dataFilter}
+          onChange={setDataFilter}
+          operation="IMPORT"
+          networkLink={networkLink || null}
+          versionNumber={meta.versionNumber}
+          sqlAllowed={sqlAllowed}
+          sqlEnabled={sqlAllowed && sqlEnabled}
+          onSqlEnabledChange={setSqlEnabled}
+          tableExistsAction={tableExistsAction}
+          allowViews={!!networkLink && mode === 'TABLE'}
+          viewSchemas={meta.schemas}
+          dbmsId={dbmsId}
+        />
         {destructive && (
           <p className="pc-warning">
             TABLE_EXISTS_ACTION={tableExistsAction}는 대상 DB({meta.target.dbname})의 기존 데이터를 바꿉니다. 실행할 때 DB명을 직접 입력해야 합니다.
@@ -336,6 +370,7 @@ export function ImportTab({ dbmsId, meta }: Props): ReactElement {
             이미 있는 테이블: <strong>{tableExistsAction}</strong>
           </li>
         </ul>
+        <FilterSummary objectFilter={cleanObjectFilter(objectFilter)} dataFilter={cleanDataFilter(dataFilter)} />
       </ConfirmModal>
       <ParfileModal
         view={parfileView}

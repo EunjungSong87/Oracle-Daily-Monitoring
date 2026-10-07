@@ -2263,3 +2263,52 @@ textarea.dp-table-list {
 .oc-sec-field {
     margin-bottom: 12px;
 }
+
+/* Data Pump 오브젝트 필터 / 데이터 필터·옵션 (접힌 섹션) */
+.dp-filter-section {
+    margin-top: 12px;
+    border-top: 1px dashed var(--border);
+    padding-top: 8px;
+}
+
+.dp-filter-toggle {
+    font-weight: 600;
+}
+
+.dp-filter-body {
+    margin-top: 8px;
+}
+
+.dp-filter-sub {
+    margin-bottom: 14px;
+}
+
+.dp-filter-row {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    margin: 6px 0;
+}
+
+.dp-filter-row input[type='text'] {
+    width: 240px;
+}
+
+.dp-filter-row input[type='number'] {
+    width: 110px;
+}
+
+.dp-sql-input {
+    flex: 1;
+    min-height: 54px;
+    font-family: var(--font-mono, monospace);
+    font-size: 12px;
+}
+
+.dp-filter-table input[type='text'] {
+    width: 100%;
+}
+
+.pc-warning-text {
+    color: var(--danger);
+}

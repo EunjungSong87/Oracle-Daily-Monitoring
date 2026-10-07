@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactElement } from 'react';
 import { AppHeader } from '../../shared/components/AppHeader';
 import { ToastHost } from '../../shared/components/ToastHost';
-import { canSee, useCurrentUser } from '../../shared/hooks/useCurrentUser';
+import { canSee, isDbaOrAbove, useCurrentUser } from '../../shared/hooks/useCurrentUser';
 import { getDataPumpMeta, getDbmsList } from '../../shared/lib/api';
 import { showToast } from '../../shared/lib/toastStore';
 import type { DataPumpMeta, DbmsRow } from '../../shared/lib/types';
@@ -16,6 +16,8 @@ type Tab = 'EXPORT' | 'IMPORT' | 'PARTITION' | 'JOBS';
 export function App(): ReactElement {
   const { user, loading: userLoading } = useCurrentUser();
   const canUse = canSee(user, 'dataPump');
+  // QUERY/서브쿼리 같은 SQL 조건은 DBA 이상만 (서버도 같은 기준으로 막음)
+  const sqlAllowed = isDbaOrAbove(user);
 
   const [dbmsRows, setDbmsRows] = useState<DbmsRow[]>([]);
   const [dbmsId, setDbmsId] = useState('');
@@ -101,9 +103,9 @@ export function App(): ReactElement {
           {!meta && !metaError && dbmsId && <p className="issues-empty">DB 정보를 읽는 중...</p>}
 
           {/* DBMS를 바꾸면 탭 상태(선택/계획)가 이전 DB 기준으로 남지 않게 key로 새로 만든다. */}
-          {meta && tab === 'EXPORT' && <ExportTab key={dbmsId} dbmsId={dbmsId} meta={meta} />}
-          {meta && tab === 'IMPORT' && <ImportTab key={dbmsId} dbmsId={dbmsId} meta={meta} />}
-          {meta && tab === 'PARTITION' && <PartitionTab key={dbmsId} dbmsId={dbmsId} meta={meta} />}
+          {meta && tab === 'EXPORT' && <ExportTab key={dbmsId} dbmsId={dbmsId} meta={meta} sqlAllowed={sqlAllowed} />}
+          {meta && tab === 'IMPORT' && <ImportTab key={dbmsId} dbmsId={dbmsId} meta={meta} sqlAllowed={sqlAllowed} />}
+          {meta && tab === 'PARTITION' && <PartitionTab key={dbmsId} dbmsId={dbmsId} meta={meta} sqlAllowed={sqlAllowed} />}
           {meta && tab === 'JOBS' && <JobsTab key={dbmsId} dbmsId={dbmsId} />}
         </>
       )}

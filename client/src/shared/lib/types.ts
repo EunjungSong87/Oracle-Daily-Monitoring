@@ -501,6 +501,59 @@ export interface DataPumpMeta {
   directories: { name: string; path: string }[];
   schemas: string[];
   dbLinks: DataPumpDbLink[]; // 이 DB에서 쓸 수 있는 DB 링크 (본인 소유 + PUBLIC)
+  dbVersion: string; // v$instance.version (예: 19.0.0.0.0)
+  versionNumber: number; // 19.0, 12.2 … (기능별 지원 버전 비교용)
+  objectPaths: Record<ObjectPathMode, ObjectPathInfo[]>; // 모드별 오브젝트 경로 (*_EXPORT_OBJECTS)
+}
+
+// ── Data Pump 필터 (services/dataPumpFilters.ts와 같은 형식) ──
+
+export type ObjectPathMode = 'SCHEMA' | 'TABLE' | 'DATABASE';
+
+export interface ObjectPathInfo {
+  path: string;
+  named: boolean; // 이름 조건을 걸 수 있는 유형
+  comments: string;
+}
+
+export type FilterKind = 'INCLUDE' | 'EXCLUDE';
+export type NameOp = 'ALL' | '=' | '!=' | 'IN' | 'NOT IN' | 'LIKE' | 'NOT LIKE' | 'SUBQUERY';
+
+export interface ObjectFilterRule {
+  kind: FilterKind;
+  path: string;
+  op: NameOp;
+  values?: string[];
+  subquery?: string | null;
+}
+
+export interface ObjectFilter {
+  rules: ObjectFilterRule[];
+}
+
+export interface QueryRule {
+  owner?: string | null; // 소유자·테이블 둘 다 비우면 모든 테이블
+  table?: string | null;
+  where: string;
+}
+
+export interface SampleRule {
+  owner?: string | null;
+  table?: string | null;
+  percent: number;
+}
+
+export interface ViewAsTable {
+  owner: string;
+  view: string;
+  template?: string | null;
+}
+
+export interface DataFilter {
+  queries?: QueryRule[];
+  samples?: SampleRule[];
+  dataOptions?: string[];
+  viewsAsTables?: ViewAsTable[];
 }
 
 export interface DataPumpDbLink {
@@ -537,6 +590,9 @@ export interface DataPumpRequest {
   networkLink?: string | null; // EXPORT: 링크 너머 DB를 덤프로, IMPORT: 링크 너머 DB에서 덤프 없이 바로
   tablePartitions?: { table: string; partitions: string[] }[]; // 파티션 단위 EXPORT: 테이블마다 이 파티션만 (없는 테이블은 통째로)
   partitions?: string[]; // 테이블 하나일 때의 줄임 표기
+  qualifiedTables?: { owner: string; table: string }[]; // 여러 스키마 테이블 작업
+  objectFilter?: ObjectFilter | null;
+  dataFilter?: DataFilter | null;
   truncatePartitions?: string[]; // 파티션 단위 IMPORT 전에 대상 테이블에서 비울 파티션
 }
 
@@ -552,6 +608,8 @@ export interface ExportSplitOptions {
   flashbackConsistent?: boolean;
   reuseDumpfiles?: boolean;
   networkLink?: string | null;
+  objectFilter?: ObjectFilter | null;
+  dataFilter?: DataFilter | null;
 }
 
 export interface TableSizeRow {
@@ -571,6 +629,7 @@ export interface ExportGroup {
   oversize: boolean;
   filesize: string | null;
   expectedFiles: number;
+  views: string[]; // VIEWS_AS_TABLES 작업이면 뷰 (크기 0)
   request: DataPumpRequest;
   jobName: string;
   parfile: string;
@@ -586,6 +645,7 @@ export interface ExportPlanResponse {
   // 파티션을 내보내는 테이블마다 하나: 덤프와 같은 DIRECTORY에 둘 매니페스트 (파티션 Import가 읽어 기간으로 고름)
   manifests: { name: string; text: string }[];
   sizesReadAt: string; // 크기를 대상 DB에서 읽은 시각 (서버가 10분간 재사용)
+  sizeNotes: string[]; // 크기 안내 (서브쿼리/QUERY로 어림, 뷰 크기 미반영)
 }
 
 export interface ParfilePreview {
@@ -716,6 +776,8 @@ export interface PartitionImportOptions {
   content?: 'ALL' | 'DATA_ONLY';
   excludeStatistics?: boolean;
   truncateBeforeLoad?: boolean;
+  objectFilter?: ObjectFilter | null;
+  dataFilter?: DataFilter | null;
 }
 
 export interface PartitionImportPlan {

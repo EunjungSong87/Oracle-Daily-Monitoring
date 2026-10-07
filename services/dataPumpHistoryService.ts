@@ -106,6 +106,7 @@ function describeTarget(plan: DataPumpPlan): string {
   }
   if (plan.truncatePartitions.length > 0) parts.push(`비우고 넣음: ${plan.truncatePartitions.join(', ')}`);
   if (plan.networkLink) parts.push(`NETWORK_LINK=${plan.networkLink}`);
+  parts.push(...plan.filters.summary); // INCLUDE/EXCLUDE, QUERY, SAMPLE, DATA_OPTIONS, VIEWS_AS_TABLES 요약
   for (const pair of plan.remapSchemas) parts.push(`REMAP_SCHEMA ${pair.from}→${pair.to}`);
   for (const pair of plan.remapTablespaces) parts.push(`REMAP_TABLESPACE ${pair.from}→${pair.to}`);
   return parts.join(' / ');

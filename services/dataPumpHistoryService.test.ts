@@ -59,6 +59,7 @@ describe('describeTarget', () => {
     schemaExpr: "IN ('HR','SCOTT')", nameExpr: null, excludeTableExpr: null, content: 'ALL', excludeStatistics: false,
     reuseDumpfiles: false, flashbackConsistent: false, flashbackScn: null, tableExistsAction: null, remapSchemas: [], remapTablespaces: [],
     networkLink: null, partitionFilters: [], multiSchemaTables: false, truncateTarget: null, truncatePartitions: [],
+    filters: { includePaths: [], excludePaths: [], nameFilters: [], queries: [], samples: [], dataOptionConstants: [], viewsAsTables: [], excludeTablesOnly: false, parfileLines: [], summary: [], audit: [] },
   };
 
   it('스키마 작업 (제외 테이블 수 포함)', () => {

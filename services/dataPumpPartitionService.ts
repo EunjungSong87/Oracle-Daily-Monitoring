@@ -1,7 +1,8 @@
 import * as dataPumpModel from '../models/dataPumpModel';
 import type { PartitionTableInfo } from '../models/dataPumpModel';
 import type { DbmsIdParam } from '../models/dbmsModel';
-import { buildParfile, buildPlan, cachedTablePartitions, fail, filename, identifier, timestamp } from './dataPumpService';
+import { buildParfile, buildPlan, cachedTablePartitions, fail, filename, getFilterEnv, identifier, timestamp } from './dataPumpService';
+import type { DataFilter, FilterEnv, ObjectFilter } from './dataPumpFilters';
 import type { DataPumpRequest } from './dataPumpService';
 import { buildRanges, MANIFEST_KIND, overlaps, rangeLabel, safeFilePart, sameRange } from './partitionRanges';
 import type { PartitionManifest, PartitionManifestEntry, PartitionRange } from './partitionRanges';
@@ -67,6 +68,8 @@ export interface PartitionImportOptions {
   content?: 'ALL' | 'DATA_ONLY'; // DATA_ONLY = 이미 있는 테이블에 데이터만
   excludeStatistics?: boolean;
   truncateBeforeLoad?: boolean; // 같은 범위의 대상 파티션을 비우고 넣기
+  objectFilter?: ObjectFilter | null; // 작업마다 그대로 거는 오브젝트 필터 / 데이터 필터·옵션
+  dataFilter?: DataFilter | null;
 }
 
 export interface PartitionImportJob {
@@ -93,7 +96,8 @@ function planPartitionImportJobs(
   selected: unknown,
   options: PartitionImportOptions,
   target: PartitionRange[] | null,
-  now: Date = new Date()
+  now: Date = new Date(),
+  env: FilterEnv | null = null
 ): PartitionImportPlan {
   if (!Array.isArray(selected) || selected.length === 0) fail('가져올 파티션을 하나 이상 골라주세요.');
   const names = new Set(selected.map((name) => identifier(name, '파티션')));
@@ -173,8 +177,10 @@ function planPartitionImportJobs(
       tableExistsAction: 'APPEND',
       remapSchemas: targetOwner !== manifest.owner ? [{ from: manifest.owner, to: targetOwner }] : [],
       truncatePartitions,
+      objectFilter: options.objectFilter ?? null,
+      dataFilter: options.dataFilter ?? null,
     };
-    buildPlan(request, now);
+    buildPlan(request, now, env);
     return {
       no,
       dumpfile,
@@ -247,7 +253,8 @@ async function planImport(
   dbmsid: DbmsIdParam,
   manifestInput: unknown,
   selected: unknown,
-  options: PartitionImportOptions
+  options: PartitionImportOptions,
+  role: string | null = null
 ): Promise<Omit<PartitionImportPlan, 'jobs'> & { jobs: PartitionImportJobView[]; totalBytes: number }> {
   const manifest = parseManifest(manifestInput);
   const targetOwner = options.targetOwner && String(options.targetOwner).trim() ? identifier(options.targetOwner, '대상 스키마') : manifest.owner;
@@ -265,12 +272,13 @@ async function planImport(
     }
   }
   const now = new Date();
-  const plan = planPartitionImportJobs(manifest, selected, { ...options, targetOwner }, target.table ? target.ranges : null, now);
+  const env = await getFilterEnv(dbmsid, role);
+  const plan = planPartitionImportJobs(manifest, selected, { ...options, targetOwner }, target.table ? target.ranges : null, now, env);
   return {
     ...plan,
     totalBytes: plan.jobs.reduce((sum, job) => sum + job.bytes, 0),
     jobs: plan.jobs.map((job) => {
-      const built = buildPlan(job.request, now);
+      const built = buildPlan(job.request, now, env);
       const first = job.partitions[0];
       const last = job.partitions[job.partitions.length - 1];
       const label = `${manifest.owner}.${manifest.table} 파티션 ${job.partitions.map((p) => p.name).join(', ')} (${rangeLabel({ ...first, high: last.high, known: job.partitions.every((p) => p.known) })})`;
