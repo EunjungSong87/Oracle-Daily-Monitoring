@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildParfile,
   buildPlan,
+  assertSourceCovered,
   executionPlans,
   schemaFileName,
   DataPumpValidationError,
@@ -434,6 +435,45 @@ describe('planExportGroups — 테이블 목록', () => {
     expect(() => buildPlan(exportRequest({ mode: 'TABLE', jobName: 'J'.repeat(28), qualifiedTables: [{ owner: 'A', table: 'T' }, { owner: 'B', table: 'T' }] }), NOW)).toThrow(
       /작업 이름이 27자 이하/
     );
+  });
+
+  it('빠짐 없음: 목록 줄 = 계획 포함 + DB에 없어 뺌 + 통째에 합쳐짐 (같은 줄 중복은 하나로)', () => {
+    const range = (name: string, position: number) => ({ name, position, highValue: '', known: true, low: null, high: null, numRows: null, bytes: 1 * G });
+    const list = parseTableList('A.T1\nA.T1\nB.T2\nB.T2:P1\nC.P:P1\nC.P:P2\nC.P:P9\nZ.NOPE');
+    const { groups, summary, missing } = planExportGroups(
+      { kind: 'TABLES', tables: list, partitionRanges: { 'C.P': [range('P1', 1), range('P2', 2)] } },
+      [table('A', 'T1', 1 * G), table('B', 'T2', 1 * G)],
+      splitOptions(),
+      NOW
+    );
+    expect(missing.sort()).toEqual(['C.P:P9', 'Z.NOPE']);
+    // 서로 다른 줄 7개 = A.T1, B.T2, C.P:P1, C.P:P2 (계획 4) + C.P:P9, Z.NOPE (없음 2) + B.T2:P1 (B.T2 통째에 합쳐짐 1)
+    expect(summary).toMatchObject({ listed: 7, duplicates: 1, merged: 1, planned: 4, missing: 2 });
+    const tablesLine = groups.map((group) => buildParfile(buildPlan(group.request, NOW), group.request, TARGET).parfile.match(/^TABLES=(.*)$/m)?.[1]).join(',');
+    expect(tablesLine.split(',').sort()).toEqual(['A.T1', 'B.T2', 'C.P:P1', 'C.P:P2']);
+  });
+
+  it('빠짐 없음: 스키마 선택은 나눠도 모든 테이블이 정확히 한 작업에 (큰 테이블은 떼어 내고 나머지는 스키마 작업)', () => {
+    const sizes = [table('HR', 'BIG1', 900 * G), table('HR', 'BIG2', 800 * G), table('HR', 'S1', 10 * G), table('HR', 'S2', 5 * G), table('SH', 'X', 1 * G)];
+    const { groups, summary } = planExportGroups({ kind: 'SCHEMAS', schemas: ['HR', 'SH'] }, sizes, splitOptions(), NOW);
+    const placed = groups.flatMap((group) => group.tables.map((t) => `${t.owner}.${t.name}`)).sort();
+    expect(placed).toEqual(['HR.BIG1', 'HR.BIG2', 'HR.S1', 'HR.S2', 'SH.X']);
+    expect(summary.planned).toBe(5);
+  });
+
+  it('빠짐/중복 불변식이 실제로 잡는지 (계획을 일부러 망가뜨려 확인)', () => {
+    const list = parseTableList('A.T1\nA.T2');
+    const source = { kind: 'TABLES' as const, tables: list };
+    const sizes = [table('A', 'T1', 1 * G), table('A', 'T2', 1 * G)];
+    const { groups } = planExportGroups(source, sizes, splitOptions(), NOW);
+    expect(() => assertSourceCovered(source, groups, [], sizes)).not.toThrow();
+    const dropped = groups.map((group) => ({ ...group, tables: group.tables.filter((t) => t.name !== 'T2') }));
+    expect(() => assertSourceCovered(source, dropped, [], sizes)).toThrow(/빠진 항목이 있습니다 \(A\.T2\)/);
+    expect(() => assertSourceCovered(source, [...groups, groups[0]], [], sizes)).toThrow(/중복/);
+    const extra = groups.map((group) => ({ ...group, tables: [...group.tables, table('A', 'T3', 1 * G)] }));
+    expect(() => assertSourceCovered(source, extra, [], sizes)).toThrow(/목록에 없는 항목.*A\.T3/);
+    const schemaDropped = planExportGroups({ kind: 'SCHEMAS', schemas: ['A'] }, sizes, splitOptions(), NOW).groups.map((group) => ({ ...group, tables: group.tables.slice(1) }));
+    expect(() => assertSourceCovered({ kind: 'SCHEMAS', schemas: ['A'] }, schemaDropped, [], sizes)).toThrow(DataPumpValidationError);
   });
 
   it('스키마별 덤프/로그 이름', () => {

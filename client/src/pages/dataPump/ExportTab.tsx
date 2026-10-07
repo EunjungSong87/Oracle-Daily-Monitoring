@@ -804,6 +804,8 @@ function PlanSummaryBox({ summary }: { summary: ExportPlanSummary }): ReactEleme
     summary.listed !== null ? `목록 ${summary.listed}개` : null,
     `계획 포함 ${summary.planned}개`,
     summary.listed !== null ? `DB에 없어 뺀 ${summary.missing}개` : null,
+    summary.merged > 0 ? `통째 테이블에 합쳐진 파티션 줄 ${summary.merged}개` : null,
+    summary.duplicates > 0 ? `중복 줄 ${summary.duplicates}개는 하나로` : null,
     `뷰 작업 ${summary.viewJobs}개${summary.views > 0 ? ` (뷰 ${summary.views}개)` : ''}`,
   ].filter(Boolean);
   return (

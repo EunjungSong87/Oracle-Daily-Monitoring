@@ -864,7 +864,8 @@ function planExportGroups(
   const dumpNames = groups.flatMap((group) => executionPlans(buildPlan(group.request, now, env)).map((run) => run.dumpfile));
   if (new Set(dumpNames).size !== dumpNames.length) fail('덤프 파일 이름이 겹치는 파티션이 있습니다 (특수문자만 다른 이름). 분할 크기로 묶어 주세요.');
   assertGroupsWithinSource(source, groups, views, now, env);
-  const summary = summarizePlan(source, groups, missing, dataFilter, now, env);
+  const coverage = assertSourceCovered(source, groups, missing, sizes);
+  const summary = summarizePlan(source, groups, missing, coverage, dataFilter, now, env);
   return { groups, totalBytes: groups.reduce((sum, group) => sum + group.bytes, 0), chunkBytes, missing, sizeApprox, summary };
 }
 
@@ -915,9 +916,83 @@ function assertGroupsWithinSource(source: ExportSource, groups: ExportGroup[], v
   }
 }
 
+// 불변식 (빠짐/중복): 올린 대상의 줄마다 정확히 한 곳 — 계획의 한 작업, "DB에 없어 뺌", 또는 (파티션 줄인데 같은 테이블을
+// 통째로도 적어서) 통째 테이블에 합쳐짐 — 에만 들어가야 한다. 스키마 선택이면 그 스키마의 테이블이 정확히 한 작업에.
+interface Coverage {
+  lines: number; // 서로 다른 줄 수
+  duplicates: number; // 똑같은 줄이 또 있어서 하나로 친 줄
+  merged: number; // 통째 테이블에 합쳐진 파티션 줄
+}
+
+function assertSourceCovered(source: ExportSource, groups: ExportGroup[], missing: string[], sizes: TableSize[]): Coverage {
+  const tableGroups = groups.filter((group) => group.views.length === 0);
+  const lost = (what: string[]): never =>
+    fail(`내부 오류: 올린 대상 중 계획에서 빠진 항목이 있습니다 (${what.slice(0, 10).join(', ')}${what.length > 10 ? ' …' : ''}). 계획을 다시 만들어 주세요.`);
+  const twice = (what: string[]): never => fail(`내부 오류: 두 작업에 중복으로 들어간 항목이 있습니다 (${what.slice(0, 10).join(', ')}). 계획을 다시 만들어 주세요.`);
+  const count = (keys: string[]) => keys.reduce((map, key) => map.set(key, (map.get(key) ?? 0) + 1), new Map<string, number>());
+
+  if (source.kind === 'SCHEMAS') {
+    const placed = count(tableGroups.flatMap((group) => group.tables.map((table) => `${table.owner}.${table.name}`)));
+    const expected = sizes.filter((table) => source.schemas.map((schema) => String(schema).toUpperCase()).includes(table.owner)).map((table) => `${table.owner}.${table.name}`);
+    const notPlaced = expected.filter((key) => !placed.has(key));
+    if (notPlaced.length > 0) lost(notPlaced);
+    const dup = [...placed].filter(([, n]) => n > 1).map(([key]) => key);
+    if (dup.length > 0) twice(dup);
+    return { lines: expected.length, duplicates: 0, merged: 0 };
+  }
+
+  // 계획에 실제로 들어간 줄: 파티션 필터가 없는 테이블은 통째 줄(OWNER.TABLE), 있으면 파티션 줄(OWNER.TABLE:P)
+  const placed = count(
+    tableGroups.flatMap((group) =>
+      group.tables.flatMap((table) => {
+        const key = `${table.owner}.${table.name}`;
+        const parts = group.partitions.filter((p) => p.owner === table.owner && p.table === table.name);
+        return parts.length === 0 ? [key] : parts.map((p) => `${key}:${p.name}`);
+      })
+    )
+  );
+  const dup = [...placed].filter(([, n]) => n > 1).map(([key]) => key);
+  if (dup.length > 0) twice(dup);
+  const missingSet = new Set(missing);
+
+  if (source.kind === 'PARTITIONS') {
+    const key = `${source.owner.toUpperCase()}.${source.table.toUpperCase()}`;
+    const notPlaced = source.partitions.map((p) => `${key}:${p.name}`).filter((line) => !placed.has(line));
+    if (notPlaced.length > 0) lost(notPlaced);
+    return { lines: source.partitions.length, duplicates: 0, merged: 0 };
+  }
+
+  const raw = source.tables.map((item) => `${item.owner.toUpperCase()}.${item.name.toUpperCase()}${item.partition ? `:${item.partition.toUpperCase()}` : ''}`);
+  const lines = [...new Set(raw)];
+  const wholeKeys = new Set(lines.filter((line) => !line.includes(':')));
+  let merged = 0;
+  const notPlaced: string[] = [];
+  for (const line of lines) {
+    const key = line.split(':')[0];
+    const isMerged = line.includes(':') && wholeKeys.has(key);
+    if (isMerged) {
+      merged++;
+      if (placed.has(line)) twice([line]); // 통째로 나가는 테이블의 파티션이 또 들어가면 안 됨
+      continue;
+    }
+    const inPlan = placed.has(line);
+    if (inPlan === missingSet.has(line)) {
+      // 둘 다 아니면 빠짐, 둘 다면 계산 오류
+      if (!inPlan) notPlaced.push(line);
+      else twice([`${line}(계획과 DB에 없음 둘 다)`]);
+    }
+  }
+  if (notPlaced.length > 0) lost(notPlaced);
+  const extra = [...placed.keys()].filter((line) => !lines.includes(line));
+  if (extra.length > 0) fail(`내부 오류: 올린 목록에 없는 항목이 계획에 들어갔습니다 (${extra.slice(0, 10).join(', ')}).`);
+  return { lines: lines.length, duplicates: raw.length - lines.length, merged };
+}
+
 export interface ExportPlanSummary {
-  listed: number | null; // 올린 목록 줄 수 / 고른 파티션 수 (스키마 선택이면 null)
-  planned: number; // 계획에 들어간 줄(통째 테이블 + 파티션) 수 — 스키마 선택이면 테이블 수
+  listed: number | null; // 올린 목록의 서로 다른 줄 수 / 고른 파티션 수 (스키마 선택이면 null)
+  duplicates: number; // 같은 줄이 또 있어서 하나로 친 줄
+  merged: number; // 같은 테이블을 통째로도 적어서 통째에 합쳐진 파티션 줄
+  planned: number; // 계획에 들어간 줄(통째 테이블 + 파티션) 수 — 스키마 선택이면 테이블 수. listed = planned + missing + merged
   missing: number; // DB에 없어서 뺀 줄
   viewJobs: number;
   views: number;
@@ -929,6 +1004,7 @@ function summarizePlan(
   source: ExportSource,
   groups: ExportGroup[],
   missing: string[],
+  coverage: Coverage,
   dataFilter: DataFilter | null,
   now: Date,
   env: FilterEnv | null
@@ -969,8 +1045,14 @@ function summarizePlan(
       if (source.kind === 'SCHEMAS' && !sourceOwners.has(key.split('.')[0])) warnings.push(`${kind} 대상 ${key}은(는) 고른 스키마에 없어 적용되지 않습니다 — 이전 설정이 남아 있는지 확인하세요.`);
     }
   }
+  // 요약 숫자도 맞아떨어져야 한다: 목록 = 계획 포함 + DB에 없어 뺌 + 통째에 합쳐짐
+  if (source.kind !== 'SCHEMAS' && coverage.lines !== planned + missing.length + coverage.merged) {
+    fail(`내부 오류: 목록 ${coverage.lines}줄 ≠ 계획 ${planned} + 없음 ${missing.length} + 합쳐짐 ${coverage.merged}. 계획을 다시 만들어 주세요.`);
+  }
   return {
-    listed: source.kind === 'TABLES' ? source.tables.length : source.kind === 'PARTITIONS' ? source.partitions.length : null,
+    listed: source.kind === 'SCHEMAS' ? null : coverage.lines,
+    duplicates: coverage.duplicates,
+    merged: coverage.merged,
     planned,
     missing: missing.length,
     viewJobs: groups.length - tableGroups.length,
@@ -1458,6 +1540,7 @@ export {
   buildParfile,
   executionPlans,
   schemaFileName,
+  assertSourceCovered,
   isDestructive,
   parseSize,
   suggestFilesize,

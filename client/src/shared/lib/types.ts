@@ -650,7 +650,9 @@ export interface ExportPlanResponse {
 }
 
 export interface ExportPlanSummary {
-  listed: number | null; // 올린 목록 줄 수 / 고른 파티션 수 (스키마 선택이면 null)
+  listed: number | null; // 올린 목록의 서로 다른 줄 수 / 고른 파티션 수 (스키마 선택이면 null)
+  duplicates: number; // 같은 줄이 또 있어서 하나로 친 줄
+  merged: number; // 같은 테이블을 통째로도 적어서 통째에 합쳐진 파티션 줄
   planned: number; // 계획에 들어간 줄(통째 테이블 + 파티션), 스키마 선택이면 테이블 수
   missing: number; // DB에 없어서 뺀 줄
   viewJobs: number;
