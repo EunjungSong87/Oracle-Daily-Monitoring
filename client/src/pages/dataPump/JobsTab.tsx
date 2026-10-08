@@ -15,8 +15,8 @@ function whenVisible(load: () => void): () => void {
   };
 }
 
-// 지난 시간 / 남은 시간 / 끝날 예상 시각. 남은 시간은 오라클 계산값(V$SESSION_LONGOPS)이 있으면 그것, 없으면
-// "지금까지 속도가 유지된다"는 가정의 어림값(진행률 기준)이다. 진행률은 테이블 단위로 올라가서 초반엔 비어 있을 수 있다.
+// 지난 시간 / 남은 시간 / 끝날 예상 시각. 진행률·남은 시간은 Data Pump가 V$SESSION_LONGOPS에 남기는 값만 읽는다
+// (작업에 ATTACH하지 않음 — 락/부하 방지). LONGOPS를 안 남기는 버전/에디션이거나 작업 초반이면 비어 있다.
 function TimeCell({ job }: { job: DataPumpJob }): ReactElement {
   if (job.elapsedSec === null && job.remainingSec === null) {
     return <span className="oc-none">{job.state === 'EXECUTING' ? '계산 중' : '-'}</span>;
@@ -31,8 +31,11 @@ function TimeCell({ job }: { job: DataPumpJob }): ReactElement {
         </div>
       ) : (
         job.state === 'EXECUTING' && (
-          <div className="dp-hint-line" title="진행률은 테이블(오브젝트) 하나가 끝날 때마다 올라가서, 첫 테이블이 끝나기 전에는 계산할 근거가 없습니다.">
-            남은 시간 계산 전
+          <div
+            className="dp-hint-line"
+            title="진행률은 Data Pump가 V$SESSION_LONGOPS에 남기는 값으로만 봅니다 (작업에 붙지 않아 부하/락 없음). 작업 초반이거나 LONGOPS를 남기지 않는 버전·에디션이면 비어 있습니다."
+          >
+            남은 시간 정보 없음
           </div>
         )
       )}

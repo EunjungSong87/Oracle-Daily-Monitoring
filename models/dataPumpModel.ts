@@ -732,10 +732,13 @@ async function getJobs(dbmsid: DbmsIdParam): Promise<DataPumpJob[]> {
         WHERE object_type = 'TABLE' AND object_name IN (${names.join(', ')})`,
       binds
     );
-    // 남은 시간: Data Pump가 작업 이름으로 V$SESSION_LONGOPS에 남기는 값 (버전/에디션에 따라 안 남기도 함 — 예: 23ai Free).
+    // 진행률/남은 시간: Data Pump가 작업 이름으로 V$SESSION_LONGOPS에 남기는 값 (SOFAR/TOTALWORK는 MB).
+    // 작업에 ATTACH해서 GET_STATUS로 읽으면 작업 큐에 붙느라(sys.kupc$que_int.attach_queues) 락이 잡히고, 앱이 시작하지 않은
+    // 작업(parfile로 직접 돌린 것, 멈춰 남은 것)까지 15초마다 붙게 되므로 쓰지 않는다 — 대상 DB에는 읽기 조회만.
+    // LONGOPS를 안 남기는 버전/에디션(예: 23ai Free)이면 진행률은 비어 있고 지난 시간만 보인다.
     const longops = await query(
       connection,
-      `SELECT opname, elapsed_seconds, time_remaining
+      `SELECT opname, elapsed_seconds, time_remaining, sofar, totalwork
          FROM v$session_longops
         WHERE opname IN (${names.join(', ')})
         ORDER BY start_time DESC`,
@@ -744,11 +747,12 @@ async function getJobs(dbmsid: DbmsIdParam): Promise<DataPumpJob[]> {
 
     const result: DataPumpJob[] = [];
     for (const job of jobs) {
-      const status = await readJobStatus(connection, job.OWNER_NAME, job.JOB_NAME);
       const master = masters.find((row) => row.OWNER === job.OWNER_NAME && row.OBJECT_NAME === job.JOB_NAME);
       const op = longops.find((row) => row.OPNAME === job.JOB_NAME);
       const elapsedSec: number | null = op?.ELAPSED_SECONDS ?? master?.ELAPSED_SEC ?? null;
-      const pct = status?.pct ?? null;
+      const doneMb: number | null = op ? Number(op.SOFAR) : null;
+      const totalMb: number | null = op && Number(op.TOTALWORK) > 0 ? Number(op.TOTALWORK) : null;
+      const pct = doneMb !== null && totalMb !== null ? Math.min(100, Math.round((doneMb / totalMb) * 1000) / 10) : null;
       // LONGOPS 값이 없으면 지금까지의 속도가 유지된다고 보고 어림한다: 지난 시간 × 남은 % / 진행된 %
       let remainingSec: number | null = op?.TIME_REMAINING ?? null;
       if (remainingSec === null && elapsedSec !== null && pct !== null && pct > 0 && pct < 100) {
@@ -766,57 +770,12 @@ async function getJobs(dbmsid: DbmsIdParam): Promise<DataPumpJob[]> {
         progressMessage: null,
         elapsedSec,
         remainingSec,
-        doneMb: status?.doneBytes !== null && status?.doneBytes !== undefined ? Math.round(status.doneBytes / 1048576) : null,
-        totalMb: status?.totalBytes ? Math.round(status.totalBytes / 1048576) : null,
+        doneMb,
+        totalMb,
       });
     }
     return result;
   });
-}
-
-// 진행 상태는 DBMS_DATAPUMP의 공식 조회로 읽는다: 잠깐 붙어서(ATTACH) 상태만 받고 바로 떨어진다(DETACH).
-// 작업 자체에는 영향이 없다. 막 시작했거나 끝나는 중이라 붙을 수 없으면 null.
-async function readJobStatus(
-  connection: oracledb.Connection,
-  owner: string,
-  jobName: string
-): Promise<{ pct: number | null; doneBytes: number | null; totalBytes: number | null } | null> {
-  try {
-    const result = await connection.execute<{ pct: number | null; done: number | null; total: number | null }>(
-      `DECLARE
-         h NUMBER;
-         job_state VARCHAR2(30);
-         sts ku$_Status;
-       BEGIN
-         h := DBMS_DATAPUMP.ATTACH(job_name => :jobName, job_owner => :owner);
-         BEGIN
-           DBMS_DATAPUMP.GET_STATUS(handle => h, mask => DBMS_DATAPUMP.KU$_STATUS_JOB_STATUS, timeout => 0,
-                                    job_state => job_state, status => sts);
-           IF sts.job_status IS NOT NULL THEN
-             :pct := sts.job_status.percent_done;
-             :done := sts.job_status.bytes_processed;
-             :total := sts.job_status.total_bytes;
-           END IF;
-           DBMS_DATAPUMP.DETACH(handle => h);
-         EXCEPTION
-           WHEN OTHERS THEN
-             DBMS_DATAPUMP.DETACH(handle => h);
-             RAISE;
-         END;
-       END;`,
-      {
-        jobName,
-        owner,
-        pct: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
-        done: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
-        total: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
-      }
-    );
-    const out = result.outBinds!;
-    return { pct: out.pct, doneBytes: out.done, totalBytes: out.total };
-  } catch {
-    return null;
-  }
 }
 
 // 작업 취소: 붙어서(ATTACH) 즉시 중지하고 마스터 테이블까지 지웁니다 (다시 시작할 수 없음 — KILL_JOB과 같음).
