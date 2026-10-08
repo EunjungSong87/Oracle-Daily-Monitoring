@@ -8,6 +8,7 @@ export interface ParfileView {
   command: string;
   parfile: string;
   parfileName: string;
+  notes?: string[]; // 작업 설명·실행 전 TRUNCATE 문 등 — parfile에는 주석으로도 넣지 않는다 (서버에서 expdp가 에러)
 }
 
 interface Props {
@@ -42,6 +43,12 @@ export function ParfileModal({ view, onClose, serverDirectory, onSaveToServer, s
             복사
           </button>
         </div>
+        {view.notes && view.notes.length > 0 && (
+          <>
+            <p className="dp-label">참고 (parfile에는 들어가지 않음)</p>
+            <pre className="rt-sql-text dp-command">{view.notes.join('\n')}</pre>
+          </>
+        )}
         <p className="dp-label">
           parfile — <code>{view.parfileName}</code>
         </p>

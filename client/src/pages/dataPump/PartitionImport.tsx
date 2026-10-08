@@ -289,7 +289,7 @@ export function PartitionImport({ dbmsId, meta, sqlAllowed }: Props): ReactEleme
             startingNo={startingNo}
             disabledReason={blockedReason}
             onRun={(job) => setConfirm({ jobs: [job] })}
-            onParfile={(job) => setParfileView({ title: `작업 ${job.no} — parfile`, command: job.command, parfile: job.parfile, parfileName: job.parfileName })}
+            onParfile={(job) => setParfileView({ title: `작업 ${job.no} — parfile`, command: job.command, parfile: job.parfile, parfileName: job.parfileName, notes: job.notes })}
           />
         </div>
       )}

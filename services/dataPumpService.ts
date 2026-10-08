@@ -431,18 +431,21 @@ function isDestructive(plan: DataPumpPlan): boolean {
 }
 
 // 같은 계획을 DB 서버에서 직접 돌릴 때 쓸 expdp/impdp parfile과 명령어. 비밀번호는 넣지 않습니다 (실행 시 프롬프트로 입력).
+// parfile에는 파라미터 줄만 쓴다 — 주석(#)이 있으면 서버 환경(문자셋 등)에 따라 expdp/impdp가 에러를 내서, 작업 설명·실행 전
+// TRUNCATE 문·스키마별 실행 안내는 notes로 따로 돌려주고 화면에만 보여 준다.
 function buildParfile(
   plan: DataPumpPlan,
   request: DataPumpRequest,
   target: TargetInfo,
   comment?: string
-): { parfile: string; command: string; parfileName: string } {
+): { parfile: string; command: string; parfileName: string; notes: string[] } {
   const lines: string[] = [];
-  if (comment) lines.push(`# ${comment}`);
+  const notes: string[] = [];
+  if (comment) notes.push(comment);
   if (plan.truncateTarget && plan.truncatePartitions.length > 0) {
-    lines.push('# 실행 전에 SQL*Plus에서 대상 파티션을 먼저 비우세요 (화면에서 실행하면 자동으로 합니다):');
+    notes.push('실행 전에 SQL*Plus에서 대상 파티션을 먼저 비우세요 (화면에서 실행하면 자동으로 합니다):');
     for (const partition of plan.truncatePartitions) {
-      lines.push(`#   ALTER TABLE ${plan.truncateTarget.owner}.${plan.truncateTarget.name} TRUNCATE PARTITION ${partition} UPDATE INDEXES;`);
+      notes.push(`  ALTER TABLE ${plan.truncateTarget.owner}.${plan.truncateTarget.name} TRUNCATE PARTITION ${partition} UPDATE INDEXES;`);
     }
   }
   lines.push(`DIRECTORY=${plan.directory}`);
@@ -462,12 +465,10 @@ function buildParfile(
     if (entries.length > 0) lines.push(`TABLES=${entries.join(',')}`); // 뷰만 내보내는 작업은 VIEWS_AS_TABLES 줄만
     const runs = executionPlans(plan);
     if (runs.length > 1) {
-      lines.splice(
-        comment ? 1 : 0,
-        0,
-        `# 화면에서 실행하면 스키마별 작업 ${runs.length}개로 나눠 동시에 실행합니다 (DBMS_DATAPUMP 테이블 모드는 스키마 하나만):`,
-        ...runs.map((run) => `#   ${run.jobName}: ${planOwners(run).join(',')} → ${run.dumpfile ?? '(덤프 없음)'}`),
-        '# 이 parfile로 expdp를 직접 돌리면 아래 DUMPFILE 하나에 모두 들어갑니다 (파티션 매니페스트는 화면 실행 기준 덤프 이름).'
+      notes.push(
+        `화면에서 실행하면 스키마별 작업 ${runs.length}개로 나눠 동시에 실행합니다 (DBMS_DATAPUMP 테이블 모드는 스키마 하나만):`,
+        ...runs.map((run) => `  ${run.jobName}: ${planOwners(run).join(',')} → ${run.dumpfile ?? '(덤프 없음)'}`),
+        '이 parfile로 expdp를 직접 돌리면 DUMPFILE 하나에 모두 들어갑니다 (파티션 매니페스트는 화면 실행 기준 덤프 이름).'
       );
     }
   } else {
@@ -489,7 +490,7 @@ function buildParfile(
   const parfileName = `${plan.jobName.toLowerCase()}.par`;
   const tool = plan.operation === 'EXPORT' ? 'expdp' : 'impdp';
   const command = `${tool} ${target.user}@${target.host}:${target.port}/${target.sid} parfile=${parfileName}`;
-  return { parfile: lines.join('\n') + '\n', command, parfileName };
+  return { parfile: lines.join('\n') + '\n', command, parfileName, notes };
 }
 
 // ── 크기 기준 자동 분할 ──

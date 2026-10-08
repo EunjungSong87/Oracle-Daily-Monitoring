@@ -729,7 +729,7 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
                           type="button"
                           className="btn-secondary"
                           onClick={() =>
-                            setParfileView({ title: `작업 ${group.no} — parfile`, command: group.command, parfile: group.parfile, parfileName: group.parfileName })
+                            setParfileView({ title: `작업 ${group.no} — parfile`, command: group.command, parfile: group.parfile, parfileName: group.parfileName, notes: group.notes })
                           }
                         >
                           parfile

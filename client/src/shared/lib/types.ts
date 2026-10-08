@@ -634,6 +634,7 @@ export interface ExportGroup {
   jobName: string;
   parfile: string;
   parfileName: string;
+  notes?: string[]; // 작업 설명·실행 전 TRUNCATE 문 등 (parfile에는 안 쓰고 화면에만)
   command: string;
 }
 
@@ -665,6 +666,7 @@ export interface ParfilePreview {
   jobName: string;
   parfile: string;
   parfileName: string;
+  notes?: string[]; // 작업 설명·실행 전 TRUNCATE 문 등 (parfile에는 안 쓰고 화면에만)
   command: string;
 }
 
@@ -778,6 +780,7 @@ export interface PartitionImportJobView {
   jobName: string;
   parfile: string;
   parfileName: string;
+  notes?: string[]; // 작업 설명·실행 전 TRUNCATE 문 등 (parfile에는 안 쓰고 화면에만)
   command: string;
 }
 

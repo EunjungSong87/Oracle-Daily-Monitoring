@@ -605,8 +605,11 @@ describe('buildPlan / buildParfile — 분할 작업용 옵션', () => {
     const plan = buildPlan(request, NOW);
     expect(plan.excludeTableExpr).toBe("NOT IN ('A','B')");
     expect(plan.flashbackScn).toBe('123456789012');
-    const { parfile } = buildParfile(plan, request, TARGET, '작업 1/3');
-    expect(parfile.startsWith('# 작업 1/3\n')).toBe(true);
+    const { parfile, notes } = buildParfile(plan, request, TARGET, '작업 1/3');
+    // 설명은 parfile이 아니라 notes로 (parfile에 주석이 있으면 서버에서 expdp가 에러)
+    expect(parfile.startsWith('DIRECTORY=')).toBe(true);
+    expect(parfile.split('\n').some((line) => line.startsWith('#'))).toBe(false);
+    expect(notes).toEqual(['작업 1/3']);
     expect(parfile).toContain(`EXCLUDE=TABLE:"IN ('A','B')"\n`);
     expect(parfile).toContain('FLASHBACK_SCN=123456789012\n');
     expect(parfile).not.toContain('FLASHBACK_TIME');

@@ -125,7 +125,7 @@ export function ImportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
   async function showParfile(): Promise<void> {
     try {
       const preview = await previewDataPump(dbmsId, buildRequest());
-      setParfileView({ title: 'Import parfile', command: preview.command, parfile: preview.parfile, parfileName: preview.parfileName });
+      setParfileView({ title: 'Import parfile', command: preview.command, parfile: preview.parfile, parfileName: preview.parfileName, notes: preview.notes });
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'parfile을 만들지 못했습니다.', 'error');
     }

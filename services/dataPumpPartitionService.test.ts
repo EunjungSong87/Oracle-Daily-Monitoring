@@ -134,7 +134,9 @@ describe('planPartitionImportJobs', () => {
     expect(result.jobs.map((job) => [job.request.tableExistsAction, job.request.content, job.truncatePartitions])).toEqual([['APPEND', 'DATA_ONLY', ['P3']]]);
     const plan = buildPlan(result.jobs[0].request, NOW);
     expect(plan.truncateTarget).toEqual({ owner: 'SALES', name: 'ORDERS' });
-    expect(buildParfile(plan, result.jobs[0].request, TARGET).parfile).toContain('#   ALTER TABLE SALES.ORDERS TRUNCATE PARTITION P3 UPDATE INDEXES;');
+    const built = buildParfile(plan, result.jobs[0].request, TARGET);
+    expect(built.parfile).not.toContain('#');
+    expect(built.notes).toContain('  ALTER TABLE SALES.ORDERS TRUNCATE PARTITION P3 UPDATE INDEXES;');
   });
 
   it('대상 스키마가 다르면 REMAP_SCHEMA, 비울 테이블도 대상 스키마 쪽', () => {
