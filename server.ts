@@ -50,7 +50,9 @@ app.use(cors());
 const jsonParser = bodyParser.json();
 const urlencodedParser = bodyParser.urlencoded({ extended: true });
 
-// JSON 요청 본문 처리
+// JSON 요청 본문 처리. Data Pump는 긴 테이블 목록/parfile/파티션 매니페스트를 보내므로 기본 100KB보다 크게 받는다
+// (파일 저장은 화면이 3MB 안팎으로 나눠 보내고, 서비스가 파일 수·파일 크기를 따로 제한한다). 나머지 경로는 기본값.
+app.use('/api/dataPump', bodyParser.json({ limit: '10mb' }));
 app.use(jsonParser);
 
 // URL-encoded 요청 본문 처리

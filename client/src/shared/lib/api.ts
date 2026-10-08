@@ -425,14 +425,36 @@ export function readDataPumpLog(dbmsid: string | number, directory: string, logf
   return postJson('/api/dataPump/log', { dbmsid, directory, logfile });
 }
 
-// parfile/실행 스크립트를 DB 서버 DIRECTORY에 저장. overwrite가 아니면 이미 있는 파일은 skipped로 돌아온다.
-export function saveDataPumpFiles(
+// 한 요청에 담는 파일 내용 합계 (서버 JSON 한도 10MB보다 넉넉히 작게). 파일 하나가 이보다 크면 그 파일만 따로 보낸다.
+const SAVE_BATCH_CHARS = 3 * 1024 * 1024;
+
+// parfile/실행 스크립트/매니페스트를 DB 서버 DIRECTORY에 저장. overwrite가 아니면 이미 있는 파일은 skipped로 돌아온다.
+// 파일이 많거나 크면(긴 테이블 목록, 파티션 수천 개 매니페스트) 여러 요청으로 나눠 보내고 결과를 합친다.
+export async function saveDataPumpFiles(
   dbmsid: string | number,
   directory: string,
   files: { name: string; content: string }[],
   overwrite: boolean
 ): Promise<{ written: string[]; skipped: string[] }> {
-  return postJson('/api/dataPump/saveFiles', { dbmsid, directory, files, overwrite });
+  const batches: { name: string; content: string }[][] = [];
+  let size = 0;
+  for (const file of files) {
+    const current = batches[batches.length - 1];
+    if (current && size + file.content.length <= SAVE_BATCH_CHARS) {
+      current.push(file);
+      size += file.content.length;
+    } else {
+      batches.push([file]);
+      size = file.content.length;
+    }
+  }
+  const result = { written: [] as string[], skipped: [] as string[] };
+  for (const batch of batches) {
+    const part = await postJson<{ written: string[]; skipped: string[] }>('/api/dataPump/saveFiles', { dbmsid, directory, files: batch, overwrite });
+    result.written.push(...part.written);
+    result.skipped.push(...part.skipped);
+  }
+  return result;
 }
 
 // ── Data Pump: Range 파티션 단위 export/import ──
