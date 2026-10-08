@@ -185,6 +185,39 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
   // "파티션마다 하나"는 Range 파티션 대상, 또는 파티션 줄을 올릴 수 있는 테이블 목록에서만.
   const chunkPresets = sourceKind !== 'SCHEMAS' ? [...CHUNK_PRESETS, { value: 'PARTITION', label: '파티션마다 하나' }] : CHUNK_PRESETS;
 
+  // 지금 화면의 대상/옵션. 계획은 만들 때의 값으로 요청(PARALLEL, FILESIZE 등)이 정해지므로, 그 뒤에 바꾸면
+  // 계획이 옛 값 그대로 실행된다 — planKey와 비교해 "계획을 다시 만들어야 함"으로 막는다.
+  function currentOptions(): ExportSplitOptions {
+    return {
+      directory,
+      filePrefix,
+      chunkSize: chunkPreset === 'CUSTOM' ? customChunk : chunkPreset,
+      parallel,
+      filesizeMode,
+      customFilesize: filesizeMode === 'CUSTOM' ? customFilesize : null,
+      content,
+      excludeStatistics,
+      flashbackConsistent,
+      reuseDumpfiles,
+      networkLink: networkLink || null,
+      objectFilter: cleanObjectFilter(objectFilter),
+      dataFilter: cleanDataFilter(dataFilter),
+    };
+  }
+
+  function currentSource(): { partitionSource?: { owner: string; table: string; partitions: string[] }; schemas?: string[]; tableList?: string } {
+    return sourceKind === 'PARTITIONS'
+      ? { partitionSource: { owner: partOwner, table: partTable, partitions: Array.from(selectedPartitions).sort() } }
+      : sourceKind === 'SCHEMAS'
+        ? { schemas: Array.from(selectedSchemas).sort() }
+        : { tableList };
+  }
+
+  const currentKey = JSON.stringify([currentOptions(), currentSource()]);
+  const [planKey, setPlanKey] = useState<string | null>(null);
+  const planStale = plan !== null && planKey !== currentKey;
+  const planParallel = plan?.groups[0]?.request.parallel ?? parallel;
+
   // refreshSizes: 서버가 재사용 중인 크기(10분)를 버리고 대상 DB에서 새로 읽기
   async function makePlan(refreshSizes = false): Promise<void> {
     if (sourceKind === 'PARTITIONS' && selectedPartitions.size === 0) {
@@ -201,29 +234,10 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
     }
     setPlanning(true);
     try {
-      const options: ExportSplitOptions = {
-        directory,
-        filePrefix,
-        chunkSize: chunkPreset === 'CUSTOM' ? customChunk : chunkPreset,
-        parallel,
-        filesizeMode,
-        customFilesize: filesizeMode === 'CUSTOM' ? customFilesize : null,
-        content,
-        excludeStatistics,
-        flashbackConsistent,
-        reuseDumpfiles,
-        networkLink: networkLink || null,
-        objectFilter: cleanObjectFilter(objectFilter),
-        dataFilter: cleanDataFilter(dataFilter),
-      };
-      const source =
-        sourceKind === 'PARTITIONS'
-          ? { partitionSource: { owner: partOwner, table: partTable, partitions: Array.from(selectedPartitions) } }
-          : sourceKind === 'SCHEMAS'
-            ? { schemas: Array.from(selectedSchemas) }
-            : { tableList };
-      const result = await planDataPumpExport(dbmsId, { ...source, refreshSizes }, options);
+      const key = currentKey;
+      const result = await planDataPumpExport(dbmsId, { ...currentSource(), refreshSizes }, currentOptions());
       setPlan(result);
+      setPlanKey(key);
       setStarted(new Map());
       setExpanded(new Set());
       if (result.missing.length > 0) showToast(`목록 중 ${result.missing.length}개 항목(테이블/파티션)은 DB에 없어 뺐습니다.`, 'error');
@@ -591,7 +605,7 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
             <h3>
               3. 작업 {plan.groups.length}개{' '}
               <span className="oc-subtle">
-                전체 약 {formatBytes(plan.totalBytes)} · 분할 기준 {plan.chunkBytes ? formatBytes(plan.chunkBytes) : '없음'} · PARALLEL {parallel}
+                전체 약 {formatBytes(plan.totalBytes)} · 분할 기준 {plan.chunkBytes ? formatBytes(plan.chunkBytes) : '없음'} · PARALLEL {planParallel}
               </span>
               <span
                 className="dp-hint-line dp-plan-eta"
@@ -603,13 +617,13 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
               </span>
             </h3>
             <div className="rt-panel-controls">
-              <button type="button" className="btn-secondary" onClick={downloadAllParfiles}>
+              <button type="button" className="btn-secondary" disabled={planStale} onClick={downloadAllParfiles}>
                 parfile 전체 다운로드
               </button>
-              <button type="button" className="btn-secondary" disabled={serverSave.saving} onClick={saveAllToServer}>
+              <button type="button" className="btn-secondary" disabled={serverSave.saving || planStale} onClick={saveAllToServer}>
                 {serverSave.saving ? '저장 중...' : `DB 서버 ${planDirectory}에 parfile${plan.manifests.length > 0 ? ' + 매니페스트' : ''} 저장`}
               </button>
-              <button type="button" disabled={pending === 0 || startingNo !== null} onClick={() => setConfirmAll(true)}>
+              <button type="button" disabled={pending === 0 || startingNo !== null || planStale} onClick={() => setConfirmAll(true)}>
                 전체 실행 ({pending}개)
               </button>
             </div>
@@ -618,6 +632,12 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
             <p className="oc-hint">
               실행하면 매니페스트 {plan.manifests.map((manifest) => manifest.name).join(', ')}을(를) {planDirectory}에 먼저 저장합니다. 덤프를 다른 DB로 옮길 때 이 파일도 같이 옮기면 "파티션 Import" 탭에서 기간으로 골라
               가져올 수 있습니다.
+            </p>
+          )}
+          {planStale && (
+            <p className="pc-warning">
+              계획을 만든 뒤 대상이나 옵션(PARALLEL, FILESIZE, 분할 크기, 필터 등)이 바뀌었습니다. 이 계획은 만들 때 값으로 실행되므로 실행·저장을 막아
+              두었습니다 — &quot;분할 계획 만들기&quot;로 다시 만들어 주세요.
             </p>
           )}
           <PlanSummaryBox summary={plan.summary} />
@@ -701,7 +721,7 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
                       <td>
                         <div className="oc-name">{group.request.dumpfile}</div>
                         <div className="dp-hint-line">
-                          {group.filesize ? `FILESIZE ${group.filesize} × 약 ${group.expectedFiles}개` : `PARALLEL ${parallel}개 파일`}
+                          {group.filesize ? `FILESIZE ${group.filesize} × 약 ${group.expectedFiles}개` : `PARALLEL ${group.request.parallel}개 파일`}
                         </div>
                       </td>
                       <td className="dp-actions">
@@ -719,7 +739,7 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
                             실행됨
                           </span>
                         ) : (
-                          <button type="button" disabled={startingNo !== null} onClick={() => runOne(group)}>
+                          <button type="button" disabled={startingNo !== null || planStale} onClick={() => runOne(group)}>
                             {startingNo === group.no ? '시작 중...' : '실행'}
                           </button>
                         )}
@@ -778,7 +798,7 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
         onClose={() => setConfirmAll(false)}
       >
         <p>
-          <strong>{meta.target.dbname}</strong>에서 export 작업 {pending}개를 지금 동시에 시작합니다 (각 PARALLEL {parallel}).
+          <strong>{meta.target.dbname}</strong>에서 export 작업 {pending}개를 지금 동시에 시작합니다 (각 PARALLEL {planParallel}).
         </p>
         <p className="oc-hint">
           DB 서버의 CPU/IO와 {directory} 디스크 여유 공간(약 {formatBytes(plan?.totalBytes)} 필요)을 확인하세요.
