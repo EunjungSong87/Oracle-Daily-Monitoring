@@ -30,6 +30,9 @@ export interface CompareItem {
   diffs: DiffRow[];
   // true면 소스 줄 단위 diff를 /objectCompare/sourceDiff 로 따로 조회할 수 있습니다.
   hasSourceDiff: boolean;
+  // 어느 스키마 짝의 결과인지 (여러 스키마 비교). TABLESPACE는 DB 전체라 null.
+  sourceSchema?: string | null;
+  targetSchema?: string | null;
 }
 
 export interface CompareSide {
@@ -37,14 +40,27 @@ export interface CompareSide {
   schema: string;
 }
 
+// 여러 스키마 비교의 한 짝: 기준 스키마 ↔ 대상 스키마 (보통 같은 이름)
+export interface SchemaPair {
+  source: string;
+  target: string;
+}
+
+export class ObjectCompareValidationError extends Error {}
+
+// 한 번에 비교할 수 있는 스키마 짝 수 (스키마마다 딕셔너리를 차례로 읽으므로 너무 많으면 오래 걸린다)
+const MAX_PAIRS = 50;
+
 export interface CompareOptions {
   // 테이블/인덱스가 놓인 테이블스페이스 이름 차이를 무시합니다 (운영/개발처럼 이름 체계가 다른 환경 비교용).
   ignoreTablespace?: boolean;
 }
 
 export interface CompareResponse {
+  // schema는 표시용 (여러 스키마면 쉼표로 이은 목록). 짝별 스키마는 pairs와 항목의 sourceSchema/targetSchema.
   source: CompareSide & { dbname: string };
   target: CompareSide & { dbname: string };
+  pairs: SchemaPair[];
   types: ObjectType[];
   items: CompareItem[];
 }
@@ -478,30 +494,77 @@ async function getSchemas(dbmsid: DbmsIdParam): Promise<string[]> {
   }
 }
 
-async function compareSchemas(
-  source: CompareSide,
-  target: CompareSide,
+// 스키마 짝 목록 검증: 1~MAX_PAIRS개, 이름이 비지 않고, 한쪽에서 같은 스키마가 두 짝에 나오지 않으며,
+// 같은 DB 안에서 자기 자신과 비교하는 짝은 없어야 한다.
+function parsePairs(value: unknown, sameDbms: boolean): SchemaPair[] {
+  const fail = (message: string): never => {
+    throw new ObjectCompareValidationError(message);
+  };
+  if (!Array.isArray(value) || value.length === 0) fail('비교할 스키마를 하나 이상 골라주세요.');
+  const list = value as unknown[];
+  if (list.length > MAX_PAIRS) fail(`한 번에 ${MAX_PAIRS}개 스키마까지 비교할 수 있습니다 (${list.length}개 선택).`);
+  const pairs = list.map((item, index) => {
+    const { source, target } = (item ?? {}) as Record<string, unknown>;
+    if (typeof source !== 'string' || !source.trim() || typeof target !== 'string' || !target.trim()) {
+      fail(`${index + 1}번째 짝의 기준/대상 스키마를 골라주세요.`);
+    }
+    return { source: String(source).trim(), target: String(target).trim() };
+  });
+  const duplicated = (names: string[]) => names.find((name, index) => names.indexOf(name) !== index);
+  const dupSource = duplicated(pairs.map((pair) => pair.source));
+  if (dupSource) fail(`기준 스키마 ${dupSource}가 두 짝에 들어 있습니다.`);
+  const dupTarget = duplicated(pairs.map((pair) => pair.target));
+  if (dupTarget) fail(`대상 스키마 ${dupTarget}가 두 짝에 들어 있습니다.`);
+  const self = sameDbms ? pairs.find((pair) => pair.source === pair.target) : undefined;
+  if (self) fail(`같은 DB에서 ${self.source}를 자기 자신과 비교할 수는 없습니다. 대상 스키마를 바꿔주세요.`);
+  return pairs;
+}
+
+// 여러 스키마 짝을 한 번에 비교합니다. DB마다 커넥션 하나로 스키마를 차례로 읽고(두 DB끼리는 동시에),
+// 짝마다 compareSnapshots로 비교해 항목에 스키마를 붙입니다. TABLESPACE는 DB 전체라 한 번만 비교합니다.
+async function compareSchemaPairs(
+  sourceDbmsid: number | string,
+  targetDbmsid: number | string,
+  pairsInput: unknown,
   types: unknown,
   options: CompareOptions = {}
 ): Promise<CompareResponse> {
+  const pairs = parsePairs(pairsInput, String(sourceDbmsid) === String(targetDbmsid));
   const selected = parseTypes(types);
-  let sourceSnapshot: SchemaSnapshot;
-  let targetSnapshot: SchemaSnapshot;
+  let sourceSide: { dbname: string; snapshots: Map<string, SchemaSnapshot> };
+  let targetSide: { dbname: string; snapshots: Map<string, SchemaSnapshot> };
   try {
-    // 두 DB는 서로 독립이라 동시에 읽어옵니다.
-    [sourceSnapshot, targetSnapshot] = await Promise.all([
-      objectCompareModel.getSnapshot({ dbmsid: source.dbmsid }, source.schema, selected),
-      objectCompareModel.getSnapshot({ dbmsid: target.dbmsid }, target.schema, selected),
+    [sourceSide, targetSide] = await Promise.all([
+      objectCompareModel.getSnapshots({ dbmsid: sourceDbmsid }, pairs.map((pair) => pair.source), selected),
+      objectCompareModel.getSnapshots({ dbmsid: targetDbmsid }, pairs.map((pair) => pair.target), selected),
     ]);
   } catch (error) {
     throw new Error('오브젝트 정보 조회 실패', { cause: error });
   }
+
+  const items: CompareItem[] = [];
+  const first = pairs[0];
+  if (selected.includes('TABLESPACE')) {
+    const tablespaceItems = compareSnapshots(sourceSide.snapshots.get(first.source)!, targetSide.snapshots.get(first.target)!, ['TABLESPACE'], options);
+    items.push(...tablespaceItems.map((item) => ({ ...item, sourceSchema: null, targetSchema: null })));
+  }
+  const schemaTypes = selected.filter((type) => type !== 'TABLESPACE');
+  for (const pair of pairs) {
+    const pairItems = compareSnapshots(sourceSide.snapshots.get(pair.source)!, targetSide.snapshots.get(pair.target)!, schemaTypes, options);
+    items.push(...pairItems.map((item) => ({ ...item, sourceSchema: pair.source, targetSchema: pair.target })));
+  }
   return {
-    source: { ...source, dbname: sourceSnapshot.dbname },
-    target: { ...target, dbname: targetSnapshot.dbname },
+    source: { dbmsid: sourceDbmsid, schema: pairs.map((pair) => pair.source).join(', '), dbname: sourceSide.dbname },
+    target: { dbmsid: targetDbmsid, schema: pairs.map((pair) => pair.target).join(', '), dbname: targetSide.dbname },
+    pairs,
     types: selected,
-    items: compareSnapshots(sourceSnapshot, targetSnapshot, selected, options),
+    items,
   };
+}
+
+// 스키마 하나 ↔ 하나 (compareSchemaPairs의 줄임)
+async function compareSchemas(source: CompareSide, target: CompareSide, types: unknown, options: CompareOptions = {}): Promise<CompareResponse> {
+  return compareSchemaPairs(source.dbmsid, target.dbmsid, [{ source: source.schema, target: target.schema }], types, options);
 }
 
 async function getSourceDiff(source: CompareSide, target: CompareSide, type: string, name: string): Promise<DiffLine[]> {
@@ -525,6 +588,7 @@ async function getSourceDiff(source: CompareSide, target: CompareSide, type: str
 export {
   getSchemas,
   compareSchemas,
+  compareSchemaPairs,
   getSourceDiff,
   // 순수 함수라 단위 테스트에서 직접 검증합니다.
   compareSnapshots,

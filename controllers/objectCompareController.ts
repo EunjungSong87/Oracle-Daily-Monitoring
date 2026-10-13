@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import * as objectCompareService from '../services/objectCompareService';
+import { ObjectCompareValidationError } from '../services/objectCompareService';
 import type { CompareSide } from '../services/objectCompareService';
 import * as securityCompareService from '../services/securityCompareService';
 import { SecurityCompareValidationError } from '../services/securityCompareService';
@@ -33,19 +34,28 @@ async function getSchemas(req: Request, res: Response): Promise<Response | void>
   }
 }
 
+// 본문: { source: { dbmsid }, target: { dbmsid }, pairs: [{ source, target }], types, ignoreTablespace }
+// (예전 형식 { source: { dbmsid, schema }, target: { dbmsid, schema } }도 짝 하나로 받는다)
 async function compare(req: Request, res: Response): Promise<Response | void> {
-  const source = parseSide(req.body?.source);
-  const target = parseSide(req.body?.target);
+  const source = parseDbmsSide(req.body?.source);
+  const target = parseDbmsSide(req.body?.target);
   if (!source || !target) {
-    return res.status(400).json({ message: '기준/대상 각각의 dbmsid, schema 정보가 필요합니다.' });
+    return res.status(400).json({ message: '기준/대상 각각의 dbmsid 정보가 필요합니다.' });
   }
+  const pairs = Array.isArray(req.body?.pairs)
+    ? req.body.pairs
+    : [{ source: req.body?.source?.schema, target: req.body?.target?.schema }];
+  const describe = `${source.dbmsid} ↔ ${target.dbmsid}, 스키마 ${Array.isArray(pairs) ? pairs.length : 0}쌍`;
   try {
-    const result = await objectCompareService.compareSchemas(source, target, req.body.types, {
+    const result = await objectCompareService.compareSchemaPairs(source.dbmsid, target.dbmsid, pairs, req.body.types, {
       ignoreTablespace: req.body.ignoreTablespace === true,
     });
     res.status(200).json(result);
   } catch (error) {
-    logger.error('ObjectCompare', `오브젝트 비교 오류 (${describeSides(source, target)})`, error);
+    if (error instanceof ObjectCompareValidationError) {
+      return res.status(400).json({ message: error.message });
+    }
+    logger.error('ObjectCompare', `오브젝트 비교 오류 (${describe})`, error);
     res.status(500).json({ message: '오브젝트 비교 중 오류가 발생했습니다. 대상 DB 접속 정보와 딕셔너리 조회 권한을 확인하세요.' });
   }
 }

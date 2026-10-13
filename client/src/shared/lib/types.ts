@@ -437,11 +437,21 @@ export interface CompareItem {
   summary: string;
   diffs: CompareDiffRow[];
   hasSourceDiff: boolean;
+  // 어느 스키마 짝의 결과인지 (여러 스키마 비교). TABLESPACE는 DB 전체라 null, 계정·권한 비교는 없음.
+  sourceSchema?: string | null;
+  targetSchema?: string | null;
+}
+
+// 여러 스키마 비교의 한 짝: 기준 스키마 ↔ 대상 스키마
+export interface SchemaPair {
+  source: string;
+  target: string;
 }
 
 export interface CompareResponse {
   source: CompareSide & { dbname: string };
   target: CompareSide & { dbname: string };
+  pairs?: SchemaPair[]; // 오브젝트 비교만 (계정·권한 비교는 없음)
   types: string[];
   items: CompareItem[];
 }

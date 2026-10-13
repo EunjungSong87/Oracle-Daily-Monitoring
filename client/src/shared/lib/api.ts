@@ -7,6 +7,7 @@ import type {
   IlmRetentionUpdatePayload,
   CompareResponse,
   CompareSide,
+  SchemaPair,
   AshTimeRange,
   SessionDetailResult,
   ParameterCompareResponse,
@@ -333,13 +334,15 @@ export function getCompareSchemas(dbmsid: string | number): Promise<string[]> {
   return postJson('/api/objectCompare/schemas', { dbmsid });
 }
 
+// 여러 스키마 짝을 한 번에 비교 (짝마다 기준 스키마 ↔ 대상 스키마)
 export function runObjectCompare(
-  source: CompareSide,
-  target: CompareSide,
+  sourceDbmsId: string | number,
+  targetDbmsId: string | number,
+  pairs: SchemaPair[],
   types: string[],
   ignoreTablespace: boolean
 ): Promise<CompareResponse> {
-  return postJson('/api/objectCompare/run', { source, target, types, ignoreTablespace });
+  return postJson('/api/objectCompare/run', { source: { dbmsid: sourceDbmsId }, target: { dbmsid: targetDbmsId }, pairs, types, ignoreTablespace });
 }
 
 export function getSecurityLists(sourceDbmsId: string | number, targetDbmsId: string | number): Promise<SecurityListResponse> {

@@ -1,6 +1,13 @@
-import { describe, expect, it } from 'vitest';
-import { compareColumns, compareSnapshots, diffLines, formatDataType } from './objectCompareService';
-import type { ColumnInfo, SchemaSnapshot } from '../models/objectCompareModel';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { compareColumns, compareSchemaPairs, compareSnapshots, diffLines, formatDataType, ObjectCompareValidationError } from './objectCompareService';
+import * as objectCompareModel from '../models/objectCompareModel';
+import type { ColumnInfo, SchemaSnapshot, TableInfo, TablespaceInfo } from '../models/objectCompareModel';
+
+// 여러 스키마 비교 테스트용: DB 조회(getSnapshots)만 가짜로 바꾼다 (나머지는 실제 모듈).
+vi.mock('../models/objectCompareModel', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../models/objectCompareModel')>()),
+  getSnapshots: vi.fn(),
+}));
 
 function column(overrides: Partial<ColumnInfo> & { name: string }): ColumnInfo {
   return {
@@ -211,5 +218,88 @@ describe('diffLines', () => {
     const result = diffLines(a, b);
     expect(result.filter((line) => line.op === 'del')).toHaveLength(4000);
     expect(result.filter((line) => line.op === 'add')).toHaveLength(4000);
+  });
+});
+
+describe('compareSchemaPairs — 여러 스키마', () => {
+  const table = (name: string): TableInfo => ({ name, tablespace: 'USERS', partitioned: 'NO', temporary: 'N' });
+  const tablespace = (name: string): TablespaceInfo => ({
+    name,
+    contents: 'PERMANENT',
+    blockSize: 8192,
+    bigfile: 'NO',
+    extentManagement: 'LOCAL',
+    allocationType: 'SYSTEM',
+    segmentSpaceManagement: 'AUTO',
+    logging: 'LOGGING',
+    status: 'ONLINE',
+    autoextensible: 'YES',
+    fileCount: 1,
+    sizeMb: 100,
+    maxSizeMb: 1000,
+  });
+  const side = (dbname: string, schemas: Record<string, string[]>, tablespaces: string[]) => ({
+    dbname,
+    snapshots: new Map(Object.entries(schemas).map(([owner, tables]) => [owner, snapshot({ dbname, tables: tables.map(table), tablespaces: tablespaces.map(tablespace) })])),
+  });
+  const getSnapshots = vi.mocked(objectCompareModel.getSnapshots);
+
+  beforeEach(() => {
+    getSnapshots.mockReset();
+  });
+
+  it('짝마다 비교해 항목에 스키마를 붙이고, TABLESPACE는 한 번만 비교한다', async () => {
+    getSnapshots
+      .mockResolvedValueOnce(side('SRC', { HR: ['EMP', 'DEPT'], SH: ['SALES'] }, ['USERS', 'DATA']))
+      .mockResolvedValueOnce(side('TGT', { HR: ['EMP'], SH2: ['SALES', 'COSTS'] }, ['USERS']));
+    const result = await compareSchemaPairs(
+      1,
+      2,
+      [
+        { source: 'HR', target: 'HR' },
+        { source: 'SH', target: 'SH2' },
+      ],
+      ['TABLESPACE', 'TABLE']
+    );
+    // DB마다 한 번씩만 읽고, 그 DB 쪽 스키마 목록을 넘긴다
+    expect(getSnapshots).toHaveBeenCalledTimes(2);
+    expect(getSnapshots.mock.calls.map((call) => call[1])).toEqual([
+      ['HR', 'SH'],
+      ['HR', 'SH2'],
+    ]);
+    expect(result.pairs).toEqual([
+      { source: 'HR', target: 'HR' },
+      { source: 'SH', target: 'SH2' },
+    ]);
+    expect(result.source).toMatchObject({ dbname: 'SRC', schema: 'HR, SH' });
+    expect(result.items.map((item) => [item.type, item.sourceSchema, item.targetSchema, item.name, item.result])).toEqual([
+      ['TABLESPACE', null, null, 'DATA', 'ONLY_SOURCE'],
+      ['TABLESPACE', null, null, 'USERS', 'SAME'],
+      ['TABLE', 'HR', 'HR', 'DEPT', 'ONLY_SOURCE'],
+      ['TABLE', 'HR', 'HR', 'EMP', 'SAME'],
+      ['TABLE', 'SH', 'SH2', 'COSTS', 'ONLY_TARGET'],
+      ['TABLE', 'SH', 'SH2', 'SALES', 'SAME'],
+    ]);
+  });
+
+  it('짝 검증: 비었거나, 한쪽 스키마 중복, 같은 DB 자기 자신, 너무 많으면 오류 (DB는 읽지 않음)', async () => {
+    const run = (pairs: unknown, target = 2) => compareSchemaPairs(1, target, pairs, ['TABLE']);
+    await expect(run([])).rejects.toThrow(ObjectCompareValidationError);
+    await expect(run([{ source: 'HR', target: '' }])).rejects.toThrow(/1번째 짝/);
+    await expect(
+      run([
+        { source: 'HR', target: 'A' },
+        { source: 'HR', target: 'B' },
+      ])
+    ).rejects.toThrow(/기준 스키마 HR가 두 짝/);
+    await expect(
+      run([
+        { source: 'A', target: 'HR' },
+        { source: 'B', target: 'HR' },
+      ])
+    ).rejects.toThrow(/대상 스키마 HR가 두 짝/);
+    await expect(run([{ source: 'HR', target: 'HR' }], 1)).rejects.toThrow(/자기 자신/);
+    await expect(run(Array.from({ length: 51 }, (_, i) => ({ source: `S${i}`, target: `S${i}` })))).rejects.toThrow(/50개/);
+    expect(getSnapshots).not.toHaveBeenCalled();
   });
 });

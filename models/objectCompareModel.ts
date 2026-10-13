@@ -395,8 +395,10 @@ async function loadStatuses(connection: oracledb.Connection, owner: string, type
   return statuses;
 }
 
-// 한 DB/스키마에 대해, 선택된 타입을 비교하는 데 필요한 딕셔너리 정보를 한 커넥션으로 모두 읽어옵니다.
-async function getSnapshot(dbmsid: DbmsIdParam, owner: string, types: ObjectType[]): Promise<SchemaSnapshot> {
+// 한 DB의 여러 스키마에 대해, 선택된 타입을 비교하는 데 필요한 딕셔너리 정보를 한 커넥션으로 읽어옵니다.
+// 스키마는 하나씩 차례로 읽고(동시 조회로 대상 DB에 부하를 몰지 않게), 테이블스페이스는 DB 전체라 한 번만 읽습니다.
+// 돌려주는 스냅샷마다 tablespaces는 같은 배열입니다.
+async function getSnapshots(dbmsid: DbmsIdParam, owners: string[], types: ObjectType[]): Promise<{ dbname: string; snapshots: Map<string, SchemaSnapshot> }> {
   let connection: oracledb.Connection | undefined;
   try {
     const target = await connectTarget(dbmsid);
@@ -404,22 +406,32 @@ async function getSnapshot(dbmsid: DbmsIdParam, owner: string, types: ObjectType
     const wants = (type: ObjectType): boolean => types.includes(type);
     const sourceTypes = SOURCE_TYPES.filter(wants);
     const textTypes = TEXT_TYPES.filter(wants);
+    const tablespaces = wants('TABLESPACE') ? await loadTablespaces(connection) : [];
 
-    return {
-      dbname: target.dbname,
-      tablespaces: wants('TABLESPACE') ? await loadTablespaces(connection) : [],
-      tables: wants('TABLE') ? await loadTables(connection, owner) : [],
-      columns: wants('TABLE') ? await loadColumns(connection, owner) : [],
-      indexes: wants('INDEX') ? await loadIndexes(connection, owner) : [],
-      sequences: wants('SEQUENCE') ? await loadSequences(connection, owner) : [],
-      synonyms: wants('SYNONYM') ? await loadSynonyms(connection, owner) : [],
-      sourceHashes: await loadSourceHashes(connection, owner, sourceTypes),
-      textObjects: await loadTextObjects(connection, owner, textTypes),
-      statuses: await loadStatuses(connection, owner, [...sourceTypes, ...textTypes]),
-    };
+    const snapshots = new Map<string, SchemaSnapshot>();
+    for (const owner of [...new Set(owners)]) {
+      snapshots.set(owner, {
+        dbname: target.dbname,
+        tablespaces,
+        tables: wants('TABLE') ? await loadTables(connection, owner) : [],
+        columns: wants('TABLE') ? await loadColumns(connection, owner) : [],
+        indexes: wants('INDEX') ? await loadIndexes(connection, owner) : [],
+        sequences: wants('SEQUENCE') ? await loadSequences(connection, owner) : [],
+        synonyms: wants('SYNONYM') ? await loadSynonyms(connection, owner) : [],
+        sourceHashes: await loadSourceHashes(connection, owner, sourceTypes),
+        textObjects: await loadTextObjects(connection, owner, textTypes),
+        statuses: await loadStatuses(connection, owner, [...sourceTypes, ...textTypes]),
+      });
+    }
+    return { dbname: target.dbname, snapshots };
   } finally {
     if (connection) await connection.close();
   }
+}
+
+// 한 DB/스키마 하나짜리 (getSnapshots의 줄임)
+async function getSnapshot(dbmsid: DbmsIdParam, owner: string, types: ObjectType[]): Promise<SchemaSnapshot> {
+  return (await getSnapshots(dbmsid, [owner], types)).snapshots.get(owner)!;
 }
 
 // 상세 diff용: 오브젝트 하나의 소스를 줄 배열로 가져옵니다. 없으면 null.
@@ -452,4 +464,4 @@ async function getSourceLines(dbmsid: DbmsIdParam, owner: string, type: ObjectTy
   }
 }
 
-export { getSchemas, getSnapshot, getSourceLines, connectTarget, query };
+export { getSchemas, getSnapshot, getSnapshots, getSourceLines, connectTarget, query };

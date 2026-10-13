@@ -2334,3 +2334,20 @@ textarea.dp-table-list {
 .dp-sub-row .oc-name {
     padding-left: 18px;
 }
+
+/* Object Compare: 여러 스키마 — 기준↔대상 스키마 짝 표, 결과의 스키마별 차이 버튼 */
+.oc-pairs-table {
+    margin-top: 12px;
+    max-width: 640px;
+}
+
+.oc-pairs-table td {
+    vertical-align: middle;
+}
+
+.oc-schema-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 10px;
+}

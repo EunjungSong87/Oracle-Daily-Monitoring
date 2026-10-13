@@ -1,10 +1,11 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { AppHeader } from '../../shared/components/AppHeader';
 import { ToastHost } from '../../shared/components/ToastHost';
 import { canSee, useCurrentUser } from '../../shared/hooks/useCurrentUser';
 import { getCompareSchemas, getDbmsList, runObjectCompare, runSecurityCompare } from '../../shared/lib/api';
 import { showToast } from '../../shared/lib/toastStore';
-import type { CompareItem, CompareResponse, CompareResultKind, DbmsRow, SecuritySelection, SourceDiffLine } from '../../shared/lib/types';
+import { SchemaMultiSelect } from '../../shared/components/SchemaMultiSelect';
+import type { CompareItem, CompareResponse, CompareResultKind, DbmsRow, SchemaPair, SecuritySelection, SourceDiffLine } from '../../shared/lib/types';
 import { ItemDetail } from './ItemDetail';
 import { OBJECT_TYPES, RESULT_LABEL } from './objectTypes';
 import { SecurityPicker } from './SecurityPicker';
@@ -32,30 +33,27 @@ function matchesFilter(item: CompareItem, filter: ResultFilter): boolean {
 }
 
 function itemKey(item: CompareItem): string {
-  return `${item.type}\u0000${item.name}`;
+  return `${item.sourceSchema ?? ''}\u0000${item.type}\u0000${item.name}`;
 }
 
-// DBMS를 고르면 그 DB의 스키마 목록을 불러온다. preferred(상대편에서 고른 스키마명)가 있으면 그걸 먼저 고른다.
-function useSchemaPicker(dbmsId: string, preferred: string): {
-  schemas: string[] | 'loading';
-  schema: string;
-  setSchema: (schema: string) => void;
-} {
+// 목록의 "스키마" 칸: 같은 이름이면 하나만, 다르면 기준 → 대상. TABLESPACE는 DB 전체.
+function pairLabel(item: CompareItem): string {
+  if (!item.sourceSchema) return '(DB 전체)';
+  return item.sourceSchema === item.targetSchema ? item.sourceSchema : `${item.sourceSchema} → ${item.targetSchema}`;
+}
+
+// DBMS를 고르면 그 DB의 스키마 목록을 불러온다.
+function useSchemaList(dbmsId: string): string[] | 'loading' {
   const [schemas, setSchemas] = useState<string[] | 'loading'>([]);
-  const [schema, setSchema] = useState('');
-  const preferredRef = useRef(preferred);
-  preferredRef.current = preferred;
 
   useEffect(() => {
     if (!dbmsId) return;
     let cancelled = false;
     setSchemas('loading');
-    setSchema('');
     getCompareSchemas(dbmsId)
       .then((owners) => {
         if (cancelled) return;
         setSchemas(owners);
-        setSchema(owners.includes(preferredRef.current) ? preferredRef.current : (owners[0] ?? ''));
       })
       .catch((error) => {
         if (cancelled) return;
@@ -68,7 +66,7 @@ function useSchemaPicker(dbmsId: string, preferred: string): {
     };
   }, [dbmsId]);
 
-  return { schemas, schema, setSchema };
+  return schemas;
 }
 
 export function App(): ReactElement {
@@ -78,19 +76,26 @@ export function App(): ReactElement {
   const [dbmsRows, setDbmsRows] = useState<DbmsRow[]>([]);
   const [sourceDbmsId, setSourceDbmsId] = useState('');
   const [targetDbmsId, setTargetDbmsId] = useState('');
-  const source = useSchemaPicker(sourceDbmsId, '');
-  const target = useSchemaPicker(targetDbmsId, source.schema);
+  const sourceSchemaList = useSchemaList(sourceDbmsId);
+  const targetSchemaList = useSchemaList(targetDbmsId);
 
-  // 보통 양쪽에서 같은 이름의 스키마를 비교하므로, 기준 스키마를 바꾸면 서로 다른 DB일 때에 한해 대상도
-  // 같은 이름으로 따라가게 한다 (같은 DB 안에서는 스키마가 달라야 의미가 있으므로 건드리지 않는다).
-  const targetSchemas = target.schemas;
-  const setTargetSchema = target.setSchema;
+  // 기준 스키마는 여러 개 고르고, 스키마마다 비교할 대상 스키마를 짝짓는다. 대상은 따로 고르지 않으면
+  // 서로 다른 DB일 때 같은 이름 스키마로 맞춘다 (같은 DB 안에서는 자기 자신과 비교할 수 없어 직접 골라야 함).
+  const [sourceSchemas, setSourceSchemas] = useState<Set<string>>(new Set());
+  const [targetOf, setTargetOf] = useState<Record<string, string>>({});
   useEffect(() => {
-    if (sourceDbmsId === targetDbmsId) return;
-    if (source.schema && Array.isArray(targetSchemas) && targetSchemas.includes(source.schema)) {
-      setTargetSchema(source.schema);
-    }
-  }, [source.schema, sourceDbmsId, targetDbmsId, targetSchemas, setTargetSchema]);
+    setSourceSchemas(new Set());
+  }, [sourceDbmsId]);
+  useEffect(() => {
+    setTargetOf({});
+  }, [targetDbmsId]);
+  const targetList = Array.isArray(targetSchemaList) ? targetSchemaList : [];
+  const sameDbms = sourceDbmsId === targetDbmsId;
+  const pairs: SchemaPair[] = [...sourceSchemas].sort().map((schema) => {
+    const picked = targetOf[schema];
+    const fallback = !sameDbms && targetList.includes(schema) ? schema : '';
+    return { source: schema, target: picked && targetList.includes(picked) ? picked : fallback };
+  });
 
   const [types, setTypes] = useState<Set<string>>(new Set(OBJECT_TYPES));
   // 오브젝트 비교(스키마) / 계정·권한 비교 (Profile, User, Role과 그 권한)
@@ -103,6 +108,7 @@ export function App(): ReactElement {
 
   const [resultFilter, setResultFilter] = useState<ResultFilter>('NOT_SAME');
   const [typeFilter, setTypeFilter] = useState('');
+  const [schemaFilter, setSchemaFilter] = useState(''); // 여러 스키마 비교에서 기준 스키마 하나만 보기
   const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
@@ -128,7 +134,7 @@ export function App(): ReactElement {
   // 필터가 바뀌면 다시 첫 페이지부터 보여준다.
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
-  }, [resultFilter, typeFilter, search, result]);
+  }, [resultFilter, typeFilter, schemaFilter, search, result]);
 
   function toggleType(type: string): void {
     setTypes((current) => {
@@ -145,8 +151,19 @@ export function App(): ReactElement {
       return;
     }
     if (mode === 'OBJECT') {
-      if (!source.schema || !target.schema) {
-        showToast('기준/대상 스키마를 선택해주세요.', 'error');
+      if (pairs.length === 0) {
+        showToast('기준 스키마를 하나 이상 골라주세요.', 'error');
+        return;
+      }
+      const unpaired = pairs.filter((pair) => !pair.target).map((pair) => pair.source);
+      if (unpaired.length > 0) {
+        showToast(`대상 스키마를 골라주세요: ${unpaired.join(', ')}`, 'error');
+        return;
+      }
+      const targets = pairs.map((pair) => pair.target);
+      const duplicated = targets.find((name, index) => targets.indexOf(name) !== index);
+      if (duplicated) {
+        showToast(`대상 스키마 ${duplicated}가 두 기준 스키마에 짝지어져 있습니다.`, 'error');
         return;
       }
       if (types.size === 0) {
@@ -162,8 +179,9 @@ export function App(): ReactElement {
       const response =
         mode === 'OBJECT'
           ? await runObjectCompare(
-              { dbmsid: sourceDbmsId, schema: source.schema },
-              { dbmsid: targetDbmsId, schema: target.schema },
+              sourceDbmsId,
+              targetDbmsId,
+              pairs,
               OBJECT_TYPES.filter((type) => types.has(type)),
               ignoreTablespace
             )
@@ -171,6 +189,7 @@ export function App(): ReactElement {
       diffCacheRef.current = new Map();
       setExpanded(new Set());
       setTypeFilter('');
+      setSchemaFilter('');
       setSearch('');
       setResultFilter('NOT_SAME');
       setResult(response);
@@ -201,26 +220,48 @@ export function App(): ReactElement {
     });
   }
 
-  // 타입별 집계 (요약 표).
+  // 여러 스키마를 비교한 결과인지 (스키마 칸/필터를 보일지)
+  const resultPairs = useMemo(() => result?.pairs ?? [], [result]);
+  const multiSchema = resultPairs.length > 1;
+  // 스키마 필터를 건 항목 (TABLESPACE는 DB 전체라 스키마를 고르면 빠진다)
+  const schemaItems = useMemo(() => {
+    if (!result) return [];
+    return schemaFilter ? result.items.filter((item) => item.sourceSchema === schemaFilter) : result.items;
+  }, [result, schemaFilter]);
+
+  // 타입별 집계 (요약 표). 스키마 필터가 있으면 그 스키마만.
   const summary = useMemo(() => {
     if (!result) return [];
-    return result.types.map((type) => {
-      const counts: Record<CompareResultKind, number> = { SAME: 0, DIFF: 0, ONLY_SOURCE: 0, ONLY_TARGET: 0 };
-      for (const item of result.items) {
-        if (item.type === type) counts[item.result]++;
-      }
-      return { type, counts, total: counts.SAME + counts.DIFF + counts.ONLY_SOURCE + counts.ONLY_TARGET };
-    });
-  }, [result]);
+    return result.types
+      .map((type) => {
+        const counts: Record<CompareResultKind, number> = { SAME: 0, DIFF: 0, ONLY_SOURCE: 0, ONLY_TARGET: 0 };
+        for (const item of schemaItems) {
+          if (item.type === type) counts[item.result]++;
+        }
+        return { type, counts, total: counts.SAME + counts.DIFF + counts.ONLY_SOURCE + counts.ONLY_TARGET };
+      })
+      .filter((row) => !schemaFilter || row.type !== 'TABLESPACE');
+  }, [result, schemaItems, schemaFilter]);
 
-  // 타입/이름 검색까지 적용한 목록 — 결과 필터 탭의 건수도 이 범위 안에서 센다.
+  // 스키마별 차이 건수 (여러 스키마 비교 요약)
+  const schemaSummary = useMemo(
+    () =>
+      resultPairs.map((pair) => {
+        const own = (result?.items ?? []).filter((item) => item.sourceSchema === pair.source);
+        return { pair, total: own.length, differences: own.filter((item) => item.result !== 'SAME').length };
+      }),
+    [result, resultPairs]
+  );
+
+  // 스키마/타입/이름 검색까지 적용한 목록 — 결과 필터 탭의 건수도 이 범위 안에서 센다. 검색은 스키마 이름에도 걸린다.
   const scopedItems = useMemo(() => {
-    if (!result) return [];
     const keyword = search.trim().toUpperCase();
-    return result.items.filter(
-      (item) => (!typeFilter || item.type === typeFilter) && (!keyword || item.name.toUpperCase().includes(keyword))
+    return schemaItems.filter(
+      (item) =>
+        (!typeFilter || item.type === typeFilter) &&
+        (!keyword || item.name.toUpperCase().includes(keyword) || (item.sourceSchema ?? '').toUpperCase().includes(keyword))
     );
-  }, [result, typeFilter, search]);
+  }, [schemaItems, typeFilter, search]);
   const filteredItems = useMemo(
     () => scopedItems.filter((item) => matchesFilter(item, resultFilter)),
     [scopedItems, resultFilter]
@@ -259,30 +300,79 @@ export function App(): ReactElement {
             </div>
             <h3>비교 조건</h3>
             <div className="oc-sides">
-              <SidePicker
-                title="기준 (Source)"
-                idPrefix="oc-source"
-                dbmsRows={dbmsRows}
-                dbmsId={sourceDbmsId}
-                onDbmsChange={setSourceDbmsId}
-                schemas={mode === 'OBJECT' ? source.schemas : null}
-                schema={source.schema}
-                onSchemaChange={source.setSchema}
-              />
+              <SidePicker title="기준 (Source)" idPrefix="oc-source" dbmsRows={dbmsRows} dbmsId={sourceDbmsId} onDbmsChange={setSourceDbmsId}>
+                {mode === 'OBJECT' && (
+                  <>
+                    <label>스키마 (여러 개 선택 가능)</label>
+                    {sourceSchemaList === 'loading' ? (
+                      <p className="oc-subtle">불러오는 중...</p>
+                    ) : (
+                      <SchemaMultiSelect
+                        options={sourceSchemaList}
+                        selected={sourceSchemas}
+                        onChange={setSourceSchemas}
+                        placeholder={`스키마 검색 (${sourceSchemaList.length}개, ${sourceSchemas.size}개 선택)`}
+                      />
+                    )}
+                  </>
+                )}
+              </SidePicker>
               <div className="oc-sides-arrow" aria-hidden="true">
                 ↔
               </div>
-              <SidePicker
-                title="대상 (Target)"
-                idPrefix="oc-target"
-                dbmsRows={dbmsRows}
-                dbmsId={targetDbmsId}
-                onDbmsChange={setTargetDbmsId}
-                schemas={mode === 'OBJECT' ? target.schemas : null}
-                schema={target.schema}
-                onSchemaChange={target.setSchema}
-              />
+              <SidePicker title="대상 (Target)" idPrefix="oc-target" dbmsRows={dbmsRows} dbmsId={targetDbmsId} onDbmsChange={setTargetDbmsId}>
+                {mode === 'OBJECT' && (
+                  <p className="oc-hint">
+                    {targetSchemaList === 'loading'
+                      ? '스키마 목록을 불러오는 중...'
+                      : sameDbms
+                        ? '같은 DB 안의 다른 스키마와 비교합니다 — 아래 표에서 기준 스키마마다 대상 스키마를 골라주세요.'
+                        : '기준 스키마마다 같은 이름의 스키마와 비교합니다. 다른 스키마와 비교하려면 아래 표에서 바꾸세요.'}
+                  </p>
+                )}
+              </SidePicker>
             </div>
+
+            {mode === 'OBJECT' && pairs.length > 0 && (
+              <table className="table oc-items-table oc-pairs-table">
+                <thead>
+                  <tr>
+                    <th>기준 스키마</th>
+                    <th></th>
+                    <th>대상 스키마</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pairs.map((pair) => (
+                    <tr key={pair.source}>
+                      <td className="oc-name">{pair.source}</td>
+                      <td aria-hidden="true">→</td>
+                      <td>
+                        <select
+                          value={pair.target}
+                          aria-label={`${pair.source}의 대상 스키마`}
+                          onChange={(e) => setTargetOf((current) => ({ ...current, [pair.source]: e.target.value }))}
+                        >
+                          <option value="">{targetList.length === 0 ? '대상 스키마 없음' : '선택'}</option>
+                          {targetList
+                            .filter((schema) => !(sameDbms && schema === pair.source))
+                            .map((schema) => (
+                              <option key={schema} value={schema}>
+                                {schema}
+                              </option>
+                            ))}
+                        </select>
+                        {!pair.target && (
+                          <span className="pc-warning-text">
+                            {sameDbms ? ' 같은 DB라 비교할 다른 스키마를 골라주세요' : ' 대상에 같은 이름 스키마가 없습니다 — 골라주세요'}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
 
             {mode === 'SECURITY' ? (
               <SecurityPicker sourceDbmsId={sourceDbmsId} targetDbmsId={targetDbmsId} selection={securitySelection} onChange={setSecuritySelection} />
@@ -333,6 +423,22 @@ export function App(): ReactElement {
                     {comparedAt && ` · ${comparedAt.toLocaleString('ko-KR', { hour12: false })}`}
                   </span>
                 </h3>
+                {multiSchema && (
+                  <div className="oc-schema-summary">
+                    {schemaSummary.map(({ pair, total, differences }) => (
+                      <button
+                        key={pair.source}
+                        type="button"
+                        className={`status-tab${schemaFilter === pair.source ? ' status-tab-active' : ''}`}
+                        onClick={() => setSchemaFilter(schemaFilter === pair.source ? '' : pair.source)}
+                        title={`${total}개 중 차이 ${differences}개 — 누르면 이 스키마만 봅니다`}
+                      >
+                        {pair.source === pair.target ? pair.source : `${pair.source} → ${pair.target}`}{' '}
+                        <span className={differences > 0 ? 'oc-count-DIFF' : 'oc-none'}>차이 {differences}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <table className="table oc-summary-table">
                   <thead>
                     <tr>
@@ -391,6 +497,16 @@ export function App(): ReactElement {
                       </button>
                     ))}
                   </div>
+                  {multiSchema && (
+                    <select value={schemaFilter} onChange={(e) => setSchemaFilter(e.target.value)} aria-label="스키마">
+                      <option value="">모든 스키마</option>
+                      {resultPairs.map((pair) => (
+                        <option key={pair.source} value={pair.source}>
+                          {pair.source === pair.target ? pair.source : `${pair.source} → ${pair.target}`}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                   <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} aria-label="오브젝트 종류">
                     <option value="">모든 종류</option>
                     {result.types.map((type) => (
@@ -414,6 +530,7 @@ export function App(): ReactElement {
                   <table className="table oc-items-table">
                     <thead>
                       <tr>
+                        {multiSchema && <th>스키마</th>}
                         <th>종류</th>
                         <th>이름</th>
                         <th>결과</th>
@@ -427,6 +544,7 @@ export function App(): ReactElement {
                         return (
                           <Fragment key={key}>
                             <tr className="oc-item-row" onClick={() => toggleExpanded(key)}>
+                              {multiSchema && <td className="oc-name">{pairLabel(item)}</td>}
                               <td>{item.type}</td>
                               <td className="oc-name">
                                 <span className="oc-caret">{open ? '▾' : '▸'}</span>
@@ -439,7 +557,7 @@ export function App(): ReactElement {
                             </tr>
                             {open && (
                               <tr className="oc-detail-row">
-                                <td colSpan={4}>
+                                <td colSpan={multiSchema ? 5 : 4}>
                                   <ItemDetail item={item} result={result} diffCache={diffCacheRef.current} />
                                 </td>
                               </tr>
@@ -472,12 +590,10 @@ interface SidePickerProps {
   dbmsRows: DbmsRow[];
   dbmsId: string;
   onDbmsChange: (id: string) => void;
-  schemas: string[] | 'loading' | null; // null이면 스키마 선택을 숨긴다 (계정·권한 비교)
-  schema: string;
-  onSchemaChange: (schema: string) => void;
+  children?: ReactNode; // DBMS 아래에 붙는 스키마 선택 등 (계정·권한 비교는 없음)
 }
 
-function SidePicker({ title, idPrefix, dbmsRows, dbmsId, onDbmsChange, schemas, schema, onSchemaChange }: SidePickerProps): ReactElement {
+function SidePicker({ title, idPrefix, dbmsRows, dbmsId, onDbmsChange, children }: SidePickerProps): ReactElement {
   return (
     <div className="oc-side">
       <div className="oc-side-title">{title}</div>
@@ -489,26 +605,7 @@ function SidePicker({ title, idPrefix, dbmsRows, dbmsId, onDbmsChange, schemas, 
           </option>
         ))}
       </select>
-      {schemas !== null && (
-        <>
-          <label htmlFor={`${idPrefix}-schema`}>스키마</label>
-          <select
-            id={`${idPrefix}-schema`}
-            value={schema}
-            disabled={schemas === 'loading'}
-            onChange={(e) => onSchemaChange(e.target.value)}
-          >
-            {schemas === 'loading' && <option value="">불러오는 중...</option>}
-            {Array.isArray(schemas) && schemas.length === 0 && <option value="">스키마가 없습니다</option>}
-            {Array.isArray(schemas) &&
-              schemas.map((owner) => (
-                <option key={owner} value={owner}>
-                  {owner}
-                </option>
-              ))}
-          </select>
-        </>
-      )}
+      {children}
     </div>
   );
 }

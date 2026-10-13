@@ -10,20 +10,29 @@ interface Props {
   diffCache: Map<string, SourceDiffLine[]>;
 }
 
-function sideLabel(side: CompareResponse['source']): string {
-  return side.schema ? `${side.dbname}.${side.schema}` : side.dbname; // 계정·권한 비교는 스키마가 없음
+// 항목의 스키마(여러 스키마 비교면 그 짝의 스키마)를 붙인 이름. TABLESPACE·계정·권한 비교는 스키마가 없어 DB 이름만.
+function sideLabel(dbname: string, schema: string | null | undefined): string {
+  return schema ? `${dbname}.${schema}` : dbname;
 }
 
 // 목록에서 한 줄을 펼쳤을 때 보이는 상세: 속성/컬럼 차이 표, 그리고 소스가 다른 오브젝트는 줄 단위 diff.
 export function ItemDetail({ item, result, diffCache }: Props): ReactElement {
-  const cacheKey = `${item.type}\u0000${item.name}`;
+  // 항목에 스키마가 있으면 그 짝, 없으면(예전 응답) 응답의 스키마
+  const sourceSchema = item.sourceSchema !== undefined ? item.sourceSchema : result.source.schema;
+  const targetSchema = item.targetSchema !== undefined ? item.targetSchema : result.target.schema;
+  const cacheKey = `${sourceSchema ?? ''}\u0000${item.type}\u0000${item.name}`;
   const [lines, setLines] = useState<SourceDiffLine[] | null>(diffCache.get(cacheKey) ?? null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!item.hasSourceDiff || diffCache.has(cacheKey)) return;
     let cancelled = false;
-    getSourceDiff(result.source, result.target, item.type, item.name)
+    getSourceDiff(
+      { dbmsid: result.source.dbmsid, schema: sourceSchema ?? '' },
+      { dbmsid: result.target.dbmsid, schema: targetSchema ?? '' },
+      item.type,
+      item.name
+    )
       .then((fetched) => {
         diffCache.set(cacheKey, fetched);
         if (!cancelled) setLines(fetched);
@@ -35,10 +44,10 @@ export function ItemDetail({ item, result, diffCache }: Props): ReactElement {
     return () => {
       cancelled = true;
     };
-  }, [item, result, diffCache, cacheKey]);
+  }, [item, result, diffCache, cacheKey, sourceSchema, targetSchema]);
 
-  const sourceLabel = sideLabel(result.source);
-  const targetLabel = sideLabel(result.target);
+  const sourceLabel = sideLabel(result.source.dbname, sourceSchema);
+  const targetLabel = sideLabel(result.target.dbname, targetSchema);
 
   return (
     <div className="oc-detail">
