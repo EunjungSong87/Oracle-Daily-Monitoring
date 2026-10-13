@@ -6,6 +6,7 @@ import { getCompareSchemas, getDbmsList, runObjectCompare, runSecurityCompare } 
 import { showToast } from '../../shared/lib/toastStore';
 import { SchemaMultiSelect } from '../../shared/components/SchemaMultiSelect';
 import type { CompareItem, CompareResponse, CompareResultKind, DbmsRow, SchemaPair, SecuritySelection, SourceDiffLine } from '../../shared/lib/types';
+import { DdlBundleModal } from './DdlBundleModal';
 import { ItemDetail } from './ItemDetail';
 import { OBJECT_TYPES, RESULT_LABEL } from './objectTypes';
 import { SecurityPicker } from './SecurityPicker';
@@ -109,6 +110,7 @@ export function App(): ReactElement {
   const [resultFilter, setResultFilter] = useState<ResultFilter>('NOT_SAME');
   const [typeFilter, setTypeFilter] = useState('');
   const [schemaFilter, setSchemaFilter] = useState(''); // 여러 스키마 비교에서 기준 스키마 하나만 보기
+  const [ddlOpen, setDdlOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
@@ -481,9 +483,22 @@ export function App(): ReactElement {
               </div>
 
               <div className="rt-panel">
-                <h3>
-                  {mode === 'SECURITY' ? '계정·권한 목록' : '오브젝트 목록'} <span className="oc-subtle">({filteredItems.length}건)</span>
-                </h3>
+                <div className="rt-panel-header">
+                  <h3>
+                    {mode === 'SECURITY' ? '계정·권한 목록' : '오브젝트 목록'} <span className="oc-subtle">({filteredItems.length}건)</span>
+                  </h3>
+                  {mode === 'OBJECT' && (
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      disabled={!filteredItems.some((item) => item.result === 'DIFF')}
+                      title="지금 목록에 보이는 '다름' 항목을 대상에서 기준과 같게 맞추는 DDL"
+                      onClick={() => setDdlOpen(true)}
+                    >
+                      차이 DDL 모아 보기
+                    </button>
+                  )}
+                </div>
                 <div className="oc-filters">
                   <div className="status-tabs">
                     {RESULT_FILTERS.map(({ key, label }) => (
@@ -576,6 +591,7 @@ export function App(): ReactElement {
                   </div>
                 )}
               </div>
+              <DdlBundleModal open={ddlOpen} onClose={() => setDdlOpen(false)} items={filteredItems} result={result} diffCache={diffCacheRef.current} />
             </>
           )}
         </>

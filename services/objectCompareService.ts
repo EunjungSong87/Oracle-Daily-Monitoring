@@ -6,6 +6,7 @@ import type {
   ObjectType,
   SchemaSnapshot,
   SequenceInfo,
+  SynonymInfo,
   TableInfo,
   TablespaceInfo,
 } from '../models/objectCompareModel';
@@ -33,6 +34,9 @@ export interface CompareItem {
   // 어느 스키마 짝의 결과인지 (여러 스키마 비교). TABLESPACE는 DB 전체라 null.
   sourceSchema?: string | null;
   targetSchema?: string | null;
+  // "다름"인 TABLE/INDEX/SEQUENCE/SYNONYM: 대상을 기준과 같게 맞추는 DDL (줄 단위, 위험한 것은 -- 주석).
+  // VIEW/PL/SQL은 소스 diff를 받아 화면에서 CREATE OR REPLACE로 만든다.
+  ddl?: string[];
 }
 
 export interface CompareSide {
@@ -54,6 +58,9 @@ const MAX_PAIRS = 50;
 export interface CompareOptions {
   // 테이블/인덱스가 놓인 테이블스페이스 이름 차이를 무시합니다 (운영/개발처럼 이름 체계가 다른 환경 비교용).
   ignoreTablespace?: boolean;
+  // DDL에 쓸 스키마 (DDL은 대상 스키마에 실행, 시노님이 기준 스키마를 가리키면 대상 스키마로 바꿈). 없으면 스키마 없이.
+  sourceSchema?: string | null;
+  targetSchema?: string | null;
 }
 
 export interface CompareResponse {
@@ -237,6 +244,149 @@ function compareSequence(source: SequenceInfo, target: SequenceInfo): DiffRow[] 
   ]);
 }
 
+// ── 차이 DDL: 대상을 기준과 같게 맞추는 문장 (DB 접근 없는 순수 함수) ──
+// 데이터를 지우거나(DROP COLUMN) 오래 걸리는(MOVE) 것은 -- 주석으로만 내고, 실패할 수 있는 것은 앞에 경고 주석을 붙인다.
+
+const PLAIN_IDENTIFIER = /^[A-Z][A-Z0-9_$#]*$/;
+
+// 대문자 일반 식별자는 그대로, 그 밖(소문자/특수문자)은 큰따옴표로 감싼다.
+function quoteName(name: string): string {
+  return PLAIN_IDENTIFIER.test(name) ? name : `"${name.replace(/"/g, '""')}"`;
+}
+
+function qualify(schema: string | null | undefined, name: string): string {
+  return schema ? `${quoteName(schema)}.${quoteName(name)}` : quoteName(name);
+}
+
+// 컬럼 정의 (ADD/MODIFY용): 이름 타입 [DEFAULT 값]
+function columnSpec(column: ColumnInfo, withDefault: boolean): string {
+  const value = normalizeDefault(column.defaultValue);
+  return `${quoteName(column.name)} ${formatDataType(column)}${withDefault && value !== null ? ` DEFAULT ${value}` : ''}`;
+}
+
+// 길이/정밀도를 비교할 수 있는 숫자 (문자 타입은 시맨틱에 맞는 길이)
+function columnSize(column: ColumnInfo): number | null {
+  if (['VARCHAR2', 'CHAR', 'NVARCHAR2', 'NCHAR'].includes(column.dataType)) return column.charUsed === 'C' || column.dataType.startsWith('N') ? column.charLength : column.dataLength;
+  if (column.dataType === 'NUMBER' || column.dataType === 'FLOAT') return column.precision;
+  if (column.dataType === 'RAW') return column.dataLength;
+  return null;
+}
+
+function tableDdl(
+  source: TableInfo,
+  target: TableInfo,
+  sourceColumns: ColumnInfo[],
+  targetColumns: ColumnInfo[],
+  options: CompareOptions
+): string[] {
+  const table = qualify(options.targetSchema, target.name);
+  const ddl: string[] = [];
+  const targetByName = new Map(targetColumns.map((column) => [column.name, column]));
+  const sourceNames = new Set(sourceColumns.map((column) => column.name));
+
+  for (const column of sourceColumns) {
+    const existing = targetByName.get(column.name);
+    if (!existing) {
+      // NOT NULL 컬럼을 기본값 없이 추가하면 행이 있는 테이블에서 실패하므로 NULL로 추가하고 값을 채운 뒤 NOT NULL로.
+      if (column.nullable === 'N' && normalizeDefault(column.defaultValue) === null) {
+        ddl.push(`ALTER TABLE ${table} ADD (${columnSpec(column, true)});`);
+        ddl.push(`-- ${column.name}: 기존 행에 값을 채운 뒤 NOT NULL로`);
+        ddl.push(`ALTER TABLE ${table} MODIFY (${quoteName(column.name)} NOT NULL);`);
+      } else {
+        ddl.push(`ALTER TABLE ${table} ADD (${columnSpec(column, true)}${column.nullable === 'N' ? ' NOT NULL' : ''});`);
+      }
+      continue;
+    }
+    const sourceType = formatDataType(column);
+    const targetType = formatDataType(existing);
+    if (sourceType !== targetType) {
+      const sourceSize = columnSize(column);
+      const targetSize = columnSize(existing);
+      if (column.dataType !== existing.dataType) {
+        ddl.push(`-- ${column.name}: 타입 변경 (${targetType} → ${sourceType}) — 데이터가 있으면 실패할 수 있음`);
+      } else if (sourceSize !== null && targetSize !== null && sourceSize < targetSize) {
+        ddl.push(`-- ${column.name}: 길이 줄임 (${targetType} → ${sourceType}) — 더 긴 값이 있으면 실패`);
+      }
+      ddl.push(`ALTER TABLE ${table} MODIFY (${quoteName(column.name)} ${sourceType});`);
+    }
+    const sourceDefault = normalizeDefault(column.defaultValue);
+    if (sourceDefault !== normalizeDefault(existing.defaultValue)) {
+      ddl.push(`ALTER TABLE ${table} MODIFY (${quoteName(column.name)} DEFAULT ${sourceDefault ?? 'NULL'});`);
+    }
+    if (column.nullable !== existing.nullable) {
+      if (column.nullable === 'N') ddl.push(`-- ${column.name}: NULL 값이 있으면 실패`);
+      ddl.push(`ALTER TABLE ${table} MODIFY (${quoteName(column.name)} ${column.nullable === 'N' ? 'NOT NULL' : 'NULL'});`);
+    }
+  }
+  for (const column of targetColumns) {
+    if (sourceNames.has(column.name)) continue;
+    ddl.push(`-- ${column.name}: 대상에만 있는 컬럼 — 지우려면 주석을 풀고 실행 (데이터가 삭제됨)`);
+    ddl.push(`-- ALTER TABLE ${table} DROP COLUMN ${quoteName(column.name)};`);
+  }
+
+  const commonSource = sourceColumns.filter((column) => targetByName.has(column.name)).map((column) => column.name);
+  const commonTarget = targetColumns.filter((column) => sourceNames.has(column.name)).map((column) => column.name);
+  if (commonSource.join(',') !== commonTarget.join(',')) ddl.push('-- 컬럼 순서가 다름: ALTER로는 바꿀 수 없음 (테이블을 다시 만들어야 함)');
+  if (show(source.partitioned) !== show(target.partitioned)) ddl.push('-- 파티션 여부가 다름: ALTER로는 바꿀 수 없음 (DBMS_REDEFINITION 또는 재생성)');
+  if (show(source.temporary) !== show(target.temporary)) ddl.push('-- 임시 테이블 여부가 다름: 테이블을 다시 만들어야 함');
+  if (!options.ignoreTablespace && source.tablespace && show(source.tablespace) !== show(target.tablespace)) {
+    ddl.push('-- 테이블스페이스가 다름 — 옮기려면 주석을 풀고 실행 (테이블이 잠기고, 인덱스는 다시 빌드해야 함)');
+    ddl.push(`-- ALTER TABLE ${table} MOVE TABLESPACE ${quoteName(source.tablespace)};`);
+  }
+  return ddl;
+}
+
+// 인덱스 컬럼: 일반 컬럼명(+ DESC)은 이름 규칙대로, 함수 기반 표현식은 그대로.
+function indexColumn(expression: string): string {
+  const match = expression.match(/^(.+?)( DESC)?$/);
+  const base = match?.[1] ?? expression;
+  return PLAIN_IDENTIFIER.test(base) ? `${base}${match?.[2] ?? ''}` : expression;
+}
+
+function indexDdl(source: IndexInfo, target: IndexInfo, options: CompareOptions): string[] {
+  if (source.generated === 'Y' || target.generated === 'Y') {
+    return ['-- 제약조건(PK/UNIQUE)이 만든 인덱스: 인덱스가 아니라 제약조건으로 맞추세요'];
+  }
+  if (source.partitioned === 'YES' || target.partitioned === 'YES') {
+    return ['-- 파티션 인덱스: 파티션 정의까지 필요해 DDL을 만들지 않음 (기준 DB에서 DBMS_METADATA.GET_DDL로 확인)'];
+  }
+  const kind = source.indexType.includes('BITMAP') ? 'BITMAP ' : source.uniqueness === 'UNIQUE' ? 'UNIQUE ' : '';
+  if (!/NORMAL|BITMAP/.test(source.indexType)) {
+    return [`-- ${source.indexType} 인덱스: DDL을 만들지 않음 (기준 DB에서 DBMS_METADATA.GET_DDL로 확인)`];
+  }
+  const tablespace = !options.ignoreTablespace && source.tablespace ? ` TABLESPACE ${quoteName(source.tablespace)}` : '';
+  return [
+    '-- 다시 만드는 동안 이 인덱스를 쓰는 쿼리가 느려질 수 있음',
+    `DROP INDEX ${qualify(options.targetSchema, target.name)};`,
+    `CREATE ${kind}INDEX ${qualify(options.targetSchema, target.name)} ON ${qualify(options.targetSchema, source.table)} (${source.columns.map(indexColumn).join(', ')})${tablespace};`,
+  ];
+}
+
+function sequenceDdl(source: SequenceInfo, target: SequenceInfo, options: CompareOptions): string[] {
+  const clauses: string[] = [];
+  if (show(source.incrementBy) !== show(target.incrementBy)) clauses.push(`INCREMENT BY ${source.incrementBy}`);
+  if (show(source.minValue) !== show(target.minValue)) clauses.push(`MINVALUE ${source.minValue}`);
+  if (show(source.maxValue) !== show(target.maxValue)) clauses.push(`MAXVALUE ${source.maxValue}`);
+  if (show(source.cycle) !== show(target.cycle)) clauses.push(source.cycle === 'Y' ? 'CYCLE' : 'NOCYCLE');
+  if (show(source.order) !== show(target.order)) clauses.push(source.order === 'Y' ? 'ORDER' : 'NOORDER');
+  if (show(source.cacheSize) !== show(target.cacheSize)) clauses.push(Number(source.cacheSize) > 0 ? `CACHE ${source.cacheSize}` : 'NOCACHE');
+  return clauses.length > 0 ? [`ALTER SEQUENCE ${qualify(options.targetSchema, target.name)} ${clauses.join(' ')};`] : [];
+}
+
+// 시노님이 가리키는 대상에서 "자기 스키마." 접두어를 (자기 스키마)로 바꿔, 스키마 이름이 다른 짝끼리도 비교되게 한다.
+function ownSchemaTarget(target: string, schema: string | null | undefined): string {
+  return schema && target.startsWith(`${schema}.`) ? `(자기 스키마).${target.slice(schema.length + 1)}` : target;
+}
+
+// 시노님이 기준 스키마 자신의 오브젝트를 가리키면 대상 쪽에서는 대상 스키마의 같은 오브젝트를 가리키게 한다.
+function synonymDdl(source: SynonymInfo, target: SynonymInfo, options: CompareOptions): string[] {
+  let pointsTo = source.target;
+  if (options.sourceSchema && options.targetSchema && pointsTo.startsWith(`${options.sourceSchema}.`)) {
+    pointsTo = `${options.targetSchema}.${pointsTo.slice(options.sourceSchema.length + 1)}`;
+  }
+  return [`CREATE OR REPLACE SYNONYM ${qualify(options.targetSchema, target.name)} FOR ${pointsTo};`];
+}
+
 // 뷰/MView 정의 비교용: 줄 끝 공백과 맨 끝 빈 줄은 무시합니다.
 function normalizeText(text: string): string {
   const lines = text.split(/\r?\n/).map(rtrim);
@@ -253,7 +403,7 @@ function pairUp<T>(
   type: ObjectType,
   source: Map<string, T>,
   target: Map<string, T>,
-  describe: (source: T, target: T) => { diffs: DiffRow[]; summary?: string; hasSourceDiff?: boolean },
+  describe: (source: T, target: T) => { diffs: DiffRow[]; summary?: string; hasSourceDiff?: boolean; ddl?: () => string[] },
   onlyOneSide?: (source: T | null, target: T | null) => DiffRow[]
 ): CompareItem[] {
   return sortedKeys(source, target).map((name) => {
@@ -269,7 +419,7 @@ function pairUp<T>(
         hasSourceDiff: false,
       };
     }
-    const { diffs, summary, hasSourceDiff } = describe(left, right);
+    const { diffs, summary, hasSourceDiff, ddl } = describe(left, right);
     const realDiffs = diffs.filter((diff) => !diff.info);
     const isDiff = realDiffs.length > 0 || !!hasSourceDiff;
     return {
@@ -279,6 +429,8 @@ function pairUp<T>(
       summary: summary ?? (isDiff ? `${realDiffs.length}건 차이` : '동일'),
       diffs,
       hasSourceDiff: !!hasSourceDiff,
+      // DDL은 "다름"일 때만 만든다 (동일한 항목에 빈 배열을 싣지 않게)
+      ...(isDiff && ddl ? { ddl: ddl() } : {}),
     };
   });
 }
@@ -330,6 +482,7 @@ function compareSnapshots(
       items.push(
         ...pairUp(type, byName(source.tables), byName(target.tables), (left, right) => ({
           diffs: compareTable(left, right, sourceColumns.get(left.name) ?? [], targetColumns.get(right.name) ?? [], options),
+          ddl: () => tableDdl(left, right, sourceColumns.get(left.name) ?? [], targetColumns.get(right.name) ?? [], options),
         }))
       );
     } else if (type === 'INDEX') {
@@ -337,18 +490,25 @@ function compareSnapshots(
       items.push(
         ...pairUp(type, keyed(source.indexes), keyed(target.indexes), (left, right) => ({
           diffs: compareIndex(left, right, options),
+          ddl: () => indexDdl(left, right, options),
         }))
       );
     } else if (type === 'SEQUENCE') {
       items.push(
         ...pairUp(type, byName(source.sequences), byName(target.sequences), (left, right) => ({
           diffs: compareSequence(left, right),
+          ddl: () => sequenceDdl(left, right, options),
         }))
       );
     } else if (type === 'SYNONYM') {
       items.push(
         ...pairUp(type, byName(source.synonyms), byName(target.synonyms), (left, right) => ({
-          diffs: attributeDiffs('(시노님)', [['가리키는 대상', left.target, right.target]]),
+          // 각자 자기 스키마의 오브젝트를 가리키면(HR.EMP ↔ HR2.EMP, 스키마 이름이 다른 짝) 같은 것으로 본다.
+          diffs:
+            ownSchemaTarget(left.target, options.sourceSchema) === ownSchemaTarget(right.target, options.targetSchema)
+              ? []
+              : attributeDiffs('(시노님)', [['가리키는 대상', left.target, right.target]]),
+          ddl: () => synonymDdl(left, right, options),
         }))
       );
     } else if (SOURCE_TYPES.includes(type)) {
@@ -550,7 +710,11 @@ async function compareSchemaPairs(
   }
   const schemaTypes = selected.filter((type) => type !== 'TABLESPACE');
   for (const pair of pairs) {
-    const pairItems = compareSnapshots(sourceSide.snapshots.get(pair.source)!, targetSide.snapshots.get(pair.target)!, schemaTypes, options);
+    const pairItems = compareSnapshots(sourceSide.snapshots.get(pair.source)!, targetSide.snapshots.get(pair.target)!, schemaTypes, {
+      ...options,
+      sourceSchema: pair.source,
+      targetSchema: pair.target,
+    });
     items.push(...pairItems.map((item) => ({ ...item, sourceSchema: pair.source, targetSchema: pair.target })));
   }
   return {
@@ -595,4 +759,8 @@ export {
   compareColumns,
   formatDataType,
   diffLines,
+  tableDdl,
+  indexDdl,
+  sequenceDdl,
+  synonymDdl,
 };

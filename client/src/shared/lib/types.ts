@@ -440,6 +440,8 @@ export interface CompareItem {
   // 어느 스키마 짝의 결과인지 (여러 스키마 비교). TABLESPACE는 DB 전체라 null, 계정·권한 비교는 없음.
   sourceSchema?: string | null;
   targetSchema?: string | null;
+  // "다름"인 TABLE/INDEX/SEQUENCE/SYNONYM: 대상을 기준과 같게 맞추는 DDL (위험한 것은 -- 주석)
+  ddl?: string[];
 }
 
 // 여러 스키마 비교의 한 짝: 기준 스키마 ↔ 대상 스키마

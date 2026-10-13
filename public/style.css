@@ -2351,3 +2351,21 @@ textarea.dp-table-list {
     gap: 6px;
     margin-bottom: 10px;
 }
+
+/* Object Compare: 차이 DDL */
+.oc-ddl {
+    margin-top: 12px;
+}
+
+.oc-ddl-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.oc-ddl-bundle {
+    max-height: 60vh;
+    overflow: auto;
+}

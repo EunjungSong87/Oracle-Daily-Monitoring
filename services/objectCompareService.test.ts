@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { compareColumns, compareSchemaPairs, compareSnapshots, diffLines, formatDataType, ObjectCompareValidationError } from './objectCompareService';
 import * as objectCompareModel from '../models/objectCompareModel';
-import type { ColumnInfo, SchemaSnapshot, TableInfo, TablespaceInfo } from '../models/objectCompareModel';
+import type { ColumnInfo, IndexInfo, SchemaSnapshot, SequenceInfo, TableInfo, TablespaceInfo } from '../models/objectCompareModel';
 
 // 여러 스키마 비교 테스트용: DB 조회(getSnapshots)만 가짜로 바꾼다 (나머지는 실제 모듈).
 vi.mock('../models/objectCompareModel', async (importOriginal) => ({
@@ -301,5 +301,117 @@ describe('compareSchemaPairs — 여러 스키마', () => {
     await expect(run([{ source: 'HR', target: 'HR' }], 1)).rejects.toThrow(/자기 자신/);
     await expect(run(Array.from({ length: 51 }, (_, i) => ({ source: `S${i}`, target: `S${i}` })))).rejects.toThrow(/50개/);
     expect(getSnapshots).not.toHaveBeenCalled();
+  });
+});
+
+describe('차이 DDL (대상을 기준에 맞춤)', () => {
+  const tableRow = (name: string, overrides: Partial<TableInfo> = {}): TableInfo => ({ name, tablespace: 'USERS', partitioned: 'NO', temporary: 'N', ...overrides });
+  const options = { sourceSchema: 'HR', targetSchema: 'HR2' };
+  const ddlOf = (source: Partial<SchemaSnapshot>, target: Partial<SchemaSnapshot>, types: Parameters<typeof compareSnapshots>[2], extra = {}) =>
+    compareSnapshots(snapshot(source), snapshot(target), types, { ...options, ...extra }).map((item) => [item.name, item.result, item.ddl]);
+
+  it('테이블: 컬럼 추가/타입·길이/NULL/기본값 변경, 대상에만 있는 컬럼은 주석, 동일하면 DDL 없음', () => {
+    const source = {
+      tables: [tableRow('EMP'), tableRow('SAME')],
+      columns: [
+        column({ table: 'EMP', name: 'ID', dataType: 'NUMBER', precision: 10, scale: 0, nullable: 'N' }),
+        column({ table: 'EMP', name: 'NAME', dataLength: 50, charLength: 50 }),
+        column({ table: 'EMP', name: 'CODE', dataLength: 10, charLength: 10, nullable: 'N', defaultValue: "'A'  " }),
+        column({ table: 'EMP', name: 'NEW_NN', nullable: 'N' }),
+        column({ table: 'EMP', name: 'NEW_DEF', defaultValue: 'SYSDATE', dataType: 'DATE' }),
+        column({ table: 'SAME', name: 'X' }),
+      ],
+    };
+    const target = {
+      tables: [tableRow('EMP'), tableRow('SAME')],
+      columns: [
+        column({ table: 'EMP', name: 'ID', dataType: 'NUMBER', precision: 10, scale: 0, nullable: 'N' }),
+        column({ table: 'EMP', name: 'NAME', dataLength: 100, charLength: 100 }),
+        column({ table: 'EMP', name: 'CODE', dataLength: 10, charLength: 10, nullable: 'Y' }),
+        column({ table: 'EMP', name: 'OLD_COL' }),
+        column({ table: 'SAME', name: 'X' }),
+      ],
+    };
+    expect(ddlOf(source, target, ['TABLE'])).toEqual([
+      [
+        'EMP',
+        'DIFF',
+        [
+          '-- NAME: 길이 줄임 (VARCHAR2(100 BYTE) → VARCHAR2(50 BYTE)) — 더 긴 값이 있으면 실패',
+          'ALTER TABLE HR2.EMP MODIFY (NAME VARCHAR2(50 BYTE));',
+          "ALTER TABLE HR2.EMP MODIFY (CODE DEFAULT 'A');",
+          '-- CODE: NULL 값이 있으면 실패',
+          'ALTER TABLE HR2.EMP MODIFY (CODE NOT NULL);',
+          'ALTER TABLE HR2.EMP ADD (NEW_NN VARCHAR2(20 BYTE));',
+          '-- NEW_NN: 기존 행에 값을 채운 뒤 NOT NULL로',
+          'ALTER TABLE HR2.EMP MODIFY (NEW_NN NOT NULL);',
+          'ALTER TABLE HR2.EMP ADD (NEW_DEF DATE DEFAULT SYSDATE);',
+          '-- OLD_COL: 대상에만 있는 컬럼 — 지우려면 주석을 풀고 실행 (데이터가 삭제됨)',
+          '-- ALTER TABLE HR2.EMP DROP COLUMN OLD_COL;',
+        ],
+      ],
+      ['SAME', 'SAME', undefined],
+    ]);
+  });
+
+  it('테이블: 타입 변경 경고, 소문자 이름은 따옴표, 테이블스페이스는 주석 MOVE (무시 옵션이면 없음)', () => {
+    const source = { tables: [tableRow('t1', { tablespace: 'DATA' })], columns: [column({ table: 't1', name: 'v', dataType: 'CLOB' })] };
+    const target = { tables: [tableRow('t1', { tablespace: 'USERS' })], columns: [column({ table: 't1', name: 'v' })] };
+    expect(ddlOf(source, target, ['TABLE'])[0][2]).toEqual([
+      '-- v: 타입 변경 (VARCHAR2(20 BYTE) → CLOB) — 데이터가 있으면 실패할 수 있음',
+      'ALTER TABLE HR2."t1" MODIFY ("v" CLOB);',
+      '-- 테이블스페이스가 다름 — 옮기려면 주석을 풀고 실행 (테이블이 잠기고, 인덱스는 다시 빌드해야 함)',
+      '-- ALTER TABLE HR2."t1" MOVE TABLESPACE DATA;',
+    ]);
+    expect(ddlOf(source, target, ['TABLE'], { ignoreTablespace: true })[0][2]).toHaveLength(2);
+  });
+
+  it('인덱스: DROP + CREATE (UNIQUE/BITMAP/DESC/함수식), 제약조건·파티션 인덱스는 안내만', () => {
+    const index = (overrides: Partial<IndexInfo>): IndexInfo => ({
+      name: 'IX',
+      table: 'EMP',
+      uniqueness: 'NONUNIQUE',
+      indexType: 'NORMAL',
+      tablespace: 'USERS',
+      partitioned: 'NO',
+      generated: 'N',
+      columns: ['A'],
+      ...overrides,
+    });
+    const run = (source: IndexInfo, target: IndexInfo) => ddlOf({ indexes: [source] }, { indexes: [target] }, ['INDEX'])[0][2];
+    expect(run(index({ uniqueness: 'UNIQUE', columns: ['A', 'B DESC', 'UPPER("NAME")'] }), index({}))).toEqual([
+      '-- 다시 만드는 동안 이 인덱스를 쓰는 쿼리가 느려질 수 있음',
+      'DROP INDEX HR2.IX;',
+      'CREATE UNIQUE INDEX HR2.IX ON HR2.EMP (A, B DESC, UPPER("NAME")) TABLESPACE USERS;',
+    ]);
+    expect(run(index({ indexType: 'BITMAP', columns: ['C'] }), index({}))?.[2]).toBe('CREATE BITMAP INDEX HR2.IX ON HR2.EMP (C) TABLESPACE USERS;');
+    expect(run(index({ partitioned: 'YES', columns: ['C'] }), index({}))?.[0]).toMatch(/파티션 인덱스/);
+  });
+
+  it('시퀀스는 달라진 항목만 ALTER, 시노님은 기준 스키마를 대상 스키마로 바꿔 CREATE OR REPLACE', () => {
+    const seq = (overrides: Partial<SequenceInfo>): SequenceInfo => ({ name: 'S', minValue: '1', maxValue: '999', incrementBy: '1', cycle: 'N', order: 'N', cacheSize: '20', ...overrides });
+    expect(ddlOf({ sequences: [seq({ incrementBy: '10', cycle: 'Y', cacheSize: '0' })] }, { sequences: [seq({})] }, ['SEQUENCE'])[0][2]).toEqual([
+      'ALTER SEQUENCE HR2.S INCREMENT BY 10 CYCLE NOCACHE;',
+    ]);
+    expect(ddlOf({ synonyms: [{ name: 'SYN', target: 'HR.EMP' }] }, { synonyms: [{ name: 'SYN', target: 'HR2.DEPT' }] }, ['SYNONYM'])[0][2]).toEqual([
+      'CREATE OR REPLACE SYNONYM HR2.SYN FOR HR2.EMP;',
+    ]);
+    expect(ddlOf({ synonyms: [{ name: 'SYN', target: 'APP.X@LINK1' }] }, { synonyms: [{ name: 'SYN', target: 'APP.Y' }] }, ['SYNONYM'])[0][2]).toEqual([
+      'CREATE OR REPLACE SYNONYM HR2.SYN FOR APP.X@LINK1;',
+    ]);
+  });
+});
+
+describe('시노님 비교: 각자 자기 스키마를 가리키면 같음', () => {
+  it('HR.EMP ↔ HR2.EMP (짝 스키마가 HR/HR2)는 동일, 다른 오브젝트면 다름', () => {
+    const run = (source: string, target: string) =>
+      compareSnapshots(snapshot({ synonyms: [{ name: 'S', target: source }] }), snapshot({ synonyms: [{ name: 'S', target }] }), ['SYNONYM'], {
+        sourceSchema: 'HR',
+        targetSchema: 'HR2',
+      })[0].result;
+    expect(run('HR.EMP', 'HR2.EMP')).toBe('SAME');
+    expect(run('HR.EMP', 'HR2.DEPT')).toBe('DIFF');
+    expect(run('APP.X', 'APP.X')).toBe('SAME');
+    expect(run('APP.X', 'HR2.X')).toBe('DIFF');
   });
 });
