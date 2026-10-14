@@ -2,6 +2,7 @@ import * as objectCompareModel from '../models/objectCompareModel';
 import { OBJECT_TYPES, SOURCE_TYPES, TEXT_TYPES } from '../models/objectCompareModel';
 import type {
   ColumnInfo,
+  ConstraintInfo,
   IndexInfo,
   ObjectType,
   SchemaSnapshot,
@@ -362,6 +363,91 @@ function indexDdl(source: IndexInfo, target: IndexInfo, options: CompareOptions)
   ];
 }
 
+// ── 제약조건 (PK/UK/FK/CHECK) ──
+
+const CONSTRAINT_KIND: Record<ConstraintInfo['type'], string> = { P: 'PRIMARY KEY', U: 'UNIQUE', R: 'FOREIGN KEY', C: 'CHECK' };
+
+// CHECK 조건은 줄바꿈/공백 차이를 무시하고 비교한다.
+function normalizeCondition(text: string | null): string | null {
+  return text === null ? null : text.replace(/\s+/g, ' ').trim();
+}
+
+// FK가 가리키는 쪽. 자기 스키마를 가리키면 (자기 스키마)로 써서 스키마 이름이 다른 짝끼리도 비교되게 한다.
+function constraintRef(constraint: ConstraintInfo, schema: string | null | undefined): string | null {
+  if (constraint.type !== 'R') return null;
+  const owner = schema && constraint.refOwner === schema ? '(자기 스키마)' : constraint.refOwner;
+  return `${owner}.${constraint.refTable}(${constraint.refColumns.join(', ')})`;
+}
+
+// 시스템 이름(SYS_C...)은 DB마다 달라서 "테이블 + 종류 + 컬럼(CHECK면 조건)"으로 짝을 맞춘다.
+function constraintKey(constraint: ConstraintInfo): string {
+  if (!constraint.generated) return constraint.name;
+  const what =
+    constraint.type === 'C' ? `CHECK(${normalizeCondition(constraint.condition)})` : `${CONSTRAINT_KIND[constraint.type]}(${constraint.columns.join(', ')})`;
+  return `(시스템 생성) ${constraint.table} ${what}`;
+}
+
+// 정의(바꾸려면 다시 만들어야 하는 것)와 상태(ENABLE/DISABLE로 바꿀 수 있는 것)를 나눠 비교한다.
+function constraintDefinitionPairs(source: ConstraintInfo, target: ConstraintInfo, options: CompareOptions): [string, unknown, unknown][] {
+  return [
+    ['테이블', source.table, target.table],
+    ['종류', CONSTRAINT_KIND[source.type], CONSTRAINT_KIND[target.type]],
+    ['컬럼', source.columns.join(', '), target.columns.join(', ')],
+    ['참조 대상', constraintRef(source, options.sourceSchema), constraintRef(target, options.targetSchema)],
+    ['ON DELETE', source.deleteRule, target.deleteRule],
+    ['조건', normalizeCondition(source.condition), normalizeCondition(target.condition)],
+    ['DEFERRABLE', source.deferrable, target.deferrable],
+    ['INITIALLY', source.deferred, target.deferred],
+  ];
+}
+
+function compareConstraint(source: ConstraintInfo, target: ConstraintInfo, options: CompareOptions): DiffRow[] {
+  return attributeDiffs('(제약조건)', [
+    ...constraintDefinitionPairs(source, target, options),
+    ['상태', source.status, target.status],
+    ['검증', source.validated, target.validated],
+  ]);
+}
+
+// ADD CONSTRAINT 뒤에 붙는 정의. FK가 기준 스키마 자신을 참조하면 대상 스키마를 참조하게 바꾼다.
+function constraintDefinition(constraint: ConstraintInfo, options: CompareOptions): string {
+  const columns = constraint.columns.map(quoteName).join(', ');
+  let body: string;
+  if (constraint.type === 'C') {
+    body = `CHECK (${constraint.condition ?? ''})`;
+  } else if (constraint.type === 'R') {
+    const owner = options.sourceSchema && options.targetSchema && constraint.refOwner === options.sourceSchema ? options.targetSchema : constraint.refOwner;
+    const onDelete = constraint.deleteRule === 'CASCADE' ? ' ON DELETE CASCADE' : constraint.deleteRule === 'SET NULL' ? ' ON DELETE SET NULL' : '';
+    body = `FOREIGN KEY (${columns}) REFERENCES ${qualify(owner, constraint.refTable ?? '')} (${constraint.refColumns.map(quoteName).join(', ')})${onDelete}`;
+  } else {
+    body = `${CONSTRAINT_KIND[constraint.type]} (${columns})`;
+  }
+  const deferral = `${constraint.deferrable === 'DEFERRABLE' ? ' DEFERRABLE' : ''}${constraint.deferred === 'DEFERRED' ? ' INITIALLY DEFERRED' : ''}`;
+  const state = constraint.status === 'DISABLED' ? ' DISABLE' : constraint.validated === 'NOT VALIDATED' ? ' ENABLE NOVALIDATE' : '';
+  return `${body}${deferral}${state}`;
+}
+
+function constraintDdl(source: ConstraintInfo, target: ConstraintInfo, options: CompareOptions): string[] {
+  const table = qualify(options.targetSchema, target.table);
+  const enablesValidate = source.status === 'ENABLED' && source.validated === 'VALIDATED';
+  const definitionDiffers = constraintDefinitionPairs(source, target, options).some(([, left, right]) => show(left) !== show(right));
+  if (definitionDiffers) {
+    // 정의가 다르면 지우고 다시 만든다 (ALTER로 정의를 바꿀 수 없음).
+    return [
+      ...(target.type === 'P' || target.type === 'U' ? ['-- 다른 테이블의 FK가 이 제약조건을 참조하면 DROP이 실패함 (CASCADE를 붙이면 그 FK도 지워짐)'] : []),
+      `ALTER TABLE ${table} DROP CONSTRAINT ${quoteName(target.name)};`,
+      ...(enablesValidate ? ['-- 기존 데이터가 제약조건을 어기면 ADD가 실패함'] : []),
+      `ALTER TABLE ${qualify(options.targetSchema, source.table)} ADD ${source.generated ? '' : `CONSTRAINT ${quoteName(source.name)} `}${constraintDefinition(source, options)};`,
+    ];
+  }
+  if (source.status === target.status && source.validated === target.validated) return [];
+  // 상태만 다르면 ENABLE/DISABLE [NO]VALIDATE
+  return [
+    ...(enablesValidate ? ['-- 기존 데이터가 제약조건을 어기면 실패함'] : []),
+    `ALTER TABLE ${table} ${source.status === 'ENABLED' ? 'ENABLE' : 'DISABLE'} ${source.validated === 'VALIDATED' ? 'VALIDATE' : 'NOVALIDATE'} CONSTRAINT ${quoteName(target.name)};`,
+  ];
+}
+
 function sequenceDdl(source: SequenceInfo, target: SequenceInfo, options: CompareOptions): string[] {
   const clauses: string[] = [];
   if (show(source.incrementBy) !== show(target.incrementBy)) clauses.push(`INCREMENT BY ${source.incrementBy}`);
@@ -491,6 +577,14 @@ function compareSnapshots(
         ...pairUp(type, keyed(source.indexes), keyed(target.indexes), (left, right) => ({
           diffs: compareIndex(left, right, options),
           ddl: () => indexDdl(left, right, options),
+        }))
+      );
+    } else if (type === 'CONSTRAINT') {
+      const keyed = (rows: ConstraintInfo[]): Map<string, ConstraintInfo> => new Map(rows.map((row) => [constraintKey(row), row]));
+      items.push(
+        ...pairUp(type, keyed(source.constraints), keyed(target.constraints), (left, right) => ({
+          diffs: compareConstraint(left, right, options),
+          ddl: () => constraintDdl(left, right, options),
         }))
       );
     } else if (type === 'SEQUENCE') {
@@ -761,6 +855,7 @@ export {
   diffLines,
   tableDdl,
   indexDdl,
+  constraintDdl,
   sequenceDdl,
   synonymDdl,
 };

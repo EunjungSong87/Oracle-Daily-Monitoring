@@ -8,6 +8,7 @@ export const OBJECT_TYPES = [
   'TABLESPACE',
   'TABLE',
   'INDEX',
+  'CONSTRAINT',
   'VIEW',
   'MATERIALIZED VIEW',
   'SEQUENCE',
@@ -75,6 +76,24 @@ export interface IndexInfo {
   columns: string[]; // 위치 순서대로, 함수 기반이면 표현식, 내림차순이면 뒤에 ' DESC'
 }
 
+// PK(P) / UNIQUE(U) / FK(R) / CHECK(C) 제약조건. NOT NULL CHECK는 컬럼 비교(NULL 허용)와 겹쳐서 뺀다.
+export interface ConstraintInfo {
+  name: string;
+  table: string;
+  type: 'P' | 'U' | 'R' | 'C';
+  generated: boolean; // SYS_C00123 같은 시스템 이름 — DB마다 달라서 이름으로 짝지으면 안 됨
+  columns: string[]; // 위치 순서
+  status: string; // ENABLED | DISABLED
+  validated: string; // VALIDATED | NOT VALIDATED
+  deferrable: string; // DEFERRABLE | NOT DEFERRABLE
+  deferred: string; // IMMEDIATE | DEFERRED
+  deleteRule: string | null; // FK: NO ACTION | CASCADE | SET NULL
+  refOwner: string | null; // FK가 참조하는 PK/UK의 소유자/테이블/컬럼
+  refTable: string | null;
+  refColumns: string[];
+  condition: string | null; // CHECK 조건식
+}
+
 export interface SequenceInfo {
   name: string;
   minValue: string;
@@ -109,6 +128,7 @@ export interface SchemaSnapshot {
   tables: TableInfo[];
   columns: ColumnInfo[];
   indexes: IndexInfo[];
+  constraints: ConstraintInfo[];
   sequences: SequenceInfo[];
   synonyms: SynonymInfo[];
   sourceHashes: SourceHash[];
@@ -290,6 +310,68 @@ async function loadIndexes(connection: oracledb.Connection, owner: string): Prom
   }));
 }
 
+// PK/UK/FK/CHECK 제약조건 (조회 3개: 제약조건, 컬럼, FK가 참조하는 쪽 컬럼). CHECK 조건은 LONG이 아닌 SEARCH_CONDITION_VC(12c+).
+// "COL" IS NOT NULL 형태의 CHECK는 NOT NULL 제약이라 뺀다 (컬럼의 NULL 허용으로 이미 비교됨).
+async function loadConstraints(connection: oracledb.Connection, owner: string): Promise<ConstraintInfo[]> {
+  const rows = await query(
+    connection,
+    `SELECT CONSTRAINT_NAME, TABLE_NAME, CONSTRAINT_TYPE, GENERATED, STATUS, VALIDATED, DEFERRABLE, DEFERRED,
+            DELETE_RULE, SEARCH_CONDITION_VC
+       FROM DBA_CONSTRAINTS
+      WHERE OWNER = :owner
+        AND CONSTRAINT_TYPE IN ('P', 'U', 'R', 'C')
+        AND TABLE_NAME NOT LIKE 'BIN$%'`,
+    { owner }
+  );
+  const columnRows = await query(
+    connection,
+    `SELECT CONSTRAINT_NAME, COLUMN_NAME
+       FROM DBA_CONS_COLUMNS
+      WHERE OWNER = :owner
+      ORDER BY CONSTRAINT_NAME, POSITION`,
+    { owner }
+  );
+  const refRows = await query(
+    connection,
+    `SELECT c.CONSTRAINT_NAME, rc.OWNER AS R_OWNER, rc.TABLE_NAME AS R_TABLE, rcc.COLUMN_NAME
+       FROM DBA_CONSTRAINTS c
+       JOIN DBA_CONSTRAINTS rc ON rc.OWNER = c.R_OWNER AND rc.CONSTRAINT_NAME = c.R_CONSTRAINT_NAME
+       JOIN DBA_CONS_COLUMNS rcc ON rcc.OWNER = rc.OWNER AND rcc.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
+      WHERE c.OWNER = :owner AND c.CONSTRAINT_TYPE = 'R'
+      ORDER BY c.CONSTRAINT_NAME, rcc.POSITION`,
+    { owner }
+  );
+  const columns = new Map<string, string[]>();
+  for (const row of columnRows) columns.set(row.CONSTRAINT_NAME, [...(columns.get(row.CONSTRAINT_NAME) ?? []), row.COLUMN_NAME]);
+  const refs = new Map<string, { owner: string; table: string; columns: string[] }>();
+  for (const row of refRows) {
+    const ref = refs.get(row.CONSTRAINT_NAME) ?? { owner: String(row.R_OWNER), table: String(row.R_TABLE), columns: [] as string[] };
+    ref.columns.push(row.COLUMN_NAME);
+    refs.set(row.CONSTRAINT_NAME, ref);
+  }
+  return rows
+    .filter((row) => !(row.CONSTRAINT_TYPE === 'C' && /^\s*"[^"]+"\s+IS\s+NOT\s+NULL\s*$/i.test(String(row.SEARCH_CONDITION_VC ?? ''))))
+    .map((row) => {
+      const ref = refs.get(row.CONSTRAINT_NAME);
+      return {
+        name: row.CONSTRAINT_NAME,
+        table: row.TABLE_NAME,
+        type: row.CONSTRAINT_TYPE,
+        generated: row.GENERATED === 'GENERATED NAME',
+        columns: columns.get(row.CONSTRAINT_NAME) ?? [],
+        status: row.STATUS,
+        validated: row.VALIDATED,
+        deferrable: row.DEFERRABLE,
+        deferred: row.DEFERRED,
+        deleteRule: row.CONSTRAINT_TYPE === 'R' ? row.DELETE_RULE : null,
+        refOwner: ref?.owner ?? null,
+        refTable: ref?.table ?? null,
+        refColumns: ref?.columns ?? [],
+        condition: row.CONSTRAINT_TYPE === 'C' ? String(row.SEARCH_CONDITION_VC ?? '') : null,
+      };
+    });
+}
+
 // IDENTITY 컬럼이 자동으로 만드는 시퀀스(ISEQ$$_숫자)는 이름이 DB마다 달라서 제외합니다.
 // 값이 28자리까지 나올 수 있어 JS number로 받으면 정밀도가 깨지므로 문자열로 받습니다.
 async function loadSequences(connection: oracledb.Connection, owner: string): Promise<SequenceInfo[]> {
@@ -416,6 +498,7 @@ async function getSnapshots(dbmsid: DbmsIdParam, owners: string[], types: Object
         tables: wants('TABLE') ? await loadTables(connection, owner) : [],
         columns: wants('TABLE') ? await loadColumns(connection, owner) : [],
         indexes: wants('INDEX') ? await loadIndexes(connection, owner) : [],
+        constraints: wants('CONSTRAINT') ? await loadConstraints(connection, owner) : [],
         sequences: wants('SEQUENCE') ? await loadSequences(connection, owner) : [],
         synonyms: wants('SYNONYM') ? await loadSynonyms(connection, owner) : [],
         sourceHashes: await loadSourceHashes(connection, owner, sourceTypes),

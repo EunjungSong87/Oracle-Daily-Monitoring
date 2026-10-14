@@ -132,7 +132,7 @@ SYSTEM 등 DBA 계정으로 등록돼 있다면 대부분 이미 있습니다.
                        DBA_USERS, DBA_TABLESPACES, DBA_DATA_FILES, DBA_TEMP_FILES,
                        DBA_TABLES, DBA_TAB_COLUMNS, DBA_INDEXES, DBA_IND_COLUMNS,
                        DBA_IND_EXPRESSIONS, DBA_VIEWS, DBA_MVIEWS, DBA_SEQUENCES,
-                       DBA_SYNONYMS, DBA_SOURCE, DBA_OBJECTS
+                       DBA_SYNONYMS, DBA_SOURCE, DBA_OBJECTS, DBA_CONSTRAINTS, DBA_CONS_COLUMNS
                        "계정·권한" 탭: DBA_USERS, DBA_ROLES, DBA_PROFILES, DBA_TS_QUOTAS, DBA_SYS_PRIVS,
                        DBA_ROLE_PRIVS, DBA_TAB_PRIVS, DBA_COL_PRIVS 조회 (비밀번호 해시는 읽지 않음).
   - Parameter Compare: 비교하는 양쪽 DB 모두에서 V$SYSTEM_PARAMETER, V$INSTANCE 조회.
@@ -244,6 +244,12 @@ reports/ 폴더에 쓰기 권한이 있어야 예약 실행 리포트가 저장�
 ============================================================
 참고: 버전별 주요 변경 (스키마 변경은 3번에도 적혀 있음)
 ============================================================
+2026-10-14
+  - Object Compare에 CONSTRAINT 종류: PK/UNIQUE/FK/CHECK의 종류·컬럼·참조 대상(자기 스키마 참조는 스키마 이름이
+    달라도 같게)·ON DELETE·CHECK 조건·DEFERRABLE·ENABLED/VALIDATED 비교. 시스템 이름(SYS_C...)은 테이블+종류+컬럼
+    (CHECK는 조건)으로 짝지음, NOT NULL CHECK는 컬럼 비교와 겹쳐 제외. 다름이면 DROP+ADD CONSTRAINT 또는
+    ENABLE/DISABLE DDL. 대상 DB 계정에 DBA_CONSTRAINTS/DBA_CONS_COLUMNS 조회 권한 필요 (CHECK 조건은
+    SEARCH_CONDITION_VC라 12c 이상).
 2026-10-13
   - Object Compare 오브젝트 탭: 기준 스키마를 여러 개 골라 한 번에 비교. 기준 스키마마다 대상 스키마를 짝지음
     (서로 다른 DB면 같은 이름이 기본, 같은 DB면 직접 고름). DB마다 접속 하나로 스키마를 차례로 읽고, 테이블스페이스는

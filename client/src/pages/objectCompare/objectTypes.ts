@@ -6,6 +6,7 @@ export const OBJECT_TYPES = [
   'TABLESPACE',
   'TABLE',
   'INDEX',
+  'CONSTRAINT',
   'VIEW',
   'MATERIALIZED VIEW',
   'SEQUENCE',

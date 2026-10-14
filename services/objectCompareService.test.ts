@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { compareColumns, compareSchemaPairs, compareSnapshots, diffLines, formatDataType, ObjectCompareValidationError } from './objectCompareService';
 import * as objectCompareModel from '../models/objectCompareModel';
-import type { ColumnInfo, IndexInfo, SchemaSnapshot, SequenceInfo, TableInfo, TablespaceInfo } from '../models/objectCompareModel';
+import type { ColumnInfo, ConstraintInfo, IndexInfo, SchemaSnapshot, SequenceInfo, TableInfo, TablespaceInfo } from '../models/objectCompareModel';
 
 // 여러 스키마 비교 테스트용: DB 조회(getSnapshots)만 가짜로 바꾼다 (나머지는 실제 모듈).
 vi.mock('../models/objectCompareModel', async (importOriginal) => ({
@@ -32,6 +32,7 @@ function snapshot(overrides: Partial<SchemaSnapshot> = {}): SchemaSnapshot {
     tables: [],
     columns: [],
     indexes: [],
+    constraints: [],
     sequences: [],
     synonyms: [],
     sourceHashes: [],
@@ -413,5 +414,98 @@ describe('시노님 비교: 각자 자기 스키마를 가리키면 같음', () 
     expect(run('HR.EMP', 'HR2.DEPT')).toBe('DIFF');
     expect(run('APP.X', 'APP.X')).toBe('SAME');
     expect(run('APP.X', 'HR2.X')).toBe('DIFF');
+  });
+});
+
+describe('제약조건 (PK/UK/FK/CHECK) 비교와 DDL', () => {
+  const cons = (overrides: Partial<ConstraintInfo> & { name: string }): ConstraintInfo => ({
+    table: 'EMP',
+    type: 'P',
+    generated: false,
+    columns: ['ID'],
+    status: 'ENABLED',
+    validated: 'VALIDATED',
+    deferrable: 'NOT DEFERRABLE',
+    deferred: 'IMMEDIATE',
+    deleteRule: null,
+    refOwner: null,
+    refTable: null,
+    refColumns: [],
+    condition: null,
+    ...overrides,
+  });
+  const run = (source: ConstraintInfo[], target: ConstraintInfo[]) =>
+    compareSnapshots(snapshot({ constraints: source }), snapshot({ constraints: target }), ['CONSTRAINT'], { sourceSchema: 'HR', targetSchema: 'HR2' }).map((item) => ({
+      name: item.name,
+      result: item.result,
+      diffs: item.diffs.map((diff) => diff.attribute),
+      ddl: item.ddl,
+    }));
+
+  it('시스템 이름은 테이블+종류+컬럼(CHECK는 조건)으로 짝짓고, 자기 스키마 FK는 스키마 이름이 달라도 같음', () => {
+    const result = run(
+      [
+        cons({ name: 'SYS_C001', generated: true }),
+        cons({ name: 'SYS_C002', generated: true, type: 'C', columns: ['SAL'], condition: 'sal  > 0' }),
+        cons({ name: 'FK_DEPT', type: 'R', columns: ['DEPT_ID'], refOwner: 'HR', refTable: 'DEPT', refColumns: ['ID'], deleteRule: 'NO ACTION' }),
+      ],
+      [
+        cons({ name: 'SYS_C999', generated: true }),
+        cons({ name: 'SYS_C998', generated: true, type: 'C', columns: ['SAL'], condition: 'sal > 0' }),
+        cons({ name: 'FK_DEPT', type: 'R', columns: ['DEPT_ID'], refOwner: 'HR2', refTable: 'DEPT', refColumns: ['ID'], deleteRule: 'NO ACTION' }),
+      ]
+    );
+    expect(result.map((item) => [item.name, item.result])).toEqual([
+      ['(시스템 생성) EMP CHECK(sal > 0)', 'SAME'],
+      ['(시스템 생성) EMP PRIMARY KEY(ID)', 'SAME'],
+      ['FK_DEPT', 'SAME'],
+    ]);
+  });
+
+  it('정의가 다르면 DROP + ADD (FK ON DELETE, 자기 스키마 참조는 대상 스키마로), 상태만 다르면 ENABLE/DISABLE', () => {
+    const result = run(
+      [
+        cons({ name: 'FK_DEPT', type: 'R', columns: ['DEPT_ID'], refOwner: 'HR', refTable: 'DEPT', refColumns: ['ID'], deleteRule: 'CASCADE' }),
+        cons({ name: 'PK_EMP', columns: ['ID', 'SEQ'] }),
+        cons({ name: 'CK_SAL', type: 'C', columns: ['SAL'], condition: 'SAL > 0', status: 'ENABLED', validated: 'VALIDATED' }),
+        cons({ name: 'UK_CODE', type: 'U', columns: ['CODE'], status: 'DISABLED', validated: 'NOT VALIDATED', deferrable: 'DEFERRABLE', deferred: 'DEFERRED' }),
+      ],
+      [
+        cons({ name: 'FK_DEPT', type: 'R', columns: ['DEPT_ID'], refOwner: 'HR2', refTable: 'DEPT', refColumns: ['ID'], deleteRule: 'NO ACTION' }),
+        cons({ name: 'PK_EMP', columns: ['ID'] }),
+        cons({ name: 'CK_SAL', type: 'C', columns: ['SAL'], condition: 'SAL > 0', status: 'DISABLED', validated: 'NOT VALIDATED' }),
+        cons({ name: 'UK_CODE', type: 'U', columns: ['CODE'] }),
+      ]
+    );
+    const byName = Object.fromEntries(result.map((item) => [item.name, item]));
+    expect(byName.FK_DEPT.diffs).toEqual(['ON DELETE']);
+    expect(byName.FK_DEPT.ddl).toEqual([
+      'ALTER TABLE HR2.EMP DROP CONSTRAINT FK_DEPT;',
+      '-- 기존 데이터가 제약조건을 어기면 ADD가 실패함',
+      'ALTER TABLE HR2.EMP ADD CONSTRAINT FK_DEPT FOREIGN KEY (DEPT_ID) REFERENCES HR2.DEPT (ID) ON DELETE CASCADE;',
+    ]);
+    expect(byName.PK_EMP.ddl).toEqual([
+      '-- 다른 테이블의 FK가 이 제약조건을 참조하면 DROP이 실패함 (CASCADE를 붙이면 그 FK도 지워짐)',
+      'ALTER TABLE HR2.EMP DROP CONSTRAINT PK_EMP;',
+      '-- 기존 데이터가 제약조건을 어기면 ADD가 실패함',
+      'ALTER TABLE HR2.EMP ADD CONSTRAINT PK_EMP PRIMARY KEY (ID, SEQ);',
+    ]);
+    expect(byName.CK_SAL.diffs).toEqual(['상태', '검증']);
+    expect(byName.CK_SAL.ddl).toEqual(['-- 기존 데이터가 제약조건을 어기면 실패함', 'ALTER TABLE HR2.EMP ENABLE VALIDATE CONSTRAINT CK_SAL;']);
+    // 정의(DEFERRABLE)가 달라서 다시 만들고, 기준 상태(DISABLE)까지 붙인다
+    expect(byName.UK_CODE.ddl).toEqual([
+      '-- 다른 테이블의 FK가 이 제약조건을 참조하면 DROP이 실패함 (CASCADE를 붙이면 그 FK도 지워짐)',
+      'ALTER TABLE HR2.EMP DROP CONSTRAINT UK_CODE;',
+      'ALTER TABLE HR2.EMP ADD CONSTRAINT UK_CODE UNIQUE (CODE) DEFERRABLE INITIALLY DEFERRED DISABLE;',
+    ]);
+  });
+
+  it('시스템 이름 제약조건을 다시 만들 때는 이름 없이 ADD', () => {
+    const result = run(
+      [cons({ name: 'SYS_C001', generated: true, type: 'U', columns: ['A'], deferrable: 'DEFERRABLE' })],
+      [cons({ name: 'SYS_C777', generated: true, type: 'U', columns: ['A'] })]
+    );
+    expect(result[0].ddl?.slice(-1)).toEqual(['ALTER TABLE HR2.EMP ADD UNIQUE (A) DEFERRABLE;']);
+    expect(result[0].ddl).toContain('ALTER TABLE HR2.EMP DROP CONSTRAINT SYS_C777;');
   });
 });
