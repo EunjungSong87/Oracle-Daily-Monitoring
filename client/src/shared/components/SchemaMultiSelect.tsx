@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement } from 'react';
+import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent, type ReactElement } from 'react';
 
 interface Props {
   options: string[];
@@ -10,11 +10,20 @@ interface Props {
 // 너무 많은 항목을 한 번에 그리면 느려지므로 펼친 목록은 이만큼까지만 보여주고, 나머지는 검색으로 좁히게 한다.
 const MAX_VISIBLE = 200;
 
+// 붙여넣은 글을 이름 목록으로 나눈다. 쉼표·세미콜론·공백·줄바꿈 어느 것으로 구분해도 되고, 따옴표는 떼어낸다.
+function splitPastedNames(text: string): string[] {
+  return text
+    .split(/[,;\s]+/)
+    .map((token) => token.replace(/^["']+|["']+$/g, ''))
+    .filter((token) => token !== '');
+}
+
 // 검색 가능한 다중 선택 드롭다운. 스키마가 수백 개여도 입력창에서 걸러 고를 수 있게 한다.
 export function SchemaMultiSelect({ options, selected, onChange, placeholder }: Props): ReactElement {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
+  const [pasteNote, setPasteNote] = useState<string | null>(null); // 붙여넣은 이름 중 목록에 없던 것 안내
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -48,6 +57,25 @@ export function SchemaMultiSelect({ options, selected, onChange, placeholder }: 
 
   function selectAllMatches(): void {
     onChange(new Set([...selected, ...matches]));
+  }
+
+  // 쉼표 등으로 구분된 여러 이름을 붙여넣으면 검색어로 넣지 않고 목록에 있는 것을 한 번에 고른다.
+  // 이름 하나만 붙여넣으면 평소처럼 검색어로 들어간다.
+  function handlePaste(event: ClipboardEvent<HTMLInputElement>): void {
+    const names = splitPastedNames(event.clipboardData.getData('text'));
+    if (names.length < 2) return;
+    event.preventDefault();
+    const byUpper = new Map(options.map((option) => [option.toUpperCase(), option]));
+    const next = new Set(selected);
+    const missing: string[] = [];
+    for (const name of names) {
+      const option = options.includes(name) ? name : byUpper.get(name.toUpperCase());
+      if (option) next.add(option);
+      else if (!missing.includes(name)) missing.push(name);
+    }
+    onChange(next);
+    setQuery('');
+    setPasteNote(missing.length > 0 ? `목록에 없어 빠진 이름 ${missing.length}개: ${missing.join(', ')}` : null);
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
@@ -93,14 +121,18 @@ export function SchemaMultiSelect({ options, selected, onChange, placeholder }: 
           onChange={(e) => {
             setQuery(e.target.value);
             setOpen(true);
+            setPasteNote(null);
           }}
           onFocus={() => setOpen(true)}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
+          title="쉼표로 구분한 이름 목록을 붙여넣으면 한 번에 고릅니다"
           aria-label="스키마 검색"
           aria-expanded={open}
           role="combobox"
         />
       </div>
+      {pasteNote && <div className="dp-multiselect-note">{pasteNote}</div>}
       {open && (
         <div className="dp-multiselect-menu" role="listbox">
           <div className="dp-multiselect-toolbar">

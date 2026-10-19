@@ -305,7 +305,7 @@ export function App(): ReactElement {
               <SidePicker title="기준 (Source)" idPrefix="oc-source" dbmsRows={dbmsRows} dbmsId={sourceDbmsId} onDbmsChange={setSourceDbmsId}>
                 {mode === 'OBJECT' && (
                   <>
-                    <label>스키마 (여러 개 선택 가능)</label>
+                    <label>스키마 (여러 개 선택 가능 · 쉼표로 구분한 목록 붙여넣기 가능)</label>
                     {sourceSchemaList === 'loading' ? (
                       <p className="oc-subtle">불러오는 중...</p>
                     ) : (

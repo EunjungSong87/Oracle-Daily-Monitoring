@@ -96,7 +96,8 @@ export function SecurityPicker({ sourceDbmsId, targetDbmsId, selection, onChange
       <p className="oc-hint">
         같은 이름끼리 양쪽 DB를 비교합니다. 계정과 Role은 속성, 시스템 권한, 받은 Role(Role 안의 Role 포함), 오브젝트 권한, 컬럼 권한을 비교하고(계정은 테이블스페이스
         할당량도), Profile은 제한값을 비교합니다. 직접 부여된 권한만 비교하므로 Role을 통해 받은 권한은 "받은 Role"로 보이고, 그 Role도 같이 고르면 안의 권한 차이가
-        보입니다. 비밀번호는 비교하지 않습니다.
+        보입니다. 비밀번호는 비교하지 않습니다. 검색창에 쉼표로 구분한 이름 목록(예: APP_USER, APP_ROLE)을 붙여넣으면 한 번에 고르며, 오라클 기본
+        계정·Role은 위 체크박스를 켜야 목록에 있어 골라집니다.
       </p>
     </>
   );
