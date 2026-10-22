@@ -3,6 +3,7 @@ import * as dataPumpService from '../services/dataPumpService';
 import { DataPumpValidationError } from '../services/dataPumpService';
 import * as historyService from '../services/dataPumpHistoryService';
 import * as partitionService from '../services/dataPumpPartitionService';
+import * as migrationService from '../services/dataPumpMigrationService';
 import { logger } from '../utils/logger';
 
 function errMsg(error: unknown): string {
@@ -23,7 +24,7 @@ function detailMessage(error: unknown): string {
 // 검증 실패는 400(사용자가 고칠 수 있는 입력 문제), 그 외는 500으로 응답합니다.
 function handleError(res: Response, error: unknown, logMessage: string): void {
   if (error instanceof DataPumpValidationError) {
-    res.status(400).json({ message: error.message });
+    res.status(400).json({ message: error.message, ...(error.items.length > 0 ? { items: error.items } : {}) });
     return;
   }
   logger.error('DataPump', logMessage, error);
@@ -239,7 +240,131 @@ async function partitionImportPlan(req: Request, res: Response): Promise<void> {
   }
 }
 
+// ── 이관 Import (Export 이력 → Import 생성 → 사전 점검) ──
+
+async function migrationBundles(req: Request, res: Response): Promise<void> {
+  const dbmsid = requireDbmsid(req, res);
+  if (dbmsid === null) return;
+  try {
+    res.json({ rows: await migrationService.listBundles({ dbmsid }) });
+  } catch (error) {
+    handleError(res, error, `Export 묶음 목록 조회 오류 (dbmsid=${dbmsid})`);
+  }
+}
+
+async function migrationBundle(req: Request, res: Response): Promise<void> {
+  const dbmsid = requireDbmsid(req, res);
+  if (dbmsid === null) return;
+  try {
+    res.json(await migrationService.getBundle({ dbmsid }, req.body.bundleKey));
+  } catch (error) {
+    handleError(res, error, `Export 묶음 조회 오류 (dbmsid=${dbmsid})`);
+  }
+}
+
+async function migrationGenerate(req: Request, res: Response): Promise<void> {
+  const dbmsid = requireDbmsid(req, res);
+  if (dbmsid === null) return;
+  try {
+    const { bundleKey, targetDbmsId, directory, mapping, selected, options, ack } = req.body;
+    const result = await migrationService.generate(
+      { dbmsid },
+      bundleKey,
+      { targetDbmsId, directory, mapping, selected, options: options ?? {}, ack: ack ?? null },
+      { name: req.session.username ?? null, role: req.session.role ?? null }
+    );
+    logger.info(
+      'DataPump',
+      `${req.session.username} 이관 Import 생성: ${result.jobs.length}개 (원본 dbmsid=${dbmsid} 묶음 ${bundleKey} → 대상 ${result.targetDbname}${result.omitted.length > 0 ? `, 확인하고 뺀 항목 ${result.omitted.length}개` : ''})`
+    );
+    res.json(result);
+  } catch (error) {
+    handleError(res, error, `이관 Import 생성 오류 (dbmsid=${dbmsid})`);
+  }
+}
+
+async function migrationPlan(req: Request, res: Response): Promise<void> {
+  try {
+    res.json(await migrationService.getPlan(req.body?.planId));
+  } catch (error) {
+    handleError(res, error, '이관 Import 조회 오류');
+  }
+}
+
+async function migrationFiles(req: Request, res: Response): Promise<void> {
+  try {
+    res.json(await migrationService.recheckFiles(req.body?.planId));
+  } catch (error) {
+    handleError(res, error, '이관 Import 덤프 파일 확인 오류');
+  }
+}
+
+async function migrationPrecheck(req: Request, res: Response): Promise<void> {
+  try {
+    res.json(await migrationService.precheck(req.body?.planId));
+  } catch (error) {
+    handleError(res, error, '이관 Import 사전 점검 오류');
+  }
+}
+
+async function remapSets(_req: Request, res: Response): Promise<void> {
+  try {
+    res.json({ rows: await migrationService.listRemapSets() });
+  } catch (error) {
+    handleError(res, error, '매핑표 조회 오류');
+  }
+}
+
+async function remapSetSave(req: Request, res: Response): Promise<void> {
+  try {
+    await migrationService.saveRemapSet(req.body?.name, req.body?.mapping, req.session.username ?? null);
+    res.json({ ok: true });
+  } catch (error) {
+    handleError(res, error, '매핑표 저장 오류');
+  }
+}
+
+async function remapSetDelete(req: Request, res: Response): Promise<void> {
+  try {
+    await migrationService.deleteRemapSet(req.body?.id);
+    res.json({ ok: true });
+  } catch (error) {
+    handleError(res, error, '매핑표 삭제 오류');
+  }
+}
+
+async function partitionHistoryList(req: Request, res: Response): Promise<void> {
+  const dbmsid = requireDbmsid(req, res);
+  if (dbmsid === null) return;
+  try {
+    res.json({ rows: await migrationService.listPartitionExports({ dbmsid }) });
+  } catch (error) {
+    handleError(res, error, `파티션 Export 이력 조회 오류 (dbmsid=${dbmsid})`);
+  }
+}
+
+async function partitionHistoryManifest(req: Request, res: Response): Promise<void> {
+  const dbmsid = requireDbmsid(req, res);
+  if (dbmsid === null) return;
+  try {
+    res.json(await migrationService.partitionManifestFromHistory({ dbmsid }, req.body.bundleId, req.body.owner, req.body.table));
+  } catch (error) {
+    handleError(res, error, `파티션 이력 읽기 오류 (dbmsid=${dbmsid})`);
+  }
+}
+
 export {
+  migrationBundles,
+  migrationBundle,
+  migrationGenerate,
+  migrationPlan,
+  migrationFiles,
+  migrationPrecheck,
+  remapSets,
+  remapSetSave,
+  remapSetDelete,
+  partitionHistoryList,
+  partitionHistoryManifest,
   getMeta,
   views,
   linkSchemas,

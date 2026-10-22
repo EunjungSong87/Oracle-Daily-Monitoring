@@ -794,6 +794,8 @@ export interface DataPumpHistoryRow {
   acknowledged?: { missing: string[]; filteredOut: string[]; by: string | null } | null;
   verifyStatus?: 'MATCH' | 'MISMATCH' | 'NA' | null;
   verifyDetail?: { notInLog: string[]; notInPlan: string[]; skipped: string[]; rowDiffs: string[] } | null;
+  bundleId?: string | null; // Export 분할 묶음 (이관 Import 만들기)
+  bundleJobNo?: number | null;
   errorSummary?: string | null;
   source?: 'APP' | 'EXTERNAL';
   runner?: DataPumpRunner | null;
@@ -965,4 +967,139 @@ export interface CapacityPoint {
   day: string;
   used: number;
   max: number;
+}
+
+// ── 이관 Import (services/dataPumpMigrationService.ts) ──
+export interface MigrationBundleRow {
+  bundleKey: string; // Export 묶음 id, 묶음 없는 작업은 H<이력 id>
+  startedAt: string | null;
+  jobs: number;
+  statuses: string;
+  jobNames: string;
+  source: string;
+  targetDesc: string | null;
+}
+
+export interface MigrationSetView {
+  historyId: number;
+  jobName: string;
+  bundleJobNo: number | null;
+  mode: 'SCHEMA' | 'TABLE';
+  owners: string[];
+  status: string;
+  startedAt: string | null;
+  items: { key: string; rows: number }[]; // Export 로그에서 실제로 나간 테이블/파티션 (기준 목록)
+  dumpfile: string;
+  dumpFiles: { name: string; bytes: number | null }[] | null;
+  blockers: string[];
+  warnings: string[];
+}
+
+export interface MigrationImportStatus {
+  planId: string;
+  createdAt: string | null;
+  createdBy: string | null;
+  targetDbmsId: number;
+  omitted: number;
+  jobs: { jobName: string; status: string | null; verifyStatus: string | null }[];
+  status: '미완료' | '진행 중' | '불일치' | '완료';
+  reason: string;
+}
+
+export interface MigrationBundleDetail {
+  bundleKey: string;
+  sets: MigrationSetView[];
+  planned: { no: number; jobName: string; expected: string[] }[] | null;
+  exportGaps: string[];
+  notRun: { no: number; jobName: string; expected: string[] }[];
+  duplicates: string[];
+  blocked: boolean;
+  placements: { tablespaces: string[]; owners: string[]; truncated: boolean; error: string | null; bySet: Record<number, string[]> };
+  partitionTables: string[];
+  imports: MigrationImportStatus[];
+}
+
+export interface MappingRow {
+  from: string;
+  to: string;
+  keep: boolean; // "그대로 사용"
+}
+
+export interface RemapMapping {
+  schemas: MappingRow[];
+  tablespaces: MappingRow[];
+}
+
+export interface RemapSet extends RemapMapping {
+  id: number;
+  name: string;
+  updatedBy: string | null;
+  updatedAt: string | null;
+}
+
+export interface MigrationGenerateInput {
+  targetDbmsId: string;
+  directory: string;
+  mapping: RemapMapping;
+  selected: number[];
+  options: {
+    parallel: number;
+    content: 'ALL' | 'DATA_ONLY' | 'METADATA_ONLY';
+    excludeStatistics: boolean;
+    tableExistsAction: TableExistsAction;
+    truncatePartitions: boolean;
+    objectFilter: ObjectFilter | null;
+    dataFilter: DataFilter | null;
+  };
+  ack: { omitted: string[]; filterExcluded: string[] };
+}
+
+export interface DumpFileCheckRow {
+  jobName: string;
+  name: string;
+  expected: number | null;
+  actual: number | null;
+  status: 'OK' | 'MISSING' | 'SIZE_DIFF' | 'NO_SIZE';
+}
+
+export interface MigrationJobView {
+  no: number;
+  jobName: string;
+  exportJobName: string;
+  request: DataPumpRequest;
+  parfile: string;
+  parfileName: string;
+  command: string;
+  notes: string[];
+  items: number;
+  destructive: boolean;
+  waitFor: string[];
+}
+
+export interface MigrationPlanView {
+  planId: string;
+  targetDbmsId: string;
+  targetDbname: string;
+  omitted: string[];
+  impact?: { excluded: string[]; unknown: string[]; rowFilters: string[] };
+  warnings?: string[];
+  fileCheck?: { rows: DumpFileCheckRow[]; blocked: boolean };
+  jobs: MigrationJobView[];
+}
+
+export interface MigrationPrecheckRow {
+  check: string;
+  target: string;
+  status: 'PASS' | 'WARN' | 'BLOCK';
+  detail: string;
+  sql?: string;
+}
+
+export interface PartitionHistoryRow {
+  bundleId: string;
+  createdAt: string;
+  createdBy: string | null;
+  owner: string;
+  table: string;
+  partitions: number;
 }

@@ -8,6 +8,9 @@ import type { MasterInfo, MasterRow, Runner } from './dataPumpMaster';
 import type { DataPumpJob } from '../models/dataPumpModel';
 import type { DataPumpPlan } from '../models/dataPumpModel';
 import { logger } from '../utils/logger';
+import * as migrationModel from '../models/dataPumpMigrationModel';
+import type { BundleDraft } from './dataPumpPlanRegistry';
+import { verifyMigrationImport } from './dataPumpMigration';
 
 // Data Pump 작업 이력: 시작할 때 RUNNING으로 기록하고, 작업이 대상 DB에서 사라지면 로그를 읽어 마무리한다.
 // 이력은 부가 기능이라 이력 저장/마무리가 실패해도 작업 자체(시작/취소/조회)는 막지 않는다.
@@ -132,7 +135,12 @@ async function recordStart(
   // 여러 스키마 작업을 스키마별로 나눠 실행한 하위 작업이면 묶음 정보 (화면은 jobName의 _S1, _S2…로 한 줄에 묶어 보여 줌)
   group: { jobName: string; index: number; count: number } | null = null,
   // export: 계획의 대상 목록(분할 계획에서) + 사용자가 확인하고 뺀 항목
-  planInfo: { expected: string[] | null; acknowledged: { missing: string[]; filteredOut: string[]; by: string | null } | null } | null = null
+  planInfo: {
+    expected: string[] | null;
+    acknowledged: { missing: string[]; filteredOut: string[]; by: string | null } | null;
+    bundle?: { id: string; jobNo: number | null } | null;
+    request?: unknown;
+  } | null = null
 ): Promise<void> {
   if (historyTableMissing) return;
   // 실행 후 대조 기준. import TABLE 모드는 REMAP을 반영한 대상 테이블, 그 외 import는 같은 덤프를 만든 export 기록으로 (마무리할 때).
@@ -144,7 +152,12 @@ async function recordStart(
       : plan.jobMode === 'TABLE' && plan.filters.viewsAsTables.length === 0
         ? plan.tables.map((pair) => `${remapped(pair.owner)}.${pair.table}`)
         : null;
-  const extras: HistoryExtras = { expectedItems: { items, remap }, acknowledged: planInfo?.acknowledged ?? null };
+  const extras: HistoryExtras = {
+    expectedItems: { items, remap },
+    acknowledged: planInfo?.acknowledged ?? null,
+    ...(planInfo?.bundle ? { bundleId: planInfo.bundle.id, bundleJobNo: planInfo.bundle.jobNo } : {}),
+    ...(planInfo?.request !== undefined ? { request: planInfo.request } : {}),
+  };
   const row: NewHistory = {
     dbmsId,
     dbname: target.dbname,
@@ -168,6 +181,28 @@ async function recordStart(
   }
 }
 
+// Export 분할 계획(묶음)을 메타 DB에 한 번 남긴다 — 스크립트(add_datapump_bundle.sql)가 없으면 처음 한 번 알리고 건너뛴다.
+let bundleTableMissing = false;
+
+async function recordBundle(
+  dbmsId: number | string,
+  target: { dbname: string },
+  bundle: { id: string; draft: BundleDraft },
+  createdBy: string | null
+): Promise<void> {
+  if (bundleTableMissing) return;
+  try {
+    await migrationModel.saveBundle({ bundleId: bundle.id, dbmsId: Number(dbmsId), dbname: target.dbname, createdBy, ...bundle.draft });
+  } catch (error) {
+    if (migrationModel.isMissingTable(error)) {
+      bundleTableMissing = true;
+      logger.warn('DataPump', 'Export 묶음 테이블이 없어 묶음 기록을 건너뜁니다 (scripts/add_datapump_bundle.sql 실행 필요 — 없으면 이 Export로 Import를 만들 수 없음)');
+      return;
+    }
+    logger.warn('DataPump', `Export 묶음 기록 실패 (작업 자체에는 영향 없음, 이 묶음으로는 Import를 만들 수 없음): ${bundle.id}`, error);
+  }
+}
+
 async function recordCancel(dbmsId: number | string, owner: string, jobName: string, cancelledBy: string | null = null, external: { dbname: string; runner: Runner | null } | null = null): Promise<void> {
   if (historyTableMissing) return;
   try {
@@ -182,12 +217,16 @@ async function recordCancel(dbmsId: number | string, owner: string, jobName: str
 }
 
 // 덤프 파일 이름에 %U가 있으면 로그의 "Dump file set" 목록이 실제 이름이고, 없으면 지정한 이름 그대로다.
-async function dumpBytesOf(row: DataPumpHistoryRow, parsed: ParsedLog): Promise<number | null> {
-  const names = parsed.dumpFiles.length > 0 ? parsed.dumpFiles : !row.dumpfile || /%U/i.test(row.dumpfile) ? [] : [row.dumpfile];
-  if (names.length === 0) return null;
+// 파일별 크기도 남긴다 — Import를 만들 때 대상 서버로 옮긴 파일이 빠지거나 크기가 다른지 비교하는 기준.
+async function dumpFilesOf(row: DataPumpHistoryRow, parsed: ParsedLog): Promise<{ bytes: number | null; files: { name: string; bytes: number | null }[] | null }> {
+  const names = parsed.dumpFiles.length > 0 ? parsed.dumpFiles : !row.dumpfile || /%U/i.test(row.dumpfile) ? [] : row.dumpfile.split(',').map((name) => name.trim()).filter(Boolean);
+  if (names.length === 0) return { bytes: null, files: null };
   const sizes = await dataPumpModel.getFileSizes({ dbmsid: row.dbmsId }, row.directory, names);
   const values = Object.values(sizes);
-  return values.length > 0 ? values.reduce((sum, size) => sum + size, 0) : null;
+  return {
+    bytes: values.length > 0 ? values.reduce((sum, size) => sum + size, 0) : null,
+    files: names.map((name) => ({ name, bytes: sizes[name] ?? null })),
+  };
 }
 
 // ── 앱 밖에서 직접 돌린 작업 감시 ──
@@ -221,12 +260,26 @@ async function masterInfo(dbmsId: number | string, owner: string, jobName: strin
   return info;
 }
 
+// 이 프로세스가 지금 시작하는 중인 작업 (DBMS_DATAPUMP 시작 ~ 이력 기록 사이). 감시가 그 틈에 외부 작업으로 잘못 적지 않게 한다
+// (아래 시각 비교는 DB와 앱 서버의 시간대가 다르면 듣지 않는다).
+const starting = new Set<string>();
+
+function markStarting(dbmsId: number | string, jobNames: string[], on: boolean): void {
+  for (const name of jobNames) {
+    if (on) starting.add(`${dbmsId}\u0001${name}`);
+    else starting.delete(`${dbmsId}\u0001${name}`);
+  }
+}
+
 // 앱이 시작한 작업은 시작 직후 이력에 넣으므로, 방금 시작한 DBC_ 작업은 한 번 기다려 앱 작업을 외부로 잘못 적지 않게 한다.
 const APP_JOB = /^DBC_(EXP|IMP)_/;
 const APP_GRACE_MS = 2 * 60 * 1000;
 
 async function recordExternal(dbmsId: number | string, dbname: string, job: { owner: string; jobName: string }, runner: Runner | null): Promise<boolean> {
   const info = await masterInfo(dbmsId, job.owner, job.jobName);
+  // parfile만 저장하고 직접 돌린 Export는 저장할 때 남긴 묶음에 잇는다 (Import 생성에 쓸 수 있게)
+  let bundled: Awaited<ReturnType<typeof migrationModel.findBundleJob>> = null;
+  if (info?.operation === 'EXPORT' && !bundleTableMissing) bundled = await migrationModel.findBundleJob(dbmsId, job.jobName).catch(() => null);
   if (APP_JOB.test(job.jobName) && info?.startedAt && Date.now() - new Date(info.startedAt.replace(' ', 'T')).getTime() < APP_GRACE_MS) return false;
   const row: NewHistory = {
     dbmsId,
@@ -246,7 +299,10 @@ async function recordExternal(dbmsId: number | string, dbname: string, job: { ow
   };
   return historyModel.insertHistory(
     row,
-    { expectedItems: { items: info?.expected ?? null, remap: info?.remap ?? [] } },
+    {
+      expectedItems: { items: bundled?.job.expected ?? info?.expected ?? null, remap: info?.remap ?? [] },
+      ...(bundled ? { bundleId: bundled.bundleId, bundleJobNo: bundled.job.no, request: bundled.job.request } : {}),
+    },
     { source: 'EXTERNAL', runner, startedAt: info?.startedAt ?? null }
   );
 }
@@ -258,7 +314,7 @@ async function discoverExternal(dbmsIds: string[], running: DataPumpHistoryRow[]
     try {
       const jobs = await dataPumpModel.listActiveJobs({ dbmsid: dbKey });
       const known = new Set(running.filter((row) => String(row.dbmsId) === dbKey).map((row) => `${row.jobOwner}.${row.jobName}`));
-      const unknown = jobs.filter((job) => !known.has(`${job.owner}.${job.jobName}`));
+      const unknown = jobs.filter((job) => !known.has(`${job.owner}.${job.jobName}`) && !starting.has(`${dbKey}\u0001${job.jobName}`));
       if (unknown.length === 0) continue;
       const sessions = await dataPumpModel.getJobSessions({ dbmsid: dbKey }, unknown);
       const target = await dataPumpModel.getTargetInfo({ dbmsid: dbKey });
@@ -322,6 +378,23 @@ async function verifyFinished(row: DataPumpHistoryRow, text: string, truncated: 
   if (truncated) {
     return { logItems: items, errorSummary, verifyStatus: 'NA', verifyDetail: { notInLog: [], notInPlan: [], skipped: [], rowDiffs: ['로그가 너무 커서 앞부분을 못 읽어 대조하지 못했습니다'] } };
   }
+  if (row.operation === 'IMPORT') {
+    const migration = await migrationJobOf(row);
+    if (migration) {
+      const result = verifyMigrationImport(migration.baseline, migration.remap, text);
+      return {
+        logItems: items,
+        errorSummary,
+        verifyStatus: result.status,
+        verifyDetail: {
+          notInLog: result.missing,
+          notInPlan: result.extra,
+          skipped: reconcile(null, text).skipped,
+          rowDiffs: [...result.rowDiffs, ...result.errorTables.map((key) => `${key}: ORA- 에러`)],
+        },
+      };
+    }
+  }
   const spec: ExpectedSpec = row.expectedItems ?? { items: null, remap: [] };
   let expected = spec.items;
   let rowDiffs: string[] = [];
@@ -337,6 +410,29 @@ async function verifyFinished(row: DataPumpHistoryRow, text: string, truncated: 
   const result = reconcile(expected, text);
   const status = result.status === 'NA' ? 'NA' : result.status === 'MATCH' && rowDiffs.length === 0 ? 'MATCH' : 'MISMATCH';
   return { logItems: items, errorSummary, verifyStatus: status, verifyDetail: { notInLog: result.notInLog, notInPlan: result.notInPlan, skipped: result.skipped, rowDiffs } };
+}
+
+// 이관 Import 작업(생성 기록)의 기준. 스키마별로 나눠 실행한 하위 작업(_S1 …)은 그 작업이 맡은 테이블(REMAP 반영)만.
+async function migrationJobOf(row: DataPumpHistoryRow): Promise<{ baseline: Record<string, number>; remap: { from: string; to: string }[] } | null> {
+  const base = row.jobName.replace(/_S\d+$/, '');
+  let job: Awaited<ReturnType<typeof migrationModel.findMigrationJob>>;
+  try {
+    job = (await migrationModel.findMigrationJob(row.jobName)) ?? (base !== row.jobName ? await migrationModel.findMigrationJob(base) : null);
+  } catch {
+    return null; // 이관 테이블이 없는 환경
+  }
+  if (!job || String(job.targetDbmsId) !== String(row.dbmsId)) return null;
+  if (base === row.jobName || job.jobName === row.jobName) return { baseline: job.expected.baseline, remap: job.expected.remap };
+  const mine = new Set(row.expectedItems?.items ?? []);
+  const remapOwner = new Map(job.expected.remap.map((pair) => [pair.from, pair.to]));
+  const baseline = Object.fromEntries(
+    Object.entries(job.expected.baseline).filter(([key]) => {
+      const [table] = key.split(':');
+      const dot = table.indexOf('.');
+      return mine.has(`${remapOwner.get(table.slice(0, dot)) ?? table.slice(0, dot)}.${table.slice(dot + 1)}`);
+    })
+  );
+  return { baseline, remap: job.expected.remap };
 }
 
 // RUNNING으로 남아 있는 이력 중, 대상 DB에서 이미 사라진(끝난) 작업을 로그로 마무리한다.
@@ -379,8 +475,9 @@ async function syncRunning(dbmsId: number | string | null): Promise<void> {
         const parsed = log.exists
           ? parseDataPumpLog(log.text)
           : { status: 'UNKNOWN' as const, elapsedSec: null, errorCount: null, resultMessage: row.logfile ? '로그 파일을 찾을 수 없음' : '로그 없음 (NOLOGFILE)', dumpFiles: [] };
-        const dumpBytes = row.operation === 'EXPORT' && parsed.status !== 'UNKNOWN' ? await dumpBytesOf(row, parsed) : null;
-        const extras = log.exists ? await verifyFinished(row, log.text, log.truncated) : {};
+        const dump = row.operation === 'EXPORT' && parsed.status !== 'UNKNOWN' ? await dumpFilesOf(row, parsed) : { bytes: null, files: null };
+        const dumpBytes = dump.bytes;
+        const extras: HistoryExtras = { ...(log.exists ? await verifyFinished(row, log.text, log.truncated) : {}), ...(dump.files ? { dumpFiles: dump.files } : {}) };
         await historyModel.finishHistory(
           row.id,
           {
@@ -429,4 +526,4 @@ async function getHistory(dbmsId: number | string, limit = 100, includeExternal 
   }
 }
 
-export { parseDataPumpLog, describeTarget, recordStart, recordCancel, syncRunning, getHistory, describeJobs, markViewed };
+export { parseDataPumpLog, describeTarget, markStarting, recordStart, recordBundle, recordCancel, syncRunning, getHistory, describeJobs, markViewed };

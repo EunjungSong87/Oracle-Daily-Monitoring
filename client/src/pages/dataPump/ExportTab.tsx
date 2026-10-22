@@ -91,6 +91,9 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
 
   const [planning, setPlanning] = useState(false);
   const [plan, setPlan] = useState<ExportPlanResponse | null>(null);
+  // 파티션 정보는 실행/저장할 때 메타 DB 이력에 남는다. 매니페스트 파일은 덤프만 다른 망으로 넘길 때를 위한 옵션 (기본 꺼짐).
+  const [withManifest, setWithManifest] = useState(false);
+  const manifests = plan && withManifest ? plan.manifests : [];
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [started, setStarted] = useState<Map<number, string>>(new Map());
   const [startingNo, setStartingNo] = useState<number | 'ALL' | null>(null);
@@ -321,7 +324,7 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
         if (started.has(group.no)) continue;
         if (await startGroup(group, scn)) ok++;
       }
-      showToast(`${ok}개 작업을 시작했습니다${scn ? ` (SCN ${scn} 기준)` : ''}.${plan.manifests.length > 0 ? ` 매니페스트: ${plan.manifests.map((manifest) => manifest.name).join(', ')}` : ''}`);
+      showToast(`${ok}개 작업을 시작했습니다${scn ? ` (SCN ${scn} 기준)` : ''}.${manifests.length > 0 ? ` 매니페스트: ${manifests.map((manifest) => manifest.name).join(', ')}` : ''}`);
     } catch (error) {
       showToast(error instanceof Error ? error.message : '전체 실행 실패', 'error');
     } finally {
@@ -359,11 +362,11 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
   // 파티션을 내보내는 계획이면 실행 전에 매니페스트(테이블마다 하나)를 덤프와 같은 DIRECTORY에 남긴다 ("파티션 Import" 탭이 읽음).
   // 같은 접두어로 다시 만든 계획이면 내용이 바뀌었을 수 있어 늘 최신 계획으로 덮어쓴다.
   async function saveManifest(): Promise<void> {
-    if (!plan || plan.manifests.length === 0) return;
+    if (!plan || manifests.length === 0) return;
     await saveDataPumpFiles(
       dbmsId,
       planDirectory,
-      plan.manifests.map((manifest) => ({ name: manifest.name, content: manifest.text })),
+      manifests.map((manifest) => ({ name: manifest.name, content: manifest.text })),
       true,
       planAck()
     );
@@ -377,7 +380,7 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
       { name: runScriptName, content: runScript() },
       // 빠진 항목 목록이 든 요약 (서버에 저장할 때는 서버가 확인자/시각을 붙여 다시 씀)
       { name: plan.summaryFile.name, content: plan.summaryFile.text },
-      ...(withManifests ? plan.manifests.map((manifest) => ({ name: manifest.name, content: manifest.text })) : []),
+      ...(withManifests ? manifests.map((manifest) => ({ name: manifest.name, content: manifest.text })) : []),
     ];
   }
 
@@ -690,9 +693,9 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
                 parfile 전체 다운로드
               </button>
               <button type="button" className="btn-secondary" disabled={serverSave.saving || blocked} onClick={() => saveAllToServer()}>
-                {serverSave.saving ? '저장 중...' : `DB 서버 ${planDirectory}에 parfile${plan.manifests.length > 0 ? ' + 매니페스트' : ''} 저장`}
+                {serverSave.saving ? '저장 중...' : `DB 서버 ${planDirectory}에 parfile${manifests.length > 0 ? ' + 매니페스트' : ''} 저장`}
               </button>
-              {plan.manifests.length > 0 && (
+              {manifests.length > 0 && (
                 <button
                   type="button"
                   className="btn-secondary"
@@ -709,8 +712,14 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
             </div>
           </div>
           {plan.manifests.length > 0 && (
+            <label className="oc-check">
+              <input type="checkbox" checked={withManifest} onChange={(e) => setWithManifest(e.target.checked)} /> 덤프와 함께 매니페스트 저장 (파티션 정보는 이력에 남으므로 보통은
+              필요 없음 — 덤프만 다른 망으로 넘길 때)
+            </label>
+          )}
+          {manifests.length > 0 && (
             <p className="oc-hint">
-              실행하면 매니페스트 {plan.manifests.map((manifest) => manifest.name).join(', ')}을(를) {planDirectory}에 먼저 저장합니다. 덤프를 다른 DB로 옮길 때 이 파일도 같이 옮기면 "파티션 Import" 탭에서 기간으로 골라
+              실행하면 매니페스트 {manifests.map((manifest) => manifest.name).join(', ')}을(를) {planDirectory}에 먼저 저장합니다. 덤프를 다른 DB로 옮길 때 이 파일도 같이 옮기면 "파티션 Import" 탭에서 기간으로 골라
               가져올 수 있습니다.
             </p>
           )}

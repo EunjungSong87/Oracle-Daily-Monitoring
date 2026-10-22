@@ -6,7 +6,8 @@ import { compileFilters, tableFilterStatus, tableSizeFactor } from './dataPumpFi
 import type { DataFilter, FilterEnv, ObjectFilter, ViewAsTable } from './dataPumpFilters';
 import * as historyService from './dataPumpHistoryService';
 import { checkPlanFiles, checkPlanStart, registerPlan } from './dataPumpPlanRegistry';
-import type { PlanAck } from './dataPumpPlanRegistry';
+import type { BundleDraft, PlanAck } from './dataPumpPlanRegistry';
+import { checkMigrationFiles, checkMigrationStart } from './dataPumpMigrationGate';
 import { cached, cacheKey } from './dataPumpSizeCache';
 import { parElement, parseIdentifier, parseParList, parseQualified, qualifiedName, sqlName, suggestByCase } from './dataPumpNames';
 import { buildManifest, buildRanges, manifestText, rangeLabel, safeFilePart } from './partitionRanges';
@@ -385,7 +386,8 @@ function executionPlans(plan: DataPumpPlan): DataPumpPlan[] {
     return {
       ...plan,
       jobName: `${plan.jobName}_S${index + 1}`,
-      dumpfile: plan.dumpfile ? schemaFileName(plan.dumpfile, owner) : null,
+      // Export는 스키마별 덤프로 나눠 쓰고, Import는 같은 덤프(세트)를 각 작업이 읽는다 (이름을 바꾸면 없는 파일을 찾음)
+      dumpfile: plan.dumpfile && plan.operation === 'EXPORT' ? schemaFileName(plan.dumpfile, owner) : plan.dumpfile,
       logfile: schemaFileName(plan.logfile, owner),
       parallel,
       schemaExpr: tables.length > 0 ? filterExpr('IN', [owner], '스키마') : null,
@@ -1427,12 +1429,49 @@ async function planExport(
     name: `${prefix}_plan_summary.txt`,
     text: planSummaryText(target.dbname, now, groups.length, summary, missing, filteredOut, filterUnknown),
   };
+  // 실행하거나 parfile을 저장할 때 메타 DB에 남길 묶음 (작업별 대상/크기, 파티션별 범위 — Import 생성과 이력 기반 파티션 Import의 기준)
+  const bundle: BundleDraft = {
+    missing,
+    filteredOut,
+    jobs: withParfiles.map((group) => ({
+      no: group.no,
+      jobName: group.jobName,
+      mode: group.mode,
+      request: group.request,
+      expected: groupExpectedItems(group, filteredSet),
+      tableSizes: group.tables.map((table) => ({ owner: table.owner, name: table.name, bytes: table.bytes })),
+      excludedTables: group.excludedTables,
+    })),
+    partitions: groups.flatMap((group) =>
+      group.partitions.map((partition) => {
+        const info = partitionTables.get(`${partition.owner}.${partition.table}`);
+        return {
+          jobNo: group.no,
+          owner: partition.owner,
+          table: partition.table,
+          partition: partition.name,
+          position: partition.position,
+          highValue: partition.highValue,
+          low: partition.low,
+          high: partition.high,
+          known: partition.known,
+          bytes: partition.bytes,
+          numRows: partition.numRows,
+          dumpfile: group.owners.length > 1 ? schemaFileName(String(group.request.dumpfile), partition.owner) : String(group.request.dumpfile),
+          keyColumn: info?.keyColumn ?? '',
+          keyType: info?.keyType ?? '',
+          interval: info?.interval ?? null,
+        };
+      })
+    ),
+  };
   const planId = registerPlan({
     dbmsid: dbmsid.dbmsid,
     missing,
     filteredOut,
     jobs: groups.map((group) => ({ request: group.request, expected: groupExpectedItems(group, filteredSet) })),
     summaryFile,
+    bundle,
   });
 
   return {
@@ -1642,6 +1681,7 @@ async function start(
   await ensureDbLink(dbmsid, plan.networkLink);
   const target = await dataPumpModel.getTargetInfo(dbmsid);
   if (plan.operation === 'IMPORT') assertImportCovers(plan, request, buildParfile(plan, request, target).parfile);
+  if (plan.operation === 'IMPORT') await checkMigrationStart(dbmsid, request, plan, executionPlans(plan));
   if (isDestructive(plan)) {
     const typed = typeof confirmDbname === 'string' ? confirmDbname.trim() : '';
     if (typed.toUpperCase() !== String(target.dbname).trim().toUpperCase()) {
@@ -1660,6 +1700,8 @@ async function start(
     runs = runs.map((run) => ({ ...run, flashbackScn: scn }));
   }
   const started: DataPumpPlan[] = [];
+  // 시작 ~ 이력 기록 사이에 외부 작업 감시가 이 작업을 외부로 잘못 적지 않게
+  historyService.markStarting(dbmsid.dbmsid, runs.map((run) => run.jobName), true);
   for (const run of runs) {
     try {
       await dataPumpModel.startJob(dbmsid, run);
@@ -1670,12 +1712,14 @@ async function start(
         await dataPumpModel.cancelJob(dbmsid, target.user.toUpperCase(), done.jobName).catch(() => undefined);
       }
       const truncated = plan.truncatePartitions.length > 0 ? ` (파티션 ${plan.truncatePartitions.join(', ')}은(는) 이미 비웠습니다)` : '';
+      historyService.markStarting(dbmsid.dbmsid, runs.map((item) => item.jobName), false);
       const which = runs.length > 1 ? ` — ${run.jobName}${started.length > 0 ? `, 먼저 시작한 ${started.length}개는 취소함` : ''}` : '';
       throw new Error(`Data Pump 작업 시작 실패${which}${truncated}`, { cause: error });
     }
   }
   const estimate = Number(estimatedBytes);
   const estimated = Number.isFinite(estimate) && estimate > 0 ? estimate : null;
+  if (planned?.bundle) await historyService.recordBundle(dbmsid.dbmsid, target, planned.bundle, startedBy);
   for (const [index, run] of started.entries()) {
     // 스키마별로 나눈 작업은 예상 크기를 나눌 근거가 없어 비워 둔다 (끝나면 실제 덤프 크기가 남음).
     const group = started.length > 1 ? { jobName: plan.jobName, index: index + 1, count: started.length } : null;
@@ -1685,8 +1729,11 @@ async function start(
     await historyService.recordStart(dbmsid.dbmsid, target, run, startedBy, group ? null : estimated, group, {
       expected,
       acknowledged: planned && (planned.ack.missing.length > 0 || planned.ack.filteredOut.length > 0) ? { ...planned.ack, by: startedBy } : null,
+      bundle: planned?.bundle ? { id: planned.bundle.id, jobNo: planned.bundle.jobNo } : null,
+      request: { ...request, flashbackScn: run.flashbackScn ?? request.flashbackScn ?? null, runJobName: run.jobName },
     });
   }
+  historyService.markStarting(dbmsid.dbmsid, runs.map((run) => run.jobName), false);
   return { jobName: plan.jobName, jobNames: started.map((run) => run.jobName), plan };
 }
 
@@ -1770,10 +1817,12 @@ async function saveFiles(
   const valid = validateFiles(files);
   // Export 계획의 parfile이면 계획과 대조하고, 빠지는 항목이 있으면 확인을 요구한 뒤 요약 파일(빠진 목록)을 서버가 함께 쓴다.
   const checked = checkPlanFiles(planId, dbmsid.dbmsid, valid, ack);
+  await checkMigrationFiles(dbmsid, valid);
   const summary = checked.summaryFile && valid.some((file) => /\.par$/i.test(file.name))
     ? { name: checked.summaryFile.name, content: `${checked.summaryFile.text}${checked.ack && (checked.ack.missing.length > 0 || checked.ack.filteredOut.length > 0) ? `\n확인: ${savedBy ?? '?'} (${new Date().toISOString()})에 위 항목을 빼고 진행하기로 확인함\n` : ''}` }
     : null;
   try {
+    if (checked.bundle) await historyService.recordBundle(dbmsid.dbmsid, await dataPumpModel.getTargetInfo(dbmsid), checked.bundle, savedBy);
     const result = await dataPumpModel.writeFiles(dbmsid, dir, valid.filter((file) => file.name !== summary?.name), overwrite);
     if (summary) {
       await dataPumpModel.writeFiles(dbmsid, dir, [summary], true);

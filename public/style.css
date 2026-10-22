@@ -2434,3 +2434,18 @@ textarea.dp-table-list {
 .rt-blocker-alert td { background: rgba(239, 68, 68, 0.14); }
 .rt-blocker-alert td:first-child { box-shadow: inset 3px 0 0 #ef4444; }
 button.rt-kill-btn { padding: 2px 10px; font-size: 12px; }
+
+/* Data Pump: 이관 Import */
+.dp-items-box { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.dp-items-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+.dp-items-box textarea { width: 100%; font-family: var(--font-mono, monospace); font-size: 12px; resize: vertical; }
+.dp-items-box button { align-self: flex-start; }
+.dp-map-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 16px; margin-top: 8px; }
+.dp-map h4 { margin: 4px 0 6px; font-size: 13px; }
+.dp-map input[type='text'] { width: 100%; }
+.dp-map textarea { width: 100%; font-family: var(--font-mono, monospace); font-size: 12px; }
+.dp-map-empty td { background: rgba(239, 68, 68, 0.1); }
+.dp-imports { margin-top: 10px; }
+.dp-imports h4 { margin: 4px 0; font-size: 13px; }
+.dp-warn { color: #d97706; font-weight: 600; }
+.dp-sql { margin: 4px 0 0; padding: 4px 6px; background: var(--bg-subtle, rgba(127, 127, 127, 0.12)); border-radius: 4px; font-size: 12px; white-space: pre-wrap; user-select: all; }

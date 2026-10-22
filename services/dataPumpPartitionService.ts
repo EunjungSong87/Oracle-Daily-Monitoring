@@ -5,7 +5,7 @@ import { assertImportCovers, buildParfile, buildPlan, cachedTablePartitions, fai
 import type { DataFilter, FilterEnv, ObjectFilter } from './dataPumpFilters';
 import type { DataPumpRequest } from './dataPumpService';
 import { exactName, sqlName } from './dataPumpNames';
-import { buildRanges, MANIFEST_KIND, overlaps, rangeLabel, safeFilePart, sameRange } from './partitionRanges';
+import { buildRanges, MANIFEST_KIND, rangeLabel, safeFilePart, truncateTargetsByRange } from './partitionRanges';
 import type { PartitionManifest, PartitionManifestEntry, PartitionRange } from './partitionRanges';
 
 // Range 파티션 export/import 보조 기능 (Export 탭의 "Range 파티션" 대상, Import 탭의 "파티션 덤프" 가져오기).
@@ -139,25 +139,12 @@ function planPartitionImportJobs(
   }
   const dumps = [...byDump.entries()].filter(([, entries]) => entries.some((entry) => names.has(entry.name)));
 
-  // 비울 대상 파티션: 대상 테이블에서 원본 파티션 범위와 겹치는 파티션이
-  //   없음 → 비울 게 없음 (인터벌 파티션이면 넣을 때 새로 생김)
-  //   범위가 똑같은 파티션 하나 → 그 파티션을 비움
-  //   그 외(범위가 더 넓거나 여러 개에 걸침) → 다른 기간 데이터까지 지워지므로 거부
-  const truncateMap = new Map<string, string | null>();
+  // 비울 대상 파티션: 원본 파티션 범위와 같은 범위의 대상 파티션 (이름이 아니라 범위로 짝짓기 — partitionRanges.truncateTargetsByRange)
+  let truncateMap = new Map<string, string | null>();
   if (options.truncateBeforeLoad && target) {
-    const problems: string[] = [];
-    const unknownTarget = target.filter((range) => !range.known).map((range) => range.name);
-    if (unknownTarget.length > 0) problems.push(`대상 테이블에 범위를 해석할 수 없는 파티션이 있음 (${unknownTarget.slice(0, 5).join(', ')})`);
-    for (const entry of problems.length > 0 ? [] : dumps.flatMap(([, entries]) => entries)) {
-      if (!entry.known) {
-        problems.push(`${entry.name}(범위를 알 수 없음)`);
-        continue;
-      }
-      const hits = target.filter((range) => overlaps(range, entry.low, entry.high));
-      if (hits.length === 0) truncateMap.set(entry.name, null);
-      else if (hits.length === 1 && sameRange(hits[0], entry)) truncateMap.set(entry.name, hits[0].name);
-      else problems.push(`${entry.name} → 대상 ${hits.map((hit) => hit.name).join(', ')}`);
-    }
+    const matched = truncateTargetsByRange(dumps.flatMap(([, entries]) => entries), target);
+    truncateMap = matched.map;
+    const problems = matched.problems;
     if (problems.length > 0) {
       fail(
         `대상 테이블의 파티션 범위가 원본과 달라 비우기를 할 수 없습니다 (비우면 다른 기간 데이터까지 지워짐): ${problems.slice(0, 10).join('; ')}` +

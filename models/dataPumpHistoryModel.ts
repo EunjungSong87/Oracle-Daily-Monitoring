@@ -39,6 +39,9 @@ export interface DataPumpHistoryRow {
   runner: { username: string | null; osuser: string | null; machine: string | null; program: string | null } | null;
   firstSeenAt: string | null;
   cancelledBy: string | null;
+  // scripts/add_datapump_bundle.sql 컬럼 (없는 환경이면 null)
+  bundleId: string | null;
+  bundleJobNo: number | null;
 }
 
 // 외부 작업 기록용 (컬럼이 있을 때만 저장)
@@ -62,6 +65,11 @@ export interface HistoryExtras {
   verifyStatus?: 'MATCH' | 'MISMATCH' | 'NA' | null;
   verifyDetail?: { notInLog: string[]; notInPlan: string[]; skipped: string[]; rowDiffs: string[] } | null;
   errorSummary?: string | null;
+  // scripts/add_datapump_bundle.sql 컬럼 (있을 때만 저장)
+  bundleId?: string | null;
+  bundleJobNo?: number | null;
+  request?: unknown;
+  dumpFiles?: { name: string; bytes: number | null }[] | null;
 }
 
 export interface NewHistory {
@@ -97,6 +105,21 @@ const EXTRA_COLUMNS = ['ACKNOWLEDGED_EXCLUDED', 'EXPECTED_ITEMS', 'LOG_ITEMS', '
 let extraCache: { at: number; has: boolean } | null = null;
 const EXTERNAL_COLUMNS = ['SOURCE', 'RUN_DB_USER', 'RUN_OS_USER', 'RUN_MACHINE', 'RUN_PROGRAM', 'FIRST_SEEN_AT', 'CANCELLED_BY'];
 let externalCache: { at: number; has: boolean } | null = null;
+const BUNDLE_COLUMNS = ['BUNDLE_ID', 'BUNDLE_JOB_NO', 'REQUEST_JSON', 'DUMP_FILES'];
+let bundleCache: { at: number; has: boolean } | null = null;
+
+// scripts/add_datapump_bundle.sql 컬럼이 있는지 (없으면 묶음/요청/덤프 파일 정보는 남기지 않음 — Import 생성에 못 씀)
+async function hasBundleColumns(connection: oracledb.Connection): Promise<boolean> {
+  if (bundleCache && Date.now() - bundleCache.at < 10 * 60 * 1000) return bundleCache.has;
+  const result = await connection.execute<Record<string, any>>(
+    `SELECT COUNT(*) AS n FROM all_tab_columns
+      WHERE owner = 'SYSTEM' AND table_name = 'DATAPUMP_JOB_HISTORY' AND column_name IN (${BUNDLE_COLUMNS.map((c) => `'${c}'`).join(',')})`,
+    {},
+    { outFormat: oracledb.OUT_FORMAT_OBJECT }
+  );
+  bundleCache = { at: Date.now(), has: Number(result.rows?.[0]?.N ?? 0) === BUNDLE_COLUMNS.length };
+  return bundleCache.has;
+}
 
 // scripts/add_datapump_history_external.sql 컬럼이 있는지 (없으면 외부 작업은 이력에 남기지 않음)
 async function hasExternalColumns(connection: oracledb.Connection): Promise<boolean> {
@@ -114,7 +137,7 @@ async function hasExternalColumns(connection: oracledb.Connection): Promise<bool
 const EXTERNAL_SELECT = `, source, run_db_user, run_os_user, run_machine, run_program, TO_CHAR(first_seen_at, 'YYYY-MM-DD HH24:MI:SS') AS first_seen_at, cancelled_by`;
 
 async function extraSelect(connection: oracledb.Connection): Promise<string> {
-  return `${(await hasExtraColumns(connection)) ? EXTRA_SELECT : ''}${(await hasExternalColumns(connection)) ? EXTERNAL_SELECT : ''}`;
+  return `${(await hasExtraColumns(connection)) ? EXTRA_SELECT : ''}${(await hasExternalColumns(connection)) ? EXTERNAL_SELECT : ''}${(await hasBundleColumns(connection)) ? ', bundle_id, bundle_job_no' : ''}`;
 }
 
 async function hasExtraColumns(connection: oracledb.Connection): Promise<boolean> {
@@ -146,6 +169,7 @@ const EXTRA_FETCH = {
 };
 
 async function saveExtras(connection: oracledb.Connection, id: number, extras: HistoryExtras): Promise<void> {
+  await saveBundleExtras(connection, id, extras);
   if (!(await hasExtraColumns(connection))) return;
   const sets: string[] = [];
   const binds: Record<string, oracledb.BindParameter | string | number | null> = { id };
@@ -167,6 +191,27 @@ async function saveExtras(connection: oracledb.Connection, id: number, extras: H
     binds.errorSummary = extras.errorSummary ?? null;
   }
   if (sets.length === 0) return;
+  await connection.execute(`UPDATE system.datapump_job_history SET ${sets.join(', ')} WHERE id = :id`, binds as oracledb.BindParameters, { autoCommit: true });
+}
+
+async function saveBundleExtras(connection: oracledb.Connection, id: number, extras: HistoryExtras): Promise<void> {
+  if (extras.bundleId === undefined && extras.request === undefined && extras.dumpFiles === undefined) return;
+  if (!(await hasBundleColumns(connection))) return;
+  const sets: string[] = [];
+  const binds: Record<string, oracledb.BindParameter | string | number | null> = { id };
+  if (extras.bundleId !== undefined) {
+    sets.push('bundle_id = :bundleId', 'bundle_job_no = :bundleJobNo');
+    binds.bundleId = extras.bundleId;
+    binds.bundleJobNo = extras.bundleJobNo ?? null;
+  }
+  if (extras.request !== undefined) {
+    sets.push('request_json = :request');
+    binds.request = { val: extras.request === null ? null : JSON.stringify(extras.request), type: oracledb.CLOB };
+  }
+  if (extras.dumpFiles !== undefined) {
+    sets.push('dump_files = :dumpFiles');
+    binds.dumpFiles = { val: extras.dumpFiles === null ? null : JSON.stringify(extras.dumpFiles), type: oracledb.CLOB };
+  }
   await connection.execute(`UPDATE system.datapump_job_history SET ${sets.join(', ')} WHERE id = :id`, binds as oracledb.BindParameters, { autoCommit: true });
 }
 
@@ -217,6 +262,8 @@ function mapRow(row: Record<string, any>): DataPumpHistoryRow {
         : null,
     firstSeenAt: row.FIRST_SEEN_AT ?? null,
     cancelledBy: row.CANCELLED_BY ?? null,
+    bundleId: row.BUNDLE_ID ?? null,
+    bundleJobNo: row.BUNDLE_JOB_NO ?? null,
   };
 }
 
@@ -373,4 +420,4 @@ async function findExportLogItems(dumpfile: string): Promise<unknown[] | null> {
   });
 }
 
-export { insertHistory, listHistory, listRunning, finishHistory, markCancelled, getExportThroughput, findExportLogItems };
+export { insertHistory, listHistory, listRunning, finishHistory, markCancelled, getExportThroughput, findExportLogItems, hasBundleColumns, withPool, parseJson };

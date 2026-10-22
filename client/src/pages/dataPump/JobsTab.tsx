@@ -191,6 +191,7 @@ interface Props {
   dbmsId: string;
   dbname: string; // 외부 작업 취소 확인용
   directories: string[]; // 로그 위치를 모를 때 직접 고르는 DIRECTORY 목록
+  onMakeImport?: (bundleKey: string) => void; // Export 이력 → "이관 Import" 탭
 }
 
 // 작업 행의 "앱에서 시작 / 외부(직접 실행)" 배지와 실행자
@@ -227,7 +228,7 @@ const STATUS_BADGE: Record<DataPumpHistoryStatus, string> = {
   UNKNOWN: 'oc-badge-DIFF',
 };
 
-export function JobsTab({ dbmsId, dbname, directories }: Props): ReactElement {
+export function JobsTab({ dbmsId, dbname, directories, onMakeImport }: Props): ReactElement {
   // 로그 위치를 모르는 작업(NOLOGFILE, 마스터 테이블을 못 읽음)은 DIRECTORY와 파일 이름을 직접 입력해서 연다
   const [manualLog, setManualLog] = useState<{ jobName: string; directory: string; logfile: string } | null>(null);
   const [historyFilter, setHistoryFilter] = useState<'ALL' | 'APP' | 'EXTERNAL'>('ALL');
@@ -389,7 +390,12 @@ export function JobsTab({ dbmsId, dbname, directories }: Props): ReactElement {
             {row.cancelledBy && <div className="dp-hint-line">취소: {row.cancelledBy}</div>}
           </td>
           <td title={row.resultMessage ?? ''}>
-            <span className={`issue-badge ${STATUS_BADGE[row.status]}`}>{STATUS_LABEL[row.status]}</span>
+            {/* 끝났지만 기준(계획/Export 로그)과 대조가 맞지 않으면 "성공"이 아니라 "불일치" */}
+            {row.verifyStatus === 'MISMATCH' && row.status !== 'RUNNING' ? (
+              <span className="issue-badge oc-badge-ONLY_TARGET">불일치</span>
+            ) : (
+              <span className={`issue-badge ${STATUS_BADGE[row.status]}`}>{STATUS_LABEL[row.status]}</span>
+            )}
             {row.status === 'COMPLETED_WITH_ERRORS' && row.errorCount !== null && <div className="dp-hint-line">에러 {row.errorCount}개</div>}
             {row.errorSummary && <div className="dp-hint-line dp-error-summary" title={row.errorSummary}>{row.errorSummary}</div>}
             <VerifyBadge row={row} />
@@ -407,6 +413,11 @@ export function JobsTab({ dbmsId, dbname, directories }: Props): ReactElement {
             {row.estimatedBytes !== null && <div className="dp-hint-line">예상 {formatBytes(row.estimatedBytes)}</div>}
           </td>
           <td className="dp-actions">
+            {onMakeImport && row.operation === 'EXPORT' && kind !== 'sub' && row.status !== 'RUNNING' && (
+              <button type="button" className="btn-secondary" onClick={() => onMakeImport(row.bundleId ?? `H${row.id}`)} title="이 Export(묶음 전체)의 덤프로 다른 DB에 넣을 Import 작업을 만듭니다">
+                Import 만들기
+              </button>
+            )}
             {kind !== 'group' && (
             <button
               type="button"

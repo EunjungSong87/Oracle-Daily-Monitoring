@@ -23,5 +23,17 @@ router.post('/dataPump/partition/tables', requireScreen('dataPump'), dataPumpCon
 router.post('/dataPump/partition/list', requireScreen('dataPump'), dataPumpController.partitionList);
 router.post('/dataPump/partition/manifest', requireScreen('dataPump'), dataPumpController.partitionManifest);
 router.post('/dataPump/partition/importPlan', requireScreen('dataPump'), dataPumpController.partitionImportPlan);
+router.post('/dataPump/partition/historyList', requireScreen('dataPump'), dataPumpController.partitionHistoryList);
+router.post('/dataPump/partition/historyManifest', requireScreen('dataPump'), dataPumpController.partitionHistoryManifest);
+// 이관 Import: Export 이력(묶음) → Import 생성 → 덤프 파일 확인 → 사전 점검. 실행은 /dataPump/start(대상 DB)가 생성 기록과 대조해 막는다.
+router.post('/dataPump/migration/bundles', requireScreen('dataPump'), dataPumpController.migrationBundles);
+router.post('/dataPump/migration/bundle', requireScreen('dataPump'), dataPumpController.migrationBundle);
+router.post('/dataPump/migration/generate', requireScreen('dataPump'), dataPumpController.migrationGenerate);
+router.post('/dataPump/migration/plan', requireScreen('dataPump'), dataPumpController.migrationPlan);
+router.post('/dataPump/migration/files', requireScreen('dataPump'), dataPumpController.migrationFiles);
+router.post('/dataPump/migration/precheck', requireScreen('dataPump'), dataPumpController.migrationPrecheck);
+router.post('/dataPump/remapSets', requireScreen('dataPump'), dataPumpController.remapSets);
+router.post('/dataPump/remapSets/save', requireScreen('dataPump'), dataPumpController.remapSetSave);
+router.post('/dataPump/remapSets/delete', requireScreen('dataPump'), dataPumpController.remapSetDelete);
 
 export default router;

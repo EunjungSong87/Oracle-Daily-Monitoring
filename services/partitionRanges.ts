@@ -93,6 +93,34 @@ export function rangeLabel(partition: Pick<PartitionRange, 'known' | 'low' | 'hi
   return `${partition.low ?? '(처음)'} ~ ${partition.high ?? 'MAXVALUE'}`;
 }
 
+// 원본 파티션(범위)마다 대상 테이블에서 비울 파티션을 범위로 짝짓는다 (인터벌 파티션은 DB마다 SYS_P… 이름이 달라서 이름이 아니라 범위로).
+//   겹치는 대상 파티션 없음 → null (비울 게 없음, 인터벌이면 넣을 때 새로 생김)
+//   범위가 똑같은 대상 파티션 하나 → 그 이름
+//   그 외(범위가 더 넓거나 여러 개에 걸침, 범위를 해석 못 함) → problems (비우면 다른 기간 데이터까지 지워짐)
+export function truncateTargetsByRange(
+  entries: Pick<PartitionRange, 'name' | 'known' | 'low' | 'high'>[],
+  target: Pick<PartitionRange, 'name' | 'known' | 'low' | 'high'>[]
+): { map: Map<string, string | null>; problems: string[] } {
+  const map = new Map<string, string | null>();
+  const problems: string[] = [];
+  const unknownTarget = target.filter((range) => !range.known).map((range) => range.name);
+  if (unknownTarget.length > 0) {
+    problems.push(`대상 테이블에 범위를 해석할 수 없는 파티션이 있음 (${unknownTarget.slice(0, 5).join(', ')})`);
+    return { map, problems };
+  }
+  for (const entry of entries) {
+    if (!entry.known) {
+      problems.push(`${entry.name}(범위를 알 수 없음)`);
+      continue;
+    }
+    const hits = target.filter((range) => overlaps(range, entry.low, entry.high));
+    if (hits.length === 0) map.set(entry.name, null);
+    else if (hits.length === 1 && sameRange(hits[0], entry)) map.set(entry.name, hits[0].name);
+    else problems.push(`${entry.name} → 대상 ${hits.map((hit) => hit.name).join(', ')}`);
+  }
+  return { map, problems };
+}
+
 // 덤프/로그 파일 이름에 쓸 수 있게 ($, # 같은 문자는 _로).
 export function safeFilePart(name: string): string {
   return name.replace(/[^A-Za-z0-9_-]/g, '_');

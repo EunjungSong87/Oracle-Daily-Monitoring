@@ -9,9 +9,10 @@ import type { DataPumpMeta, DbmsRow } from '../../shared/lib/types';
 import { ExportTab } from './ExportTab';
 import { ImportTab } from './ImportTab';
 import { JobsTab } from './JobsTab';
+import { MigrationTab } from './MigrationTab';
 import { PartitionTab } from './PartitionTab';
 
-type Tab = 'EXPORT' | 'IMPORT' | 'PARTITION' | 'JOBS';
+type Tab = 'EXPORT' | 'IMPORT' | 'PARTITION' | 'MIGRATION' | 'JOBS';
 
 // EXPDP/IMPDP를 DBMS_DATAPUMP로 DB 서버에서 실행하거나, 같은 설정의 parfile/명령어를 만든다. 최고관리자 전용.
 export function App(): ReactElement {
@@ -25,6 +26,7 @@ export function App(): ReactElement {
   const [meta, setMeta] = useState<DataPumpMeta | null>(null);
   const [metaError, setMetaError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('EXPORT');
+  const [migrationKey, setMigrationKey] = useState<string | null>(null); // 작업 현황의 "Import 만들기"로 넘어온 Export 묶음
 
   useEffect(() => {
     if (!canUse) return;
@@ -87,6 +89,7 @@ export function App(): ReactElement {
                     ['EXPORT', 'Export'],
                     ['IMPORT', 'Import'],
                     ['PARTITION', '파티션 Import'],
+                    ['MIGRATION', '이관 Import'],
                     ['JOBS', '작업 현황'],
                   ] as const
                 ).map(([key, label]) => (
@@ -108,8 +111,22 @@ export function App(): ReactElement {
           {/* DBMS를 바꾸면 탭 상태(선택/계획)가 이전 DB 기준으로 남지 않게 key로 새로 만든다. */}
           {meta && tab === 'EXPORT' && <ExportTab key={dbmsId} dbmsId={dbmsId} meta={meta} sqlAllowed={sqlAllowed} />}
           {meta && tab === 'IMPORT' && <ImportTab key={dbmsId} dbmsId={dbmsId} meta={meta} sqlAllowed={sqlAllowed} />}
-          {meta && tab === 'PARTITION' && <PartitionTab key={dbmsId} dbmsId={dbmsId} meta={meta} sqlAllowed={sqlAllowed} />}
-          {meta && tab === 'JOBS' && <JobsTab key={dbmsId} dbmsId={dbmsId} dbname={meta.target.dbname} directories={meta.directories.map((dir) => dir.name)} />}
+          {meta && tab === 'PARTITION' && <PartitionTab key={dbmsId} dbmsId={dbmsId} meta={meta} sqlAllowed={sqlAllowed} dbmsRows={dbmsRows} />}
+          {meta && tab === 'MIGRATION' && (
+            <MigrationTab key={`${dbmsId}:${migrationKey ?? ''}`} dbmsId={dbmsId} dbname={meta.target.dbname} dbmsRows={dbmsRows} sqlAllowed={sqlAllowed} initialBundleKey={migrationKey} />
+          )}
+          {meta && tab === 'JOBS' && (
+            <JobsTab
+              key={dbmsId}
+              dbmsId={dbmsId}
+              dbname={meta.target.dbname}
+              directories={meta.directories.map((dir) => dir.name)}
+              onMakeImport={(key) => {
+                setMigrationKey(key);
+                setTab('MIGRATION');
+              }}
+            />
+          )}
         </>
       )}
     </>

@@ -1,7 +1,7 @@
 import { useRef, useState, type ChangeEvent, type ReactElement } from 'react';
-import { planPartitionImport, readPartitionManifest, startDataPump } from '../../shared/lib/api';
+import { getPartitionHistory, getPartitionHistoryManifest, planPartitionImport, readPartitionManifest, startDataPump } from '../../shared/lib/api';
 import { showToast } from '../../shared/lib/toastStore';
-import type { DataFilter, DataPumpMeta, ObjectFilter, PartitionImportPlan, PartitionImportJobView, PartitionManifest } from '../../shared/lib/types';
+import type { DataFilter, DataPumpMeta, DbmsRow, ObjectFilter, PartitionHistoryRow, PartitionImportPlan, PartitionImportJobView, PartitionManifest } from '../../shared/lib/types';
 import { ConfirmModal } from './ConfirmModal';
 import { formatBytes, todayPrefix } from './helpers';
 import { PartitionJobList } from './PartitionJobList';
@@ -16,12 +16,17 @@ interface Props {
   dbmsId: string;
   meta: DataPumpMeta;
   sqlAllowed: boolean; // DBA 이상 — QUERY/서브쿼리 SQL 조건
+  dbmsRows: DbmsRow[];
 }
 
 // 파티션 export의 매니페스트(.json)를 읽어 기간으로 파티션을 고르고, 파티션 하나당 import 작업 하나로 가져온다.
 // 대상 테이블이 있으면 데이터만 APPEND하고, "비우고 넣기"면 같은 범위의 대상 파티션을 먼저 TRUNCATE한다
 // (대상 파티션은 이름이 아니라 범위로 맞춤 — 인터벌 파티션은 DB마다 SYS_P… 이름이 다르기 때문).
-export function PartitionImport({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
+export function PartitionImport({ dbmsId, meta, sqlAllowed, dbmsRows }: Props): ReactElement {
+  // 매니페스트 출처: 이력(원본 DB의 Export 이력에 남은 파티션 정보) 또는 파일
+  const [source, setSource] = useState<'HISTORY' | 'FILE'>('HISTORY');
+  const [sourceDbmsId, setSourceDbmsId] = useState(dbmsId);
+  const [historyRows, setHistoryRows] = useState<PartitionHistoryRow[] | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [directory, setDirectory] = useState(meta.directories.find((dir) => dir.name === 'DATA_PUMP_DIR')?.name ?? meta.directories[0]?.name ?? '');
   const [manifestFile, setManifestFile] = useState('');
@@ -53,6 +58,25 @@ export function PartitionImport({ dbmsId, meta, sqlAllowed }: Props): ReactEleme
     setPlan(null);
     setTargetOwner(parsed.owner);
     setLogPrefix(`${todayPrefix('imp')}_${parsed.table}`.slice(0, 60));
+  }
+
+  async function loadHistory(): Promise<void> {
+    try {
+      setHistoryRows(await getPartitionHistory(sourceDbmsId));
+    } catch (error) {
+      setHistoryRows(null);
+      showToast(error instanceof Error ? error.message : '파티션 Export 이력을 읽지 못했습니다.', 'error');
+    }
+  }
+
+  async function pickHistory(row: PartitionHistoryRow): Promise<void> {
+    try {
+      const { text } = await getPartitionHistoryManifest(sourceDbmsId, row.bundleId, row.owner, row.table);
+      applyManifest(text, JSON.parse(text) as PartitionManifest);
+      setManifestFile(`이력 ${row.createdAt} ${row.owner}.${row.table}`);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '파티션 이력을 읽지 못했습니다.', 'error');
+    }
   }
 
   async function loadFromServer(): Promise<void> {
@@ -136,32 +160,102 @@ export function PartitionImport({ dbmsId, meta, sqlAllowed }: Props): ReactEleme
   return (
     <>
       <div className="rt-panel">
-        <h3>1. 매니페스트</h3>
-        <div className="dp-grid">
-          <div>
-            <label htmlFor="dp-pi-dir">DIRECTORY (덤프와 매니페스트를 옮겨 둔 곳)</label>
-            <select id="dp-pi-dir" value={directory} onChange={(e) => setDirectory(e.target.value)}>
-              {meta.directories.map((dir) => (
-                <option key={dir.name} value={dir.name}>
-                  {dir.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label htmlFor="dp-pi-file">매니페스트 파일</label>
-            <input id="dp-pi-file" type="text" placeholder="예: exp_20261006_ORDERS_manifest.json" value={manifestFile} onChange={(e) => setManifestFile(e.target.value)} />
-          </div>
-        </div>
-        <div className="oc-actions dp-buttons">
-          <button type="button" disabled={!manifestFile.trim().toLowerCase().endsWith('.json')} onClick={loadFromServer}>
-            DB 서버에서 읽기
+        <h3>1. 파티션 정보</h3>
+        <div className="status-tabs" role="group" aria-label="파티션 정보 출처">
+          <button type="button" className={`status-tab${source === 'HISTORY' ? ' status-tab-active' : ''}`} onClick={() => setSource('HISTORY')}>
+            Export 이력에서
           </button>
-          <button type="button" className="btn-secondary" onClick={() => fileInputRef.current?.click()}>
-            내 PC에서 올리기
+          <button type="button" className={`status-tab${source === 'FILE' ? ' status-tab-active' : ''}`} onClick={() => setSource('FILE')}>
+            매니페스트 파일에서
           </button>
-          <input ref={fileInputRef} type="file" accept=".json,application/json" style={{ display: 'none' }} onChange={loadFromPc} />
         </div>
+        {source === 'HISTORY' && (
+          <>
+            <div className="dp-row">
+              <label htmlFor="dp-pi-src">원본 DB (Export한 DB)</label>
+              <select id="dp-pi-src" value={sourceDbmsId} onChange={(e) => setSourceDbmsId(e.target.value)}>
+                {dbmsRows.map((row) => (
+                  <option key={String(row.ID)} value={String(row.ID)}>
+                    {String(row.ID)} - {row.DBNAME}
+                  </option>
+                ))}
+              </select>
+              <button type="button" className="btn-secondary" onClick={loadHistory}>
+                파티션 Export 이력 보기
+              </button>
+            </div>
+            {historyRows && historyRows.length === 0 && <p className="issues-empty">이 DB에서 파티션 단위로 내보낸 이력이 없습니다 (scripts/add_datapump_bundle.sql 이후 Export만 남음).</p>}
+            {historyRows && historyRows.length > 0 && (
+              <table className="table oc-items-table">
+                <thead>
+                  <tr>
+                    <th>Export</th>
+                    <th>테이블</th>
+                    <th>파티션</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {historyRows.map((row) => (
+                    <tr key={`${row.bundleId}:${row.owner}.${row.table}`}>
+                      <td>
+                        {row.createdAt} {row.createdBy ?? ''}
+                      </td>
+                      <td className="oc-name">
+                        {row.owner}.{row.table}
+                      </td>
+                      <td>{row.partitions}개</td>
+                      <td>
+                        <button type="button" className="btn-secondary" onClick={() => pickHistory(row)}>
+                          고르기
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            <div className="dp-row">
+              <label htmlFor="dp-pi-dir-h">이 DB의 DIRECTORY (덤프를 옮겨 둔 곳)</label>
+              <select id="dp-pi-dir-h" value={directory} onChange={(e) => setDirectory(e.target.value)}>
+                {meta.directories.map((dir) => (
+                  <option key={dir.name} value={dir.name}>
+                    {dir.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </>
+        )}
+        {source === 'FILE' && (
+          <>
+            <div className="dp-grid">
+              <div>
+                <label htmlFor="dp-pi-dir">DIRECTORY (덤프와 매니페스트를 옮겨 둔 곳)</label>
+                <select id="dp-pi-dir" value={directory} onChange={(e) => setDirectory(e.target.value)}>
+                  {meta.directories.map((dir) => (
+                    <option key={dir.name} value={dir.name}>
+                      {dir.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="dp-pi-file">매니페스트 파일</label>
+                <input id="dp-pi-file" type="text" placeholder="예: exp_20261006_ORDERS_manifest.json" value={manifestFile} onChange={(e) => setManifestFile(e.target.value)} />
+              </div>
+            </div>
+            <div className="oc-actions dp-buttons">
+              <button type="button" disabled={!manifestFile.trim().toLowerCase().endsWith('.json')} onClick={loadFromServer}>
+                DB 서버에서 읽기
+              </button>
+              <button type="button" className="btn-secondary" onClick={() => fileInputRef.current?.click()}>
+                내 PC에서 올리기
+              </button>
+              <input ref={fileInputRef} type="file" accept=".json,application/json" style={{ display: 'none' }} onChange={loadFromPc} />
+            </div>
+          </>
+        )}
         {manifest && (
           <p className="oc-hint">
             원본 {manifest.sourceDb} · {manifest.owner}.{manifest.table} · 파티션 키 {manifest.keyColumn} ({manifest.keyType}) · export한 파티션{' '}

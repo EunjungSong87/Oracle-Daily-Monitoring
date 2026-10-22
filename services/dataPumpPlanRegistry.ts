@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import { fail } from './dataPumpErrors';
 import type { DataPumpRequest } from './dataPumpService';
+import type { BundleJobRecord, PartitionRecord } from '../models/dataPumpMigrationModel';
 
 // Export 분할 계획 기억소 (앱 서버 메모리, 단일 프로세스 앱). /exportPlan에서 등록하고 /start, /saveFiles에서 대조한다.
 // 목적: "DB에 없어 빠지는 항목"과 "필터로 빠지는 테이블"을 사용자가 확인하지 않으면 서버도 실행·저장을 막는다
@@ -16,6 +17,14 @@ interface PlanJob {
   expected: string[]; // 실행 후 로그 대조용 대상 목록 (OWNER.TABLE 또는 OWNER.TABLE:PART, 정확한 이름)
 }
 
+// Export 묶음으로 메타 DB에 남길 내용 (실행하거나 parfile을 저장할 때 한 번 — Import 생성/파티션 Import의 기준)
+export interface BundleDraft {
+  missing: string[];
+  filteredOut: string[];
+  jobs: BundleJobRecord[];
+  partitions: PartitionRecord[];
+}
+
 interface Entry {
   dbmsid: string;
   createdAt: number;
@@ -23,6 +32,7 @@ interface Entry {
   filteredOut: string[];
   jobs: Map<string, { hash: string; fixedScn: string | null; expected: string[] }>;
   summaryFile: { name: string; text: string } | null;
+  bundle: BundleDraft | null;
 }
 
 const TTL_MS = 12 * 60 * 60 * 1000;
@@ -52,6 +62,7 @@ function registerPlan(input: {
   filteredOut: string[];
   jobs: PlanJob[];
   summaryFile: { name: string; text: string } | null;
+  bundle?: BundleDraft | null;
 }): string {
   const now = Date.now();
   for (const [id, entry] of plans) if (now - entry.createdAt > TTL_MS) plans.delete(id);
@@ -69,6 +80,7 @@ function registerPlan(input: {
       })
     ),
     summaryFile: input.summaryFile,
+    bundle: input.bundle ?? null,
   });
   return id;
 }
@@ -98,14 +110,20 @@ function lookup(planId: unknown, dbmsid: string | number): Entry {
 }
 
 // Export 실행: 계획에 있는 작업 그대로인지 + 빠지는 항목 확인
-function checkPlanStart(planId: unknown, dbmsid: string | number, request: DataPumpRequest, ack: Partial<PlanAck> | undefined | null): { expected: string[]; ack: PlanAck } {
+function checkPlanStart(
+  planId: unknown,
+  dbmsid: string | number,
+  request: DataPumpRequest,
+  ack: Partial<PlanAck> | undefined | null
+): { expected: string[]; ack: PlanAck; bundle: { id: string; jobNo: number | null; draft: BundleDraft } | null } {
   const entry = lookup(planId, dbmsid);
   const job = entry.jobs.get(String(request.jobName));
   if (!job || job.hash !== requestHash(request, job.fixedScn === null) || (job.fixedScn !== null && request.flashbackScn !== job.fixedScn)) {
     fail('요청이 분할 계획과 다릅니다. 계획을 다시 만들어 주세요.');
   }
   assertAcknowledged(entry, ack);
-  return { expected: job.expected, ack: { missing: entry.missing, filteredOut: entry.filteredOut } };
+  const bundle = entry.bundle ? { id: String(planId), jobNo: entry.bundle.jobs.find((item) => item.jobName === String(request.jobName))?.no ?? null, draft: entry.bundle } : null;
+  return { expected: job.expected, ack: { missing: entry.missing, filteredOut: entry.filteredOut }, bundle };
 }
 
 const PLAN_JOB = /^JOB_NAME=(DBC_EXP_\S+)$/m;
@@ -117,14 +135,18 @@ function checkPlanFiles(
   dbmsid: string | number,
   files: { name: string; content: string }[],
   ack: Partial<PlanAck> | undefined | null
-): { summaryFile: { name: string; text: string } | null; ack: PlanAck | null } {
+): { summaryFile: { name: string; text: string } | null; ack: PlanAck | null; bundle: { id: string; draft: BundleDraft } | null } {
   const planJobs = files.filter((file) => /\.par$/i.test(file.name)).map((file) => file.content.match(PLAN_JOB)?.[1]).filter((name): name is string => !!name);
-  if (planJobs.length === 0 && (planId === undefined || planId === null)) return { summaryFile: null, ack: null };
+  if (planJobs.length === 0 && (planId === undefined || planId === null)) return { summaryFile: null, ack: null, bundle: null };
   const entry = lookup(planId, dbmsid);
   const foreign = planJobs.filter((name) => !entry.jobs.has(name));
   if (foreign.length > 0) fail(`계획에 없는 작업의 parfile입니다: ${foreign.slice(0, 5).join(', ')}. 계획을 다시 만들어 주세요.`);
   assertAcknowledged(entry, ack);
-  return { summaryFile: entry.summaryFile, ack: { missing: entry.missing, filteredOut: entry.filteredOut } };
+  return {
+    summaryFile: entry.summaryFile,
+    ack: { missing: entry.missing, filteredOut: entry.filteredOut },
+    bundle: entry.bundle && planJobs.length > 0 ? { id: String(planId), draft: entry.bundle } : null,
+  };
 }
 
 export { registerPlan, assertAcknowledged, checkPlanStart, checkPlanFiles };

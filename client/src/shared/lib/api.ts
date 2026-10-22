@@ -1,4 +1,13 @@
 import type {
+  DumpFileCheckRow,
+  MigrationBundleDetail,
+  MigrationBundleRow,
+  MigrationGenerateInput,
+  MigrationPlanView,
+  MigrationPrecheckRow,
+  PartitionHistoryRow,
+  RemapMapping,
+  RemapSet,
   CapacityConfig,
   CapacityPoint,
   CapacityView,
@@ -64,6 +73,15 @@ async function getJson<T>(url: string): Promise<T> {
   return (await response.json()) as T;
 }
 
+// 서버가 거부 사유와 함께 항목 전체 목록(items — 빠진/중복된 테이블 등)을 주면 같이 들고 다닌다 (화면이 스크롤·복사 가능하게 보여 줌).
+export class ApiError extends Error {
+  readonly items: string[];
+  constructor(message: string, items: string[] = []) {
+    super(message);
+    this.items = items;
+  }
+}
+
 async function postJson<T>(url: string, body: unknown): Promise<T> {
   const response = await fetch(url, {
     method: 'POST',
@@ -71,8 +89,8 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   });
   if (!response.ok) {
-    const err = await response.json().catch(() => ({}) as { message?: string });
-    throw new Error(err.message || `POST ${url} failed: ${response.status}`);
+    const err = await response.json().catch(() => ({}) as { message?: string; items?: string[] });
+    throw new ApiError(err.message || `POST ${url} failed: ${response.status}`, Array.isArray(err.items) ? err.items : []);
   }
   const text = await response.text();
   return (text ? JSON.parse(text) : undefined) as T;
@@ -519,6 +537,54 @@ export function getPartitionList(dbmsid: string | number, owner: string, table: 
 }
 
 // DB 서버 DIRECTORY에 있는 매니페스트(.json) 읽기
+// ── 이관 Import (Export 이력 → Import 생성 → 사전 점검) ──
+export async function getMigrationBundles(dbmsid: string | number): Promise<MigrationBundleRow[]> {
+  const { rows } = await postJson<{ rows: MigrationBundleRow[] }>('/api/dataPump/migration/bundles', { dbmsid });
+  return rows;
+}
+
+export function getMigrationBundle(dbmsid: string | number, bundleKey: string): Promise<MigrationBundleDetail> {
+  return postJson('/api/dataPump/migration/bundle', { dbmsid, bundleKey });
+}
+
+export function generateMigration(dbmsid: string | number, bundleKey: string, input: MigrationGenerateInput): Promise<MigrationPlanView> {
+  return postJson('/api/dataPump/migration/generate', { dbmsid, bundleKey, ...input });
+}
+
+export function getMigrationPlan(planId: string): Promise<MigrationPlanView> {
+  return postJson('/api/dataPump/migration/plan', { planId });
+}
+
+export function checkMigrationFiles(planId: string): Promise<{ rows: DumpFileCheckRow[]; blocked: boolean }> {
+  return postJson('/api/dataPump/migration/files', { planId });
+}
+
+export function precheckMigration(planId: string): Promise<{ rows: MigrationPrecheckRow[]; blocked: boolean; sizeNote: string }> {
+  return postJson('/api/dataPump/migration/precheck', { planId });
+}
+
+export async function getRemapSets(): Promise<RemapSet[]> {
+  const { rows } = await postJson<{ rows: RemapSet[] }>('/api/dataPump/remapSets', {});
+  return rows;
+}
+
+export function saveRemapSet(name: string, mapping: RemapMapping): Promise<unknown> {
+  return postJson('/api/dataPump/remapSets/save', { name, mapping });
+}
+
+export function deleteRemapSet(id: number): Promise<unknown> {
+  return postJson('/api/dataPump/remapSets/delete', { id });
+}
+
+export async function getPartitionHistory(dbmsid: string | number): Promise<PartitionHistoryRow[]> {
+  const { rows } = await postJson<{ rows: PartitionHistoryRow[] }>('/api/dataPump/partition/historyList', { dbmsid });
+  return rows;
+}
+
+export function getPartitionHistoryManifest(dbmsid: string | number, bundleId: string, owner: string, table: string): Promise<{ text: string }> {
+  return postJson('/api/dataPump/partition/historyManifest', { dbmsid, bundleId, owner, table });
+}
+
 export function readPartitionManifest(dbmsid: string | number, directory: string, file: string): Promise<{ manifest: PartitionManifest; text: string }> {
   return postJson('/api/dataPump/partition/manifest', { dbmsid, directory, file });
 }
