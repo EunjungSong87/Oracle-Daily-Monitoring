@@ -1,0 +1,26 @@
+;;; 
+Export: Release 23.0.0.0.0 - Production on Thu Oct 22 02:17:35 2026
+Version 23.4.0.24.05
+
+Copyright (c) 1982, 2024, Oracle and/or its affiliates.  All rights reserved.
+;;; 
+Connected to: Oracle Database 23ai Free Release 23.0.0.0.0 - Develop, Learn, and Run for Free
+ORA-39034: Table MyTable does not exist.
+;;; **************************************************************************
+;;; Parfile values:
+;;;  parfile:  job_name=QT_T1
+;;;  parfile:  reuse_dumpfiles=Y
+;;;  parfile:  tables=QTest,."MyTable":"p2025",QTest,."MyTable":P2026,QTest,
+;;;  _parfile: .UPPER_T,QUP."Mixed",QUP.EMP,QUP.EMPTY_T
+;;;  parfile:  logfile=t1.log
+;;;  parfile:  dumpfile=t1.dmp
+;;;  parfile:  directory=DATA_PUMP_DIR
+;;; **************************************************************************
+Starting "SYSTEM"."QT_T1":  system/********@localhost:1521/FREEPDB1 parfile=t1.par 
+ORA-39166: Object QTEST,.MyTable was not found or could not be exported or imported.
+ORA-39166: Object QTEST,.UPPER_T was not found or could not be exported or imported.
+ORA-39166: Object QUP.Mixed was not found or could not be exported or imported.
+ORA-39166: Object QUP.EMP was not found or could not be exported or imported.
+ORA-39166: Object QUP.EMPTY_T was not found or could not be exported or imported.
+ORA-31655: no data or metadata objects selected for job
+Job "SYSTEM"."QT_T1" completed with 6 error(s) at Thu Oct 22 02:17:43 2026 elapsed 0 00:00:04

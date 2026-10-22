@@ -26,6 +26,7 @@ declare module 'express-session' {
 // 폼이 뜨지 않습니다. (다른 인증된 페이지와도 공유되지만 라이브러리/공용 코드일 뿐이라
 // 공개돼도 무해합니다.)
 const PUBLIC_STATIC_PATHS = new Set([
+  '/health', // 외부 감시용 앱 상태 (최소 정보만, server.ts 참고)
   '/login.html',
   '/style.css',
   '/common.js',

@@ -1,9 +1,10 @@
 import * as dataPumpModel from '../models/dataPumpModel';
 import type { PartitionTableInfo } from '../models/dataPumpModel';
 import type { DbmsIdParam } from '../models/dbmsModel';
-import { buildParfile, buildPlan, cachedTablePartitions, fail, filename, getFilterEnv, identifier, timestamp } from './dataPumpService';
+import { assertImportCovers, buildParfile, buildPlan, cachedTablePartitions, fail, filename, getFilterEnv, identifier, timestamp } from './dataPumpService';
 import type { DataFilter, FilterEnv, ObjectFilter } from './dataPumpFilters';
 import type { DataPumpRequest } from './dataPumpService';
+import { exactName, sqlName } from './dataPumpNames';
 import { buildRanges, MANIFEST_KIND, overlaps, rangeLabel, safeFilePart, sameRange } from './partitionRanges';
 import type { PartitionManifest, PartitionManifestEntry, PartitionRange } from './partitionRanges';
 
@@ -33,7 +34,7 @@ function parseManifest(text: unknown): PartitionManifest {
     return value;
   };
   const partitions: PartitionManifestEntry[] = data.partitions.map((entry: any) => ({
-    name: identifier(entry?.name, '파티션'),
+    name: exactName(entry?.name, '파티션'), // 매니페스트는 정확한 이름
     position: Number(entry?.position) || 0,
     highValue: String(entry?.highValue ?? ''),
     known: entry?.known === true,
@@ -48,8 +49,8 @@ function parseManifest(text: unknown): PartitionManifest {
     version: 1,
     createdAt: String(data.createdAt ?? ''),
     sourceDb: String(data.sourceDb ?? ''),
-    owner: identifier(data.owner, '테이블 소유자'),
-    table: identifier(data.table, '테이블'),
+    owner: exactName(data.owner, '테이블 소유자'),
+    table: exactName(data.table, '테이블'),
     keyColumn: String(data.keyColumn ?? ''),
     keyType: String(data.keyType ?? ''),
     interval: data.interval ? String(data.interval) : null,
@@ -90,6 +91,16 @@ export interface PartitionImportPlan {
   notes: string[];
 }
 
+// 불변식: 고른 파티션은 작업(덤프)들 중 정확히 한 곳에 들어간다.
+function assertPartitionImportCovers(selected: string[], jobs: { no: number; partitions: { name: string }[] }[]): void {
+  const counts = new Map<string, number>();
+  for (const job of jobs) for (const entry of job.partitions) counts.set(entry.name, (counts.get(entry.name) ?? 0) + 1);
+  const lost = selected.filter((name) => !counts.has(name));
+  if (lost.length > 0) fail(`내부 오류: 고른 파티션이 Import 작업에서 빠짐: ${lost.slice(0, 10).join(', ')}`);
+  const twice = selected.filter((name) => (counts.get(name) ?? 0) > 1);
+  if (twice.length > 0) fail(`내부 오류: 고른 파티션이 두 번 들어감: ${twice.slice(0, 10).join(', ')}`);
+}
+
 // target = 대상 DB에 있는 같은 테이블(대상 스키마 기준)의 파티션 범위, 테이블이 없으면 null.
 function planPartitionImportJobs(
   manifest: PartitionManifest,
@@ -100,7 +111,7 @@ function planPartitionImportJobs(
   env: FilterEnv | null = null
 ): PartitionImportPlan {
   if (!Array.isArray(selected) || selected.length === 0) fail('가져올 파티션을 하나 이상 골라주세요.');
-  const names = new Set(selected.map((name) => identifier(name, '파티션')));
+  const names = new Set(selected.map((name) => exactName(name, '파티션'))); // 매니페스트에서 고른 정확한 이름
   const unknown = [...names].filter((name) => !manifest.partitions.some((entry) => entry.name === name));
   if (unknown.length > 0) fail(`매니페스트에 없는 파티션입니다: ${unknown.slice(0, 10).join(', ')}`);
 
@@ -164,8 +175,8 @@ function planPartitionImportJobs(
     const request: DataPumpRequest = {
       operation: 'IMPORT',
       mode: 'TABLE',
-      tableOwner: manifest.owner,
-      tables: [manifest.table],
+      tableOwner: sqlName(manifest.owner),
+      tables: [sqlName(manifest.table)],
       directory,
       dumpfile,
       logfile: entries.length === 1 ? `${prefix}_${safeFilePart(entries[0].name)}.log` : `${prefix}_${nn}.log`,
@@ -175,8 +186,8 @@ function planPartitionImportJobs(
       excludeStatistics: options.excludeStatistics !== false,
       // 파티션 덤프를 기존 테이블에 넣으려면 APPEND (TRUNCATE는 파티션이 아니라 테이블 전체를 비울 수 있어서 쓰지 않음)
       tableExistsAction: 'APPEND',
-      remapSchemas: targetOwner !== manifest.owner ? [{ from: manifest.owner, to: targetOwner }] : [],
-      truncatePartitions,
+      remapSchemas: targetOwner !== manifest.owner ? [{ from: sqlName(manifest.owner), to: sqlName(targetOwner) }] : [],
+      truncatePartitions: truncatePartitions.map(sqlName),
       objectFilter: options.objectFilter ?? null,
       dataFilter: options.dataFilter ?? null,
     };
@@ -191,6 +202,7 @@ function planPartitionImportJobs(
       request,
     };
   });
+  assertPartitionImportCovers([...names], jobs);
   const extras = jobs.flatMap((job) => job.extraPartitions);
   if (extras.length > 0) notes.push(`고르지 않았지만 같은 덤프에 들어 있어 같이 들어가는 파티션 ${extras.length}개: ${extras.slice(0, 10).join(', ')}${extras.length > 10 ? ' …' : ''}`);
 
@@ -282,9 +294,11 @@ async function planImport(
       const first = job.partitions[0];
       const last = job.partitions[job.partitions.length - 1];
       const label = `${manifest.owner}.${manifest.table} 파티션 ${job.partitions.map((p) => p.name).join(', ')} (${rangeLabel({ ...first, high: last.high, known: job.partitions.every((p) => p.known) })})`;
-      return { ...job, jobName: built.jobName, ...buildParfile(built, job.request, targetInfo, `작업 ${job.no}/${plan.jobs.length}: ${label}`) };
+      const parfile = buildParfile(built, job.request, targetInfo, `작업 ${job.no}/${plan.jobs.length}: ${label}`);
+      assertImportCovers(built, job.request, parfile.parfile);
+      return { ...job, jobName: built.jobName, ...parfile };
     }),
   };
 }
 
-export { parseManifest, planPartitionImportJobs, getTables, getPartitions, readManifest, planImport };
+export { assertPartitionImportCovers, parseManifest, planPartitionImportJobs, getTables, getPartitions, readManifest, planImport };

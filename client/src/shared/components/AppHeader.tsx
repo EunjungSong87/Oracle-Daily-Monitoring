@@ -10,6 +10,8 @@ import { NavIconSprite } from './NavIconSprite';
 // 하이라이트되지 않으므로(전 페이지 공통으로 주입되는 링크라 페이지별 강조가 없었다)
 // 매칭 조건이 없다 — 타입에는 포함해 users 페이지도 active="users"를 넘길 수 있게 한다.
 export type ActivePage =
+  | 'dashboard'
+  | 'capacity'
   | 'databases'
   | 'dailyMonitoring'
   | 'scripts'
@@ -27,7 +29,7 @@ export type ActivePage =
 
 const MAINTENANCE_GROUP: ActivePage[] = ['tableSpec', 'statsJob', 'ilmJob', 'dataPump'];
 const COMPARE_GROUP: ActivePage[] = ['objectCompare', 'parameterCompare'];
-const MONITORING_GROUP: ActivePage[] = ['dailyMonitoring', 'scripts', 'thresholds', 'history', 'issues', 'realtime'];
+const MONITORING_GROUP: ActivePage[] = ['dailyMonitoring', 'scripts', 'thresholds', 'history', 'issues', 'realtime', 'capacity'];
 const DAILY_MONITORING_CHILDREN: ActivePage[] = ['scripts', 'thresholds', 'history', 'issues'];
 
 interface NavItem {
@@ -76,7 +78,7 @@ export function AppHeader({ active }: Props): ReactElement {
   const maintenanceItems = visibleItems(MAINTENANCE_ITEMS);
   const compareItems = visibleItems(COMPARE_ITEMS);
   const dailyHref = show('dailyMonitoring') ? 'dailyMonitoring.html' : dailyChildren[0]?.href;
-  const monitoringHref = dailyHref ?? (show('realtime') ? 'realtimeMonitoring.html' : undefined);
+  const monitoringHref = dailyHref ?? (show('realtime') ? 'realtimeMonitoring.html' : show('capacity') ? 'capacity.html' : undefined);
 
   const monitoringGroupActive = MONITORING_GROUP.includes(active);
   const dailyMonitoringExtra =
@@ -118,9 +120,19 @@ export function AppHeader({ active }: Props): ReactElement {
 
         <nav>
           <ul>
+            {show('dashboard') && (
+              <li>
+                <a href="index.html" className={`nav-accent-1${active === 'dashboard' ? ' current' : ''}`}>
+                  <svg className="nav-icon" viewBox="0 0 16 16">
+                    <use href="#ic-pulse" />
+                  </svg>
+                  Dashboard
+                </a>
+              </li>
+            )}
             {show('databases') && (
               <li>
-                <a href="index.html" className={`nav-accent-1${active === 'databases' ? ' current' : ''}`}>
+                <a href="databases.html" className={`nav-accent-1${active === 'databases' ? ' current' : ''}`}>
                   <svg className="nav-icon" viewBox="0 0 16 16">
                     <use href="#ic-db" />
                   </svg>
@@ -166,6 +178,16 @@ export function AppHeader({ active }: Props): ReactElement {
                           ))}
                         </ul>
                       )}
+                    </li>
+                  )}
+                  {show('capacity') && (
+                    <li>
+                      <a href="capacity.html" className={`nav-accent-7${active === 'capacity' ? ' current' : ''}`}>
+                        <svg className="nav-icon" viewBox="0 0 16 16">
+                          <use href="#ic-db" />
+                        </svg>
+                        Capacity
+                      </a>
                     </li>
                   )}
                   {show('realtime') && (

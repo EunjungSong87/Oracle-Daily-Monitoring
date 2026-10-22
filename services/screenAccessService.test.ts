@@ -29,7 +29,7 @@ describe('resolveVisible', () => {
   });
 
   it('결과는 메뉴 순서 (첫 번째가 돌려보낼 화면)', () => {
-    const visible = resolveVisible('VIEWER', new Map([['databases', false]]));
+    const visible = resolveVisible('VIEWER', new Map([['dashboard', false], ['databases', false]]));
     expect(visible[0]).toBe('dailyMonitoring');
   });
 
@@ -39,8 +39,9 @@ describe('resolveVisible', () => {
 });
 
 describe('screenForPage', () => {
-  it('페이지 경로 → 화면 (루트는 Databases, 화면 아닌 파일은 null)', () => {
-    expect(screenForPage('/')).toBe('databases');
+  it('페이지 경로 → 화면 (루트는 Dashboard, 화면 아닌 파일은 null)', () => {
+    expect(screenForPage('/')).toBe('dashboard');
+    expect(screenForPage('/databases.html')).toBe('databases');
     expect(screenForPage('/dataPump.html')).toBe('dataPump');
     expect(screenForPage('/monitoringScript.html')).toBe('scripts');
     expect(screenForPage('/users.html')).toBeNull();

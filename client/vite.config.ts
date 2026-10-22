@@ -33,7 +33,9 @@ export default defineConfig({
       input: {
         dailyMonitoring: fileURLToPath(new URL('./dailyMonitoring.html', import.meta.url)),
         login: fileURLToPath(new URL('./login.html', import.meta.url)),
-        databases: fileURLToPath(new URL('./index.html', import.meta.url)),
+        dashboard: fileURLToPath(new URL('./index.html', import.meta.url)),
+        databases: fileURLToPath(new URL('./databases.html', import.meta.url)),
+        capacity: fileURLToPath(new URL('./capacity.html', import.meta.url)),
         scripts: fileURLToPath(new URL('./monitoringScript.html', import.meta.url)),
         thresholds: fileURLToPath(new URL('./monitoringThresholds.html', import.meta.url)),
         users: fileURLToPath(new URL('./users.html', import.meta.url)),

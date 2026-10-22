@@ -1,5 +1,5 @@
 import oracledb from 'oracledb';
-import * as db from '../db';
+import type { TargetConnectOptions } from '../db';
 import * as dbmsModel from './dbmsModel';
 import type { DbmsIdParam } from './dbmsModel';
 
@@ -140,17 +140,8 @@ export interface SchemaSnapshot {
 const FETCH_OPTIONS = { outFormat: oracledb.OUT_FORMAT_OBJECT, fetchArraySize: 1000 };
 
 // 대상 DBMS에 접속합니다 (tableSpecModel과 동일한 방식). dbname도 함께 돌려줍니다.
-async function connectTarget(dbmsid: DbmsIdParam): Promise<{ connection: oracledb.Connection; dbname: string }> {
-  const dbconfig = await dbmsModel.getDbmsInfo(dbmsid);
-  if (!dbconfig) {
-    throw new Error('DBMS 정보를 찾을 수 없습니다.');
-  }
-  const config = {
-    user: dbconfig[0],
-    password: dbconfig[1],
-    connectString: dbconfig[2] + ':' + dbconfig[3] + '/' + dbconfig[4],
-  };
-  return { connection: await db.connectDB(config), dbname: dbconfig[6] };
+async function connectTarget(dbmsid: DbmsIdParam, options: TargetConnectOptions = {}): Promise<{ connection: oracledb.Connection; dbname: string }> {
+  return dbmsModel.connectToTargetById(dbmsid, options);
 }
 
 async function query(connection: oracledb.Connection, sql: string, binds: oracledb.BindParameters = {}): Promise<Record<string, any>[]> {

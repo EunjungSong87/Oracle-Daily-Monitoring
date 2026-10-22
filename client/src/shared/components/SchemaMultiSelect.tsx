@@ -5,21 +5,32 @@ interface Props {
   selected: Set<string>;
   onChange: (next: Set<string>) => void;
   placeholder?: string;
+  // strict: 붙여넣은 이름을 SQL 규칙대로만 맞춘다(따옴표 없으면 대문자, "QTest"는 그대로). 목록에 없는 이름은 버리지 않고
+  // unknown으로 들고 있다가 화면이 그걸 보고 진행을 막는다 (Data Pump). 대소문자만 다른 후보는 보여 주되 자동으로 바꾸지 않는다.
+  strict?: boolean;
+  unknown?: string[];
+  onUnknownChange?: (names: string[]) => void;
 }
 
 // 너무 많은 항목을 한 번에 그리면 느려지므로 펼친 목록은 이만큼까지만 보여주고, 나머지는 검색으로 좁히게 한다.
 const MAX_VISIBLE = 200;
 
 // 붙여넣은 글을 이름 목록으로 나눈다. 쉼표·세미콜론·공백·줄바꿈 어느 것으로 구분해도 되고, 따옴표는 떼어낸다.
-function splitPastedNames(text: string): string[] {
+function splitPastedNames(text: string, keepDoubleQuotes = false): string[] {
   return text
     .split(/[,;\s]+/)
-    .map((token) => token.replace(/^["']+|["']+$/g, ''))
+    .map((token) => (keepDoubleQuotes ? token.replace(/^'+|'+$/g, '') : token.replace(/^["']+|["']+$/g, '')))
     .filter((token) => token !== '');
 }
 
+// SQL 표기 → 정확한 이름 (따옴표 없으면 대문자)
+function exactOf(token: string): string {
+  const quoted = token.match(/^"(.*)"$/);
+  return quoted ? quoted[1] : token.toUpperCase();
+}
+
 // 검색 가능한 다중 선택 드롭다운. 스키마가 수백 개여도 입력창에서 걸러 고를 수 있게 한다.
-export function SchemaMultiSelect({ options, selected, onChange, placeholder }: Props): ReactElement {
+export function SchemaMultiSelect({ options, selected, onChange, placeholder, strict = false, unknown = [], onUnknownChange }: Props): ReactElement {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
@@ -29,7 +40,7 @@ export function SchemaMultiSelect({ options, selected, onChange, placeholder }: 
 
   const matches = useMemo(() => {
     const keyword = query.trim().toUpperCase();
-    return keyword ? options.filter((option) => option.includes(keyword)) : options;
+    return keyword ? options.filter((option) => option.toUpperCase().includes(keyword)) : options;
   }, [options, query]);
   const visible = matches.slice(0, MAX_VISIBLE);
 
@@ -62,9 +73,22 @@ export function SchemaMultiSelect({ options, selected, onChange, placeholder }: 
   // 쉼표 등으로 구분된 여러 이름을 붙여넣으면 검색어로 넣지 않고 목록에 있는 것을 한 번에 고른다.
   // 이름 하나만 붙여넣으면 평소처럼 검색어로 들어간다.
   function handlePaste(event: ClipboardEvent<HTMLInputElement>): void {
-    const names = splitPastedNames(event.clipboardData.getData('text'));
+    const names = splitPastedNames(event.clipboardData.getData('text'), strict);
     if (names.length < 2) return;
     event.preventDefault();
+    if (strict) {
+      const next = new Set(selected);
+      const notFound = [...unknown];
+      for (const token of names) {
+        const exact = exactOf(token);
+        if (options.includes(exact)) next.add(exact);
+        else if (!notFound.includes(token)) notFound.push(token);
+      }
+      onChange(next);
+      setQuery('');
+      onUnknownChange?.(notFound);
+      return;
+    }
     const byUpper = new Map(options.map((option) => [option.toUpperCase(), option]));
     const next = new Set(selected);
     const missing: string[] = [];
@@ -133,6 +157,39 @@ export function SchemaMultiSelect({ options, selected, onChange, placeholder }: 
         />
       </div>
       {pasteNote && <div className="dp-multiselect-note">{pasteNote}</div>}
+      {strict && unknown.length > 0 && (
+        <div className="pc-warning dp-unknown-names">
+          <strong>목록에 없는 이름 {unknown.length}개</strong> — 지우거나 고칠 때까지 진행할 수 없습니다.
+          <div className="dp-table-chips">
+            {unknown.map((token) => {
+              const exact = exactOf(token);
+              const candidates = options.filter((option) => option !== exact && option.toUpperCase() === exact.toUpperCase());
+              return (
+                <span key={token} className="dp-chip dp-chip-missing">
+                  {token}
+                  {candidates.map((candidate) => (
+                    <button
+                      key={candidate}
+                      type="button"
+                      className="oc-link"
+                      title="이 이름으로 고르기"
+                      onClick={() => {
+                        onChange(new Set([...selected, candidate]));
+                        onUnknownChange?.(unknown.filter((item) => item !== token));
+                      }}
+                    >
+                      혹시 &quot;{candidate}&quot;?
+                    </button>
+                  ))}
+                  <button type="button" aria-label={`${token} 지우기`} onClick={() => onUnknownChange?.(unknown.filter((item) => item !== token))}>
+                    ×
+                  </button>
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      )}
       {open && (
         <div className="dp-multiselect-menu" role="listbox">
           <div className="dp-multiselect-toolbar">

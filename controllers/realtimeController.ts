@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import * as realtimeService from '../services/realtimeService';
+import { SessionKillRefused } from '../models/realtimeModel';
 import type { TimeRange } from '../models/realtimeModel';
 import { logger } from '../utils/logger';
 
@@ -57,4 +58,24 @@ async function getSessionDetail(req: Request, res: Response): Promise<Response |
   }
 }
 
-export { getSessions, getSessionDetail };
+
+// Blocking 체인의 세션 Kill (SUPER_ADMIN). inst_id/sid/serial#은 정수로 확인한 뒤에만 넘긴다 (ALTER SYSTEM 문자열에 들어감).
+async function killSession(req: Request, res: Response): Promise<Response | void> {
+  const { dbmsid, instId, sid, serial, confirmDbname } = req.body ?? {};
+  const target = { instId: Number(instId), sid: Number(sid), serial: Number(serial) };
+  if (!dbmsid || !Object.values(target).every((value) => Number.isInteger(value) && value >= 0)) {
+    return res.status(400).json({ message: 'dbmsid, instId, sid, serial 정보가 필요합니다.' });
+  }
+  const who = req.session.username ?? 'unknown';
+  try {
+    const killed = await realtimeService.killSession({ dbmsid }, target, confirmDbname, who);
+    logger.info('Realtime', `${who} 세션 Kill: ${killed.sid},${killed.serial},@${killed.instId} (dbmsid=${dbmsid}, ${killed.username ?? '-'})`);
+    res.json({ ok: true, session: killed });
+  } catch (error) {
+    if (error instanceof SessionKillRefused) return res.status(400).json({ message: error.message });
+    logger.error('Realtime', `세션 Kill 오류 (dbmsid=${dbmsid}, ${target.sid},${target.serial},@${target.instId}, ${who})`, error);
+    res.status(500).json({ message: '세션을 Kill하지 못했습니다.', error: errMsg(error instanceof Error && error.cause ? error.cause : error) });
+  }
+}
+
+export { getSessions, getSessionDetail, killSession };

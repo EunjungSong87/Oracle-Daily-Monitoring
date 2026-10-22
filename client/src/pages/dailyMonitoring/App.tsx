@@ -5,6 +5,7 @@ import { MonitoringResultTable } from '../../shared/components/MonitoringResultT
 import { ToastHost } from '../../shared/components/ToastHost';
 import { isDbaOrAbove, useCurrentUser } from '../../shared/hooks/useCurrentUser';
 import { getDbmsList, runMonResult } from '../../shared/lib/api';
+import { urlParam } from '../../shared/lib/urlParams';
 import {
   chooseDownloadFolder,
   getSavedDownloadDirHandle,
@@ -49,8 +50,12 @@ export function App(): ReactElement {
     getDbmsList()
       .then((data) => {
         setDbmsData(data);
+        // ?dbms=로 넘어오면 그 DB만 체크
+        const wanted = urlParam('dbms');
         const defaultChecked = new Set(
-          data.rows.filter((row) => row.AUTO_SCHEDULE === 'Y').map((row) => String(row.ID))
+          wanted && data.rows.some((row) => String(row.ID) === wanted)
+            ? [wanted]
+            : data.rows.filter((row) => row.AUTO_SCHEDULE === 'Y').map((row) => String(row.ID))
         );
         setCheckedIds(defaultChecked);
       })

@@ -1,11 +1,14 @@
 import * as dataPumpModel from '../models/dataPumpModel';
-import type { DataPumpJob, DataPumpPlan, DbLinkInfo, DirectoryInfo, LogContent, TableSize, TargetInfo } from '../models/dataPumpModel';
+import type { DataPumpPlan, DbLinkInfo, DirectoryInfo, LogContent, TableSize, TargetInfo } from '../models/dataPumpModel';
 import type { DbmsIdParam } from '../models/dbmsModel';
 import { DataPumpValidationError, fail } from './dataPumpErrors';
-import { compileFilters, tableSizeFactor } from './dataPumpFilters';
+import { compileFilters, tableFilterStatus, tableSizeFactor } from './dataPumpFilters';
 import type { DataFilter, FilterEnv, ObjectFilter, ViewAsTable } from './dataPumpFilters';
 import * as historyService from './dataPumpHistoryService';
+import { checkPlanFiles, checkPlanStart, registerPlan } from './dataPumpPlanRegistry';
+import type { PlanAck } from './dataPumpPlanRegistry';
 import { cached, cacheKey } from './dataPumpSizeCache';
+import { parElement, parseIdentifier, parseParList, parseQualified, qualifiedName, sqlName, suggestByCase } from './dataPumpNames';
 import { buildManifest, buildRanges, manifestText, rangeLabel, safeFilePart } from './partitionRanges';
 import type { PartitionManifestEntry, PartitionRange } from './partitionRanges';
 
@@ -49,9 +52,6 @@ export interface DataPumpRequest {
 
 export { DataPumpValidationError };
 
-// 따옴표 없는 일반 Oracle 식별자만 받습니다 (대문자로 바꿔서 비교). PL/SQL에는 바인드 변수로 넘기지만,
-// 필터식(IN ('A','B'))을 문자열로 조립하므로 따옴표 같은 문자가 끼어들 여지를 아예 막아 둡니다.
-const IDENTIFIER = /^[A-Z][A-Z0-9_$#]{0,127}$/;
 // 덤프/로그 파일 이름: 영문/숫자/_ . - 와 %U(파일 번호 치환자)만. 경로 구분자는 허용하지 않습니다 (DIRECTORY 안에만 생성).
 const FILENAME = /^[A-Za-z0-9_.%-]{1,200}$/;
 // DB 링크 이름은 도메인이 붙을 수 있다 (예: SRC_DB.EXAMPLE.COM). 실행 전에 이 DB의 링크 목록과 한 번 더 대조한다.
@@ -64,10 +64,10 @@ const MAX_FILTER_LENGTH = 30000;
 // 기존 데이터를 건드리는 TABLE_EXISTS_ACTION — 실행 전에 대상 DB명을 직접 입력해 확인받습니다.
 export const DESTRUCTIVE_ACTIONS = ['APPEND', 'TRUNCATE', 'REPLACE'] as const;
 
+// 이름 하나 (SQL 표기 → 정확한 이름): 따옴표 없으면 대문자, "MyTable"이면 그대로 (services/dataPumpNames.ts).
+// PL/SQL에는 바인드 변수로 넘기지만 필터식(IN ('A','B'))을 문자열로 조립하므로 따옴표 같은 문자는 받지 않는다.
 function identifier(value: unknown, label: string): string {
-  const upper = typeof value === 'string' ? value.trim().toUpperCase() : '';
-  if (!IDENTIFIER.test(upper)) fail(`${label} 이름이 올바르지 않습니다: ${String(value ?? '')}`);
-  return upper;
+  return parseIdentifier(value, label);
 }
 
 function identifierList(values: unknown, label: string, allowEmpty = false): string[] {
@@ -445,7 +445,7 @@ function buildParfile(
   if (plan.truncateTarget && plan.truncatePartitions.length > 0) {
     notes.push('실행 전에 SQL*Plus에서 대상 파티션을 먼저 비우세요 (화면에서 실행하면 자동으로 합니다):');
     for (const partition of plan.truncatePartitions) {
-      notes.push(`  ALTER TABLE ${plan.truncateTarget.owner}.${plan.truncateTarget.name} TRUNCATE PARTITION ${partition} UPDATE INDEXES;`);
+      notes.push(`  ALTER TABLE ${qualifiedName(plan.truncateTarget.owner, plan.truncateTarget.name)} TRUNCATE PARTITION ${sqlName(partition)} UPDATE INDEXES;`);
     }
   }
   lines.push(`DIRECTORY=${plan.directory}`);
@@ -453,14 +453,14 @@ function buildParfile(
   lines.push(`LOGFILE=${plan.logfile}`);
   if (plan.networkLink) lines.push(`NETWORK_LINK=${plan.networkLink}`);
   if (plan.jobMode === 'SCHEMA') {
-    lines.push(`SCHEMAS=${identifierList(request.schemas, '스키마').join(',')}`);
+    lines.push(`SCHEMAS=${identifierList(request.schemas, '스키마').map((name) => parElement(sqlName(name))).join(',')}`);
     const excluded = identifierList(request.excludeTables ?? [], '제외 테이블', true);
     if (excluded.length > 0) lines.push(`EXCLUDE=TABLE:"IN (${excluded.map((name) => `'${name}'`).join(',')})"`);
   } else if (plan.jobMode === 'TABLE') {
     // 파티션을 고른 테이블은 OWNER.TABLE:PART로 파티션마다, 나머지는 OWNER.TABLE로 통째. 스키마가 여럿이어도 한 줄에.
     const entries = tablePairs(request, plan.filters.viewsAsTables.length > 0).flatMap(({ owner, table }) => {
       const filter = plan.partitionFilters.find((item) => item.owner === owner && item.table === table);
-      return filter ? filter.partitions.map((partition) => `${owner}.${table}:${partition}`) : [`${owner}.${table}`];
+      return filter ? filter.partitions.map((partition) => parElement(qualifiedName(owner, table, partition))) : [parElement(qualifiedName(owner, table))];
     });
     if (entries.length > 0) lines.push(`TABLES=${entries.join(',')}`); // 뷰만 내보내는 작업은 VIEWS_AS_TABLES 줄만
     const runs = executionPlans(plan);
@@ -482,8 +482,9 @@ function buildParfile(
   if (plan.reuseDumpfiles) lines.push('REUSE_DUMPFILES=YES');
   if (plan.flashbackScn) lines.push(`FLASHBACK_SCN=${plan.flashbackScn}`);
   else if (plan.flashbackConsistent) lines.push('FLASHBACK_TIME=SYSTIMESTAMP');
-  for (const pair of plan.remapSchemas) lines.push(`REMAP_SCHEMA=${pair.from}:${pair.to}`);
-  for (const pair of plan.remapTablespaces) lines.push(`REMAP_TABLESPACE=${pair.from}:${pair.to}`);
+  // 쌍 전체를 감싸야 한다 ('"QTest"':QUP2 는 UDI-00014, '"QTest":QUP2' 는 됨 — 23ai에서 확인)
+  for (const pair of plan.remapSchemas) lines.push(`REMAP_SCHEMA=${parElement(`${sqlName(pair.from)}:${sqlName(pair.to)}`)}`);
+  for (const pair of plan.remapTablespaces) lines.push(`REMAP_TABLESPACE=${parElement(`${sqlName(pair.from)}:${sqlName(pair.to)}`)}`);
   if (plan.tableExistsAction) lines.push(`TABLE_EXISTS_ACTION=${plan.tableExistsAction}`);
   lines.push(`JOB_NAME=${plan.jobName}`);
 
@@ -601,7 +602,16 @@ function planExportGroups(
   options: ExportSplitOptions,
   now: Date = new Date(),
   env: FilterEnv | null = null
-): { groups: ExportGroup[]; totalBytes: number; chunkBytes: number | null; missing: string[]; sizeApprox: boolean; summary: ExportPlanSummary } {
+): {
+  groups: ExportGroup[];
+  totalBytes: number;
+  chunkBytes: number | null;
+  missing: string[];
+  filteredOut: string[];
+  filterUnknown: string | null;
+  sizeApprox: boolean;
+  summary: ExportPlanSummary;
+} {
   const directory = identifier(options.directory, 'DIRECTORY');
   const prefix = typeof options.filePrefix === 'string' ? options.filePrefix.trim() : '';
   if (!FILE_PREFIX.test(prefix)) fail('파일 이름 접두어는 영문/숫자/_ - 만 쓸 수 있습니다.');
@@ -628,7 +638,7 @@ function planExportGroups(
   };
   sizes = sizes.map((table) => ({ ...table, bytes: Math.round(table.bytes * factorOf(table.owner, table.name)) }));
   if (source.kind === 'PARTITIONS') {
-    const factor = factorOf(source.owner.toUpperCase(), source.table.toUpperCase());
+    const factor = factorOf(source.owner, source.table);
     source = { ...source, partitions: source.partitions.map((partition) => ({ ...partition, bytes: Math.round(partition.bytes * factor) })) };
   } else if (source.kind === 'TABLES' && source.partitionRanges) {
     const adjusted: Record<string, PartitionRange[]> = {};
@@ -654,7 +664,8 @@ function planExportGroups(
     //    빠질 수 있으므로 따로 둔다.
     const whole: { owner: string; tables: TableSize[]; bytes: number }[] = [];
     const splitDrafts: Draft[] = [];
-    for (const owner of identifierList(source.schemas, '스키마')) {
+    if (source.schemas.length === 0) fail('스키마을(를) 하나 이상 지정해주세요.');
+    for (const owner of [...new Set(source.schemas)]) {
       const tables = sizes.filter((table) => table.owner === owner);
       const bytes = tables.reduce((sum, table) => sum + table.bytes, 0);
       if (bytes <= limit) {
@@ -692,8 +703,7 @@ function planExportGroups(
     drafts.push(...splitDrafts);
   } else if (source.kind === 'PARTITIONS') {
     // 파티션은 기간 순서를 지켜 앞에서부터 분할 크기까지 채운다 (작업마다 연속된 기간이 되어 import 때 고르기 쉬움).
-    const owner = identifier(source.owner, '테이블 소유자');
-    const table = identifier(source.table, '테이블');
+    const { owner, table } = source;
     if (source.partitions.length === 0) fail('파티션을 하나 이상 골라주세요.');
     for (const bin of packPartitions(source.partitions, limit, perPartition)) {
       const bytes = bin.reduce((sum, partition) => sum + partition.bytes, 0);
@@ -716,9 +726,9 @@ function planExportGroups(
     const partitionsByTable = new Map<string, Set<string>>();
     const wholeKeys: string[] = [];
     for (const item of source.tables) {
-      const key = `${identifier(item.owner, '테이블 소유자')}.${identifier(item.name, '테이블')}`;
+      const key = `${item.owner}.${item.name}`; // 목록은 이미 정확한 이름 (parseTableList)
       if (item.partition) {
-        partitionsByTable.set(key, (partitionsByTable.get(key) ?? new Set()).add(identifier(item.partition, '파티션')));
+        partitionsByTable.set(key, (partitionsByTable.get(key) ?? new Set()).add(item.partition));
       } else if (!wholeKeys.includes(key)) {
         wholeKeys.push(key);
       }
@@ -826,19 +836,19 @@ function planExportGroups(
       operation: 'EXPORT',
       mode: draft.mode,
       ...(draft.mode === 'SCHEMA'
-        ? { schemas: draft.owners, excludeTables: draft.excludedTables }
+        ? { schemas: draft.owners.map(sqlName), excludeTables: draft.excludedTables.map(sqlName) }
         : draftViews.length > 0
           ? { tableOwner: null, tables: [] }
           : draft.owners.length === 1
-            ? { tableOwner: draft.owners[0], tables: draft.tables.map((table) => table.name) }
-            : { qualifiedTables: draft.tables.map((table) => ({ owner: table.owner, table: table.name })) }),
+            ? { tableOwner: sqlName(draft.owners[0]), tables: draft.tables.map((table) => sqlName(table.name)) }
+            : { qualifiedTables: draft.tables.map((table) => ({ owner: sqlName(table.owner), table: sqlName(table.name) })) }),
       ...(partitions.length > 0
         ? {
             tablePartitions: draft.tables
               .map((table) => ({
-                owner: table.owner,
-                table: table.name,
-                partitions: partitions.filter((p) => p.owner === table.owner && p.table === table.name).map((p) => p.name),
+                owner: sqlName(table.owner),
+                table: sqlName(table.name),
+                partitions: partitions.filter((p) => p.owner === table.owner && p.table === table.name).map((p) => sqlName(p.name)),
               }))
               .filter((entry) => entry.partitions.length > 0),
           }
@@ -869,7 +879,28 @@ function planExportGroups(
   assertGroupsWithinSource(source, groups, views, now, env);
   const coverage = assertSourceCovered(source, groups, missing, sizes);
   const summary = summarizePlan(source, groups, missing, coverage, dataFilter, now, env);
-  return { groups, totalBytes: groups.reduce((sum, group) => sum + group.bytes, 0), chunkBytes, missing, sizeApprox, summary };
+  // 사용자 필터(INCLUDE/EXCLUDE 이름 조건)로 통째로(또는 데이터가) 빠지는 테이블 — 계산할 수 있는 이름 조건만. 서브쿼리는 경고.
+  const statuses = new Map<string, 'IN' | 'EXCLUDED' | 'UNKNOWN'>();
+  for (const group of groups) {
+    for (const table of group.tables) statuses.set(`${table.owner}.${table.name}`, tableFilterStatus(objectFilter, table.owner, table.name));
+  }
+  const filteredOut = [...statuses].filter(([, status]) => status === 'EXCLUDED').map(([key]) => key).sort();
+  const unknownCount = [...statuses.values()].filter((status) => status === 'UNKNOWN').length;
+  const filterUnknown = unknownCount > 0 ? `서브쿼리 조건이 있어 필터 결과를 미리 확인할 수 없습니다 (테이블 ${unknownCount}개) — 실행 후 로그 대조로 확인하세요.` : null;
+  summary.filteredOut = filteredOut.length;
+  return { groups, totalBytes: groups.reduce((sum, group) => sum + group.bytes, 0), chunkBytes, missing, filteredOut, filterUnknown, sizeApprox, summary };
+}
+
+// 작업 하나가 내보내야 하는 대상 (실행 후 로그 대조용, 정확한 이름): 통째 테이블 OWNER.TABLE, 파티션 OWNER.TABLE:PART, 뷰 OWNER.VIEW.
+// 필터로 빠진다고 사용자가 확인한 테이블은 뺀다.
+function groupExpectedItems(group: ExportGroup, filteredOut: Set<string>): string[] {
+  if (group.views.length > 0) return group.views.map((view) => view.split(':')[0]);
+  return group.tables.flatMap((table) => {
+    const key = `${table.owner}.${table.name}`;
+    if (filteredOut.has(key)) return [];
+    const parts = group.partitions.filter((p) => p.owner === table.owner && p.table === table.name);
+    return parts.length === 0 ? [key] : parts.map((p) => `${key}:${p.name}`);
+  });
 }
 
 function viewKey(view: ViewAsTable): string {
@@ -884,14 +915,14 @@ function assertGroupsWithinSource(source: ExportSource, groups: ExportGroup[], v
   const partitionLines = new Set<string>();
   if (source.kind === 'TABLES') {
     for (const item of source.tables) {
-      const key = `${item.owner.toUpperCase()}.${item.name.toUpperCase()}`;
-      if (item.partition) partitionLines.add(`${key}:${item.partition.toUpperCase()}`);
+      const key = `${item.owner}.${item.name}`;
+      if (item.partition) partitionLines.add(`${key}:${item.partition}`);
       else wholeKeys.add(key);
     }
   } else if (source.kind === 'PARTITIONS') {
-    for (const partition of source.partitions) partitionLines.add(`${source.owner.toUpperCase()}.${source.table.toUpperCase()}:${partition.name}`);
+    for (const partition of source.partitions) partitionLines.add(`${source.owner}.${source.table}:${partition.name}`);
   }
-  const schemas = source.kind === 'SCHEMAS' ? new Set(source.schemas.map((schema) => String(schema).toUpperCase())) : null;
+  const schemas = source.kind === 'SCHEMAS' ? new Set(source.schemas) : null;
   const outside = (what: string): never => fail(`내부 오류: 올린 대상 밖의 ${what}이(가) 계획에 들어갔습니다. 계획을 다시 만들어 주세요.`);
 
   for (const group of groups) {
@@ -927,6 +958,15 @@ interface Coverage {
   merged: number; // 통째 테이블에 합쳐진 파티션 줄
 }
 
+// 목록 줄의 키 (정확한 이름): OWNER.TABLE 또는 OWNER.TABLE:PARTITION
+function sourceLine(item: TableListItem): string {
+  return `${item.owner}.${item.name}${item.partition ? `:${item.partition}` : ''}`;
+}
+
+function sourceLineOf(parsed: { owner: string; table: string; partition: string | null }): string {
+  return sourceLine({ owner: parsed.owner, name: parsed.table, ...(parsed.partition ? { partition: parsed.partition } : {}) });
+}
+
 function assertSourceCovered(source: ExportSource, groups: ExportGroup[], missing: string[], sizes: TableSize[]): Coverage {
   const tableGroups = groups.filter((group) => group.views.length === 0);
   const lost = (what: string[]): never =>
@@ -936,7 +976,7 @@ function assertSourceCovered(source: ExportSource, groups: ExportGroup[], missin
 
   if (source.kind === 'SCHEMAS') {
     const placed = count(tableGroups.flatMap((group) => group.tables.map((table) => `${table.owner}.${table.name}`)));
-    const expected = sizes.filter((table) => source.schemas.map((schema) => String(schema).toUpperCase()).includes(table.owner)).map((table) => `${table.owner}.${table.name}`);
+    const expected = sizes.filter((table) => source.schemas.includes(table.owner)).map((table) => `${table.owner}.${table.name}`);
     const notPlaced = expected.filter((key) => !placed.has(key));
     if (notPlaced.length > 0) lost(notPlaced);
     const dup = [...placed].filter(([, n]) => n > 1).map(([key]) => key);
@@ -959,13 +999,13 @@ function assertSourceCovered(source: ExportSource, groups: ExportGroup[], missin
   const missingSet = new Set(missing);
 
   if (source.kind === 'PARTITIONS') {
-    const key = `${source.owner.toUpperCase()}.${source.table.toUpperCase()}`;
+    const key = `${source.owner}.${source.table}`;
     const notPlaced = source.partitions.map((p) => `${key}:${p.name}`).filter((line) => !placed.has(line));
     if (notPlaced.length > 0) lost(notPlaced);
     return { lines: source.partitions.length, duplicates: 0, merged: 0 };
   }
 
-  const raw = source.tables.map((item) => `${item.owner.toUpperCase()}.${item.name.toUpperCase()}${item.partition ? `:${item.partition.toUpperCase()}` : ''}`);
+  const raw = source.tables.map(sourceLine);
   const lines = [...new Set(raw)];
   const wholeKeys = new Set(lines.filter((line) => !line.includes(':')));
   let merged = 0;
@@ -997,6 +1037,7 @@ export interface ExportPlanSummary {
   merged: number; // 같은 테이블을 통째로도 적어서 통째에 합쳐진 파티션 줄
   planned: number; // 계획에 들어간 줄(통째 테이블 + 파티션) 수 — 스키마 선택이면 테이블 수. listed = planned + missing + merged
   missing: number; // DB에 없어서 뺀 줄
+  filteredOut: number; // 사용자 필터(이름 조건)로 빠지는 테이블
   viewJobs: number;
   views: number;
   filters: string[]; // 적용 중인 오브젝트·데이터 필터 요약
@@ -1021,12 +1062,11 @@ function summarizePlan(
   const filters = [...new Set(groups.flatMap((group) => buildPlan(group.request, now, env).filters.summary))];
 
   const warnings: string[] = [];
+  // VIEWS_AS_TABLES/QUERY/SAMPLE 대상 이름은 필터 규칙상 대문자라, 대상과 맞는지는 대소문자를 무시하고 본다 (경고용).
   const sourceOwners = new Set(
-    source.kind === 'SCHEMAS'
-      ? source.schemas.map((schema) => String(schema).toUpperCase())
-      : source.kind === 'PARTITIONS'
-        ? [source.owner.toUpperCase()]
-        : source.tables.map((item) => item.owner.toUpperCase())
+    (source.kind === 'SCHEMAS' ? source.schemas : source.kind === 'PARTITIONS' ? [source.owner] : source.tables.map((item) => item.owner)).map((owner) =>
+      owner.toUpperCase()
+    )
   );
   const views = Array.isArray(dataFilter?.viewsAsTables) ? dataFilter.viewsAsTables : [];
   const foreignViews = views.filter((view) => !sourceOwners.has(String(view.owner).toUpperCase()));
@@ -1035,7 +1075,7 @@ function summarizePlan(
       `VIEWS_AS_TABLES에 대상에 없는 스키마의 뷰 ${foreignViews.length}개가 있어 뷰 작업으로 따로 나갑니다: ${foreignViews.slice(0, 5).map(viewKey).join(', ')} — 이전 설정이 남아 있는지 확인하세요.`
     );
   }
-  const plannedKeys = new Set(tableGroups.flatMap((group) => group.tables.map((table) => `${table.owner}.${table.name}`)));
+  const plannedKeys = new Set(tableGroups.flatMap((group) => group.tables.map((table) => `${table.owner}.${table.name}`.toUpperCase())));
   const targeted: [string, { owner?: string | null; table?: string | null }[]][] = [
     ['QUERY', dataFilter?.queries ?? []],
     ['SAMPLE', dataFilter?.samples ?? []],
@@ -1058,6 +1098,7 @@ function summarizePlan(
     merged: coverage.merged,
     planned,
     missing: missing.length,
+    filteredOut: 0, // planExportGroups가 채움
     viewJobs: groups.length - tableGroups.length,
     views: groups.reduce((sum, group) => sum + group.views.length, 0),
     filters,
@@ -1067,13 +1108,16 @@ function summarizePlan(
 
 // "OWNER.TABLE" (또는 OWNER TABLE / OWNER,TABLE) 한 줄에 하나씩 붙여 넣거나 올린 목록을 읽습니다.
 // 파티션만 내보낼 때는 "OWNER.TABLE:PARTITION" (또는 OWNER TABLE PARTITION / OWNER,TABLE,PARTITION) — expdp TABLES= 형식과 같음.
+// 이름을 큰따옴표로 감싸면("MyTable") 대소문자를 그대로 두고, 아니면 대문자. 줄을 감싼 작은따옴표(parfile에서 복사)는 뗀다.
 function parseTableList(text: unknown): TableListItem[] {
   if (typeof text !== 'string') fail('테이블 목록이 비어 있습니다.');
   const items: TableListItem[] = [];
   for (const raw of text.split(/\r?\n/)) {
-    const line = raw.replace(/["']/g, '').trim();
+    const line = raw.replace(/'/g, '').trim();
     if (!line || line.startsWith('#') || line.startsWith('--')) continue;
-    const parts = line.split(/[.\s,\t;:]+/).filter(Boolean);
+    if ((line.match(/"/g) ?? []).length % 2 !== 0) fail(`"${raw.trim()}" — 큰따옴표가 닫히지 않았습니다.`);
+    // 큰따옴표로 감싼 이름은 한 덩어리, 나머지는 . 공백 , ; : 로 나눈다
+    const parts = line.match(/"[^"]*"|[^".\s,;:]+/g) ?? [];
     if (parts.length < 2 || parts.length > 3) {
       fail(`"${raw.trim()}" — 소유자.테이블 또는 소유자.테이블:파티션 형식이어야 합니다 (예: HR.EMP, SALES.ORDERS:P202601).`);
     }
@@ -1184,6 +1228,11 @@ export interface ExportPlanResponse {
   // 크기 안내: 서브쿼리/QUERY 조건 때문에 어림인 경우, 뷰(VIEWS_AS_TABLES)가 있어 크기를 모르는 경우
   sizeNotes: string[];
   summary: ExportPlanSummary; // 목록 N개 / 계획 포함 N개 / DB에 없어 뺀 N개 / 뷰 작업 / 적용 중인 필터 / 남은 설정 경고
+  planId: string; // 실행/저장 때 함께 보내야 하는 계획 번호 (서버가 빠진 항목 확인 여부를 대조)
+  filteredOut: string[]; // 사용자 필터(이름 조건)로 빠지는 테이블 (정확한 이름 OWNER.TABLE)
+  filterUnknown: string | null; // 서브쿼리 조건이라 미리 확인할 수 없음
+  suggestions: Record<string, string[]>; // 빠진 항목 → 대소문자만 다른 실제 이름 후보 (SQL 표기, 자동으로 바꾸지 않음)
+  summaryFile: { name: string; text: string }; // parfile과 함께 남기는 요약 (빠진 목록 포함)
 }
 
 const MAX_PARTITIONS_PER_PLAN = 1000;
@@ -1315,7 +1364,8 @@ async function planExport(
   }
   const target = await dataPumpModel.getTargetInfo(dbmsid); // 메타데이터 DB (대상 DB 아님)
 
-  const { groups, totalBytes, chunkBytes, missing, sizeApprox, summary } = planExportGroups(source, sizes, options, now, env);
+  const { groups, totalBytes, chunkBytes, missing, filteredOut, filterUnknown, sizeApprox, summary } = planExportGroups(source, sizes, options, now, env);
+  const suggestions = await suggestMissing(dbmsid, source, missing, options.networkLink ?? null);
   const viewCount = groups.reduce((sum, group) => sum + group.views.length, 0);
   const sizeNotes = [
     ...(sizeApprox ? ['서브쿼리/QUERY 조건이 있어 예상 크기가 실제와 다를 수 있습니다.'] : []),
@@ -1372,7 +1422,25 @@ async function planExport(
   });
   assertParfilesCover(source, missing, withParfiles.map((group) => group.parfile));
 
+  const filteredSet = new Set(filteredOut);
+  const summaryFile = {
+    name: `${prefix}_plan_summary.txt`,
+    text: planSummaryText(target.dbname, now, groups.length, summary, missing, filteredOut, filterUnknown),
+  };
+  const planId = registerPlan({
+    dbmsid: dbmsid.dbmsid,
+    missing,
+    filteredOut,
+    jobs: groups.map((group) => ({ request: group.request, expected: groupExpectedItems(group, filteredSet) })),
+    summaryFile,
+  });
+
   return {
+    planId,
+    filteredOut,
+    filterUnknown,
+    suggestions,
+    summaryFile,
     totalBytes,
     chunkBytes,
     missing,
@@ -1382,6 +1450,60 @@ async function planExport(
     summary,
     groups: withParfiles,
   };
+}
+
+// 빠진 항목마다 대소문자만 다른 실제 이름 후보 ("혹시 \"MyTable\"인가요?"). 파티션은 이미 읽은 범위에서, 테이블은 DB에서 한 번 조회.
+async function suggestMissing(dbmsid: DbmsIdParam, source: ExportSource, missing: string[], link: string | null): Promise<Record<string, string[]>> {
+  const result: Record<string, string[]> = {};
+  if (missing.length === 0 || source.kind !== 'TABLES') return result;
+  const wholes = missing.filter((line) => !line.includes(':')).map((line) => ({ owner: line.split('.')[0], table: line.split('.')[1] }));
+  let found: { owner: string; table: string }[];
+  try {
+    found = await dataPumpModel.findTablesIgnoreCase(dbmsid, wholes, link);
+  } catch {
+    found = []; // 후보는 참고용이라 못 읽어도 계획은 그대로 (빠진 목록은 이미 정확)
+  }
+  for (const line of missing) {
+    const [key, partition] = line.split(':');
+    const [owner, table] = key.split('.');
+    if (partition) {
+      const ranges = source.partitionRanges?.[key] ?? [];
+      const names = suggestByCase(partition, ranges.map((range) => range.name));
+      if (names.length > 0) result[line] = names.map((name) => `${qualifiedName(owner, table)}:${name}`);
+      continue;
+    }
+    const hits = found.filter((row) => row.owner.toUpperCase() === owner.toUpperCase() && row.table.toUpperCase() === table.toUpperCase() && `${row.owner}.${row.table}` !== key);
+    if (hits.length > 0) result[line] = hits.map((row) => qualifiedName(row.owner, row.table));
+  }
+  return result;
+}
+
+// parfile과 함께 남기는 요약 파일 내용
+function planSummaryText(
+  dbname: string,
+  now: Date,
+  jobs: number,
+  summary: ExportPlanSummary,
+  missing: string[],
+  filteredOut: string[],
+  filterUnknown: string | null
+): string {
+  const display = (line: string) => {
+    const [key, partition] = line.split(':');
+    const [owner, table] = key.split('.');
+    return qualifiedName(owner, table, partition ?? null);
+  };
+  return [
+    `DB Cockpit Data Pump Export 계획 요약 — ${dbname}, ${now.toISOString()}`,
+    `작업 ${jobs}개 / 계획 포함 ${summary.planned}개${summary.listed !== null ? ` / 목록 ${summary.listed}개` : ''}`,
+    `DB에 없어 빠진 항목 ${missing.length}개${missing.length > 0 ? ':' : ''}`,
+    ...missing.map((line) => `  ${display(line)}`),
+    `필터로 제외되는 테이블 ${filteredOut.length}개${filteredOut.length > 0 ? ':' : ''}`,
+    ...filteredOut.map((line) => `  ${display(line)}`),
+    ...(filterUnknown ? [filterUnknown] : []),
+    ...(summary.filters.length > 0 ? [`적용 필터: ${summary.filters.join(' / ')}`] : []),
+    '',
+  ].join('\n');
 }
 
 // 불변식 (parfile 원문 기준): 만들어진 parfile들의 TABLES= 항목을 다시 읽어, 올린 대상이 빠짐없이 정확히 한 번씩 들어갔는지 본다.
@@ -1395,9 +1517,10 @@ function assertParfilesCover(source: ExportSource, missing: string[], parfiles: 
   for (const text of parfiles) {
     const lines = text.split('\n').filter((line) => line && !line.startsWith('#'));
     for (const [index, line] of lines.entries()) {
-      if (line.startsWith('TABLES=')) entries.push(...line.slice('TABLES='.length).split(','));
+      // 원소는 SQL 표기(따옴표 이름은 작은따옴표로 감쌈) — 정확한 이름으로 다시 읽어 비교한다
+      if (line.startsWith('TABLES=')) entries.push(...parseParList(line.slice('TABLES='.length)).map((item) => sourceLineOf(parseQualified(item))));
       if (line.startsWith('SCHEMAS=')) {
-        const schemas = line.slice('SCHEMAS='.length).split(',');
+        const schemas = parseParList(line.slice('SCHEMAS='.length)).map((item) => identifier(item, '스키마'));
         schemaLines.push(...schemas);
         const next = lines[index + 1] ?? '';
         const match = next.match(/^EXCLUDE=TABLE:"IN \((.*)\)"$/);
@@ -1419,18 +1542,64 @@ function assertParfilesCover(source: ExportSource, missing: string[], parfiles: 
   };
 
   if (source.kind === 'SCHEMAS') {
-    compare(source.schemas.map((schema) => String(schema).toUpperCase()), schemaLines, 'SCHEMAS=');
+    compare(source.schemas, schemaLines, 'SCHEMAS=');
     compare(excluded, entries, '떼어 낸 테이블의 TABLES=');
     return;
   }
   const lines =
     source.kind === 'PARTITIONS'
-      ? source.partitions.map((p) => `${source.owner.toUpperCase()}.${source.table.toUpperCase()}:${p.name}`)
-      : [...new Set(source.tables.map((item) => `${item.owner.toUpperCase()}.${item.name.toUpperCase()}${item.partition ? `:${item.partition.toUpperCase()}` : ''}`))];
+      ? source.partitions.map((p) => `${source.owner}.${source.table}:${p.name}`)
+      : [...new Set(source.tables.map(sourceLine))];
   const whole = new Set(lines.filter((line) => !line.includes(':')));
   const missingSet = new Set(missing);
   const expected = lines.filter((line) => !missingSet.has(line) && !(line.includes(':') && whole.has(line.split(':')[0])));
   compare(expected, entries, 'TABLES=');
+}
+
+// 불변식 (Import parfile 원문 기준): 고른 스키마/테이블이 SCHEMAS=/TABLES=에 빠짐없이 정확히 한 번, REMAP 쌍도 정확히 한 번.
+// REMAP_SCHEMA 원본은 고른 대상 안에 있어야 한다 — 덤프에 없는 원본을 주면 impdp는 ORA-39146을 내고도 "successfully completed"로
+// 끝나서 아무것도 안 들어간 걸 모르고 지나갈 수 있다 (23ai에서 확인). FULL은 덤프 내용을 미리 몰라 경고만 돌려준다.
+function assertImportCovers(plan: DataPumpPlan, request: DataPumpRequest, parfile: string): string[] {
+  if (plan.operation !== 'IMPORT') return [];
+  const fault = (what: string, items: string[]): never => fail(`내부 오류: Import parfile 검증 실패 — ${what}: ${items.slice(0, 10).join(', ')}. 다시 시도해 주세요.`);
+  const lines = parfile.split('\n');
+  const listOf = (key: string) => lines.filter((line) => line.startsWith(`${key}=`)).flatMap((line) => parseParList(line.slice(key.length + 1)));
+  const compare = (expected: string[], actual: string[], label: string) => {
+    const counts = actual.reduce((map, item) => map.set(item, (map.get(item) ?? 0) + 1), new Map<string, number>());
+    const lost = expected.filter((item) => !counts.has(item));
+    if (lost.length > 0) fault(`${label}에서 빠짐`, lost);
+    const dup = [...counts].filter(([, n]) => n > 1).map(([item]) => item);
+    if (dup.length > 0) fault(`${label}에 두 번 들어감`, dup);
+    const extra = [...counts.keys()].filter((item) => !expected.includes(item));
+    if (extra.length > 0) fault(`${label}에 고르지 않은 항목`, extra);
+  };
+  let sources: string[] | null = null;
+  if (plan.jobMode === 'SCHEMA') {
+    const schemas = identifierList(request.schemas, '스키마');
+    compare(schemas, listOf('SCHEMAS').map((item) => identifier(item, '스키마')), 'SCHEMAS=');
+    sources = schemas;
+  } else if (plan.jobMode === 'TABLE') {
+    const pairs = plan.tables.map((pair) => `${pair.owner}.${pair.table}`);
+    compare(pairs, listOf('TABLES').map((item) => sourceLineOf(parseQualified(item))), 'TABLES=');
+    sources = [...new Set(plan.tables.map((pair) => pair.owner))];
+  }
+  const remapKey = (pair: { from: string; to: string }) => `${pair.from}:${pair.to}`;
+  compare(
+    plan.remapSchemas.map(remapKey),
+    listOf('REMAP_SCHEMA').map((item) => {
+      const [from, to] = item.split(/:(?=[^:]*$)/);
+      return `${identifier(from, 'REMAP_SCHEMA 원본')}:${identifier(to, 'REMAP_SCHEMA 대상')}`;
+    }),
+    'REMAP_SCHEMA='
+  );
+  const warnings: string[] = [];
+  for (const pair of plan.remapSchemas) {
+    if (sources && !sources.includes(pair.from)) {
+      fail(`REMAP_SCHEMA 원본 ${sqlName(pair.from)}이(가) 가져올 대상(${sources.map(sqlName).join(', ')})에 없습니다 — 그대로 실행하면 아무것도 바뀌지 않은 채 "성공"으로 끝날 수 있습니다.`);
+    }
+    if (!sources) warnings.push(`덤프에 ${sqlName(pair.from)} 스키마가 있는지는 미리 확인할 수 없습니다 — 없으면 REMAP_SCHEMA ${sqlName(pair.from)}→${sqlName(pair.to)}은 적용되지 않고 "성공"으로 끝날 수 있으니 실행 후 로그 대조를 확인하세요.`);
+  }
+  return warnings;
 }
 
 // link가 있으면 링크 너머(데이터를 읽는) DB의 SCN.
@@ -1447,10 +1616,12 @@ async function preview(
   dbmsid: DbmsIdParam,
   request: DataPumpRequest,
   role: string | null = null
-): Promise<{ jobName: string; parfile: string; command: string; parfileName: string }> {
+): Promise<{ jobName: string; parfile: string; command: string; parfileName: string; notes: string[] }> {
   const plan = buildPlan(request, new Date(), await getFilterEnv(dbmsid, role));
   const target = await dataPumpModel.getTargetInfo(dbmsid);
-  return { jobName: plan.jobName, ...buildParfile(plan, request, target) };
+  const built = buildParfile(plan, request, target);
+  const warnings = assertImportCovers(plan, request, built.parfile);
+  return { jobName: plan.jobName, ...built, notes: [...warnings, ...built.notes] };
 }
 
 // 작업 시작. 기존 데이터를 건드리는 Import는 화면에서 대상 DB명을 직접 입력해 보낸 값과 실제 DB명이 맞아야 실행합니다.
@@ -1461,11 +1632,16 @@ async function start(
   confirmDbname: unknown,
   startedBy: string | null = null,
   estimatedBytes: unknown = null,
-  role: string | null = null
+  role: string | null = null,
+  planId: unknown = null,
+  ack: Partial<PlanAck> | null = null
 ): Promise<{ jobName: string; jobNames: string[]; plan: DataPumpPlan }> {
   const plan = buildPlan(request, new Date(), await getFilterEnv(dbmsid, role));
+  // Export는 분할 계획으로만 시작한다: 계획 그대로인지 + 빠지는 항목(DB에 없음/필터 제외)을 사용자가 확인했는지
+  const planned = plan.operation === 'EXPORT' ? checkPlanStart(planId, dbmsid.dbmsid, request, ack) : null;
   await ensureDbLink(dbmsid, plan.networkLink);
   const target = await dataPumpModel.getTargetInfo(dbmsid);
+  if (plan.operation === 'IMPORT') assertImportCovers(plan, request, buildParfile(plan, request, target).parfile);
   if (isDestructive(plan)) {
     const typed = typeof confirmDbname === 'string' ? confirmDbname.trim() : '';
     if (typed.toUpperCase() !== String(target.dbname).trim().toUpperCase()) {
@@ -1503,7 +1679,13 @@ async function start(
   for (const [index, run] of started.entries()) {
     // 스키마별로 나눈 작업은 예상 크기를 나눌 근거가 없어 비워 둔다 (끝나면 실제 덤프 크기가 남음).
     const group = started.length > 1 ? { jobName: plan.jobName, index: index + 1, count: started.length } : null;
-    await historyService.recordStart(dbmsid.dbmsid, target, run, startedBy, group ? null : estimated, group);
+    // 대조 목록: 스키마별로 나눈 작업은 그 스키마 것만
+    const owners = new Set(planOwners(run));
+    const expected = planned ? planned.expected.filter((item) => runs.length === 1 || owners.has(item.split('.')[0])) : null;
+    await historyService.recordStart(dbmsid.dbmsid, target, run, startedBy, group ? null : estimated, group, {
+      expected,
+      acknowledged: planned && (planned.ack.missing.length > 0 || planned.ack.filteredOut.length > 0) ? { ...planned.ack, by: startedBy } : null,
+    });
   }
   return { jobName: plan.jobName, jobNames: started.map((run) => run.jobName), plan };
 }
@@ -1525,28 +1707,37 @@ async function truncateBeforeImport(dbmsid: DbmsIdParam, target: { owner: string
   }
 }
 
-async function getJobs(dbmsid: DbmsIdParam): Promise<DataPumpJob[]> {
+async function getJobs(dbmsid: DbmsIdParam): Promise<historyService.JobView[]> {
   try {
-    return await dataPumpModel.getJobs(dbmsid);
+    return await historyService.describeJobs(dbmsid.dbmsid, await dataPumpModel.getJobs(dbmsid));
   } catch (error) {
     throw new Error('Data Pump 작업 목록 조회 실패', { cause: error });
   }
 }
 
-async function cancel(dbmsid: DbmsIdParam, owner: string, jobName: string): Promise<void> {
+// 앱 밖에서 직접 돌린 작업은 남의 마이그레이션일 수 있어서, 대상 DB명을 직접 입력해야 취소한다 (화면은 실행자 정보를 보여 줌).
+async function cancel(dbmsid: DbmsIdParam, owner: string, jobName: string, confirmDbname: unknown = null, cancelledBy: string | null = null): Promise<void> {
   const ownerName = identifier(owner, '작업 소유자');
   const name = identifier(jobName, '작업');
+  const view = (await getJobs(dbmsid)).find((job) => job.owner === ownerName && job.jobName === name);
+  const target = await dataPumpModel.getTargetInfo(dbmsid);
+  if (view?.source === 'EXTERNAL') {
+    const typed = typeof confirmDbname === 'string' ? confirmDbname.trim().toUpperCase() : '';
+    if (typed !== String(target.dbname).trim().toUpperCase()) {
+      fail(`앱 밖에서 직접 실행한 작업입니다 (${view.runner?.username ?? '?'} / ${view.runner?.osuser ?? '?'}@${view.runner?.machine ?? '?'}). 취소하려면 대상 DB명(${target.dbname})을 정확히 입력해주세요.`);
+    }
+  }
   try {
     await dataPumpModel.cancelJob(dbmsid, ownerName, name);
   } catch (error) {
     throw new Error('Data Pump 작업 취소 실패', { cause: error });
   }
-  await historyService.recordCancel(dbmsid.dbmsid, ownerName, name);
+  await historyService.recordCancel(dbmsid.dbmsid, ownerName, name, cancelledBy, view?.source === 'EXTERNAL' ? { dbname: target.dbname, runner: view.runner } : null);
 }
 
 // DB 서버 DIRECTORY에 저장할 수 있는 파일: parfile(.par)과 실행 스크립트(.sh)만, 경로 없이 이름만.
 // 파티션 export 매니페스트(.json)도 덤프와 같은 곳에 둔다 (import 화면이 이걸 읽음).
-const SAVABLE_FILE = /^[A-Za-z0-9_.-]{1,200}\.(par|sh|json)$/;
+const SAVABLE_FILE = /^[A-Za-z0-9_.-]{1,200}\.(par|sh|json|txt)$/;
 const MAX_SAVE_FILES = 1100;
 const MAX_FILE_LENGTH = 4 * 1024 * 1024; // 파티션 수천 개짜리 매니페스트도 들어가게
 
@@ -1566,11 +1757,29 @@ function validateFiles(files: unknown): { name: string; content: string }[] {
 }
 
 // parfile/실행 스크립트를 DB 서버 DIRECTORY에 저장. overwrite가 아니면 이미 있는 파일은 건너뛰고 skipped로 알려줍니다.
-async function saveFiles(dbmsid: DbmsIdParam, directory: unknown, files: unknown, overwrite: boolean): Promise<{ written: string[]; skipped: string[] }> {
+async function saveFiles(
+  dbmsid: DbmsIdParam,
+  directory: unknown,
+  files: unknown,
+  overwrite: boolean,
+  planId: unknown = null,
+  ack: Partial<PlanAck> | null = null,
+  savedBy: string | null = null
+): Promise<{ written: string[]; skipped: string[] }> {
   const dir = identifier(directory, 'DIRECTORY');
   const valid = validateFiles(files);
+  // Export 계획의 parfile이면 계획과 대조하고, 빠지는 항목이 있으면 확인을 요구한 뒤 요약 파일(빠진 목록)을 서버가 함께 쓴다.
+  const checked = checkPlanFiles(planId, dbmsid.dbmsid, valid, ack);
+  const summary = checked.summaryFile && valid.some((file) => /\.par$/i.test(file.name))
+    ? { name: checked.summaryFile.name, content: `${checked.summaryFile.text}${checked.ack && (checked.ack.missing.length > 0 || checked.ack.filteredOut.length > 0) ? `\n확인: ${savedBy ?? '?'} (${new Date().toISOString()})에 위 항목을 빼고 진행하기로 확인함\n` : ''}` }
+    : null;
   try {
-    return await dataPumpModel.writeFiles(dbmsid, dir, valid, overwrite);
+    const result = await dataPumpModel.writeFiles(dbmsid, dir, valid.filter((file) => file.name !== summary?.name), overwrite);
+    if (summary) {
+      await dataPumpModel.writeFiles(dbmsid, dir, [summary], true);
+      result.written.push(summary.name);
+    }
+    return result;
   } catch (error) {
     throw new Error('DIRECTORY에 파일 저장 실패', { cause: error });
   }
@@ -1597,6 +1806,8 @@ export {
   schemaFileName,
   assertSourceCovered,
   assertParfilesCover,
+  assertImportCovers,
+  groupExpectedItems,
   isDestructive,
   parseSize,
   suggestFilesize,

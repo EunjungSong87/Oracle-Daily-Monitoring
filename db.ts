@@ -1,6 +1,7 @@
 import oracle from 'oracledb';
 import dbConfig from './config/database';
 import { logger } from './utils/logger';
+import { withConnectTimeouts } from './models/targetDbTimeouts';
 
 // Database 연결 Thick mode 활성화
 try {
@@ -13,17 +14,27 @@ try {
 interface TargetDbConfig {
   user: string;
   password: string;
-  connectString: string;
+  connectString: string; // host:port/service — 접속 타임아웃 파라미터는 여기서 붙입니다
 }
 
+interface TargetConnectOptions {
+  callTimeoutMs?: number; // 0 또는 생략 = 쿼리 타임아웃 없음
+}
+
+// 대상 DB 접속. 접속 타임아웃(Easy Connect Plus connect_timeout/transport_connect_timeout)은 항상 걸고,
+// callTimeoutMs를 주면 이 커넥션의 모든 DB 호출에 쿼리 타임아웃을 겁니다.
 // 접속 실패는 여기서 로그를 찍지 않고 그대로 던집니다 — 호출한 쪽(controller)이 한 번만 찍고,
 // 접속 테스트 버튼처럼 실패가 정상 결과인 경우엔 아예 에러 로그를 남기지 않기 위해서입니다.
-async function connectDB(config: TargetDbConfig): Promise<oracle.Connection> {
-  return oracle.getConnection({
+async function connectDB(config: TargetDbConfig, options: TargetConnectOptions = {}): Promise<oracle.Connection> {
+  const connection = await oracle.getConnection({
     user: config.user,
     password: config.password,
-    connectString: config.connectString,
+    connectString: withConnectTimeouts(config.connectString),
   });
+  if (options.callTimeoutMs && options.callTimeoutMs > 0) {
+    connection.callTimeout = options.callTimeoutMs;
+  }
+  return connection;
 }
 
 // 커넥션 풀 생성, DB 연결 함수
@@ -77,3 +88,4 @@ async function closeDB(): Promise<void> {
 }
 
 export { connectDB, initializeDB, closeDB };
+export type { TargetConnectOptions };

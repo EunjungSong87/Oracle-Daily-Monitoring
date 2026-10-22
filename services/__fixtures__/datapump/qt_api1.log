@@ -1,0 +1,11 @@
+Starting "SYSTEM"."QT_API1":  
+Processing object type TABLE_EXPORT/TABLE/TABLE_DATA
+Processing object type TABLE_EXPORT/TABLE/STATISTICS/TABLE_STATISTICS
+Processing object type TABLE_EXPORT/TABLE/TABLE
+. . exported "QTest"."MyTable":"p2025"                     5.5 KB       1 rows
+. . exported "QTest"."UPPER_T"                             5.1 KB       1 rows
+Master table "SYSTEM"."QT_API1" successfully loaded/unloaded
+******************************************************************************
+Dump file set for SYSTEM.QT_API1 is:
+  /opt/oracle/admin/FREE/dpdump/2467904D40F2106AE0630F02000A30D8/qt_api1.dmp
+Job "SYSTEM"."QT_API1" successfully completed at Thu Oct 22 02:20:10 2026 elapsed 0 00:00:11

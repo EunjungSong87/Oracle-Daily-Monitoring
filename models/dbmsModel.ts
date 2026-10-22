@@ -3,6 +3,7 @@ import { Duplex } from 'stream';
 import * as db from '../db'; // DB 연결 함수 가져오기
 import { readClobAsString } from './clobUtils';
 import { encrypt, decrypt } from './cryptoUtils';
+import { CALL_TIMEOUT_MS } from './targetDbTimeouts';
 
 export interface QueryResult {
   columns: string[];
@@ -172,15 +173,27 @@ async function listTasks(): Promise<oracledb.Result<any[]> | []> {
   }
 }
 
-// 대상 DBMS에 접속합니다. 체크를 여러 개 돌릴 때는 태스크마다 새로 열지 말고
-// 이 커넥션 하나를 재사용한 뒤 호출한 쪽에서 한 번만 닫아야 합니다.
-async function connectToTarget(dbconfig: any[]): Promise<oracledb.Connection> {
+// 대상 DBMS에 접속합니다 (모든 대상 DB 접속이 여기로 모입니다 — connectString 형식과 접속 타임아웃을 한 곳에서).
+// 체크를 여러 개 돌릴 때는 태스크마다 새로 열지 말고 이 커넥션 하나를 재사용한 뒤 호출한 쪽에서 한 번만 닫아야 합니다.
+async function connectToTarget(dbconfig: any[], options: db.TargetConnectOptions = {}): Promise<oracledb.Connection> {
   const config = {
     user: dbconfig[0],
     password: dbconfig[1],
     connectString: dbconfig[2] + ':' + dbconfig[3] + '/' + dbconfig[4],
   };
-  return db.connectDB(config);
+  return db.connectDB(config, options);
+}
+
+// dbmsid로 접속 정보를 찾아 대상 DBMS에 접속합니다. dbname도 함께 돌려줍니다.
+async function connectToTargetById(
+  dbmsid: DbmsIdParam,
+  options: db.TargetConnectOptions = {}
+): Promise<{ connection: oracledb.Connection; dbname: string }> {
+  const dbconfig = await getDbmsInfo(dbmsid);
+  if (!dbconfig) {
+    throw new Error('DBMS 정보를 찾을 수 없습니다.');
+  }
+  return { connection: await connectToTarget(dbconfig, options), dbname: dbconfig[6] };
 }
 
 export interface TestConnectionInput {
@@ -203,7 +216,9 @@ async function testConnection(input: TestConnectionInput): Promise<void> {
     if (existing) password = existing[1];
   }
 
-  const connection = await connectToTarget([input.username, password, input.ip, input.port, input.sid]);
+  const connection = await connectToTarget([input.username, password, input.ip, input.port, input.sid], {
+    callTimeoutMs: CALL_TIMEOUT_MS.connectionTest,
+  });
   await connection.close();
 }
 
@@ -512,6 +527,7 @@ export {
   getAllDbmses,
   getDbmsInfo,
   connectToTarget,
+  connectToTargetById,
   testConnection,
   executeQuery,
   addDbms,

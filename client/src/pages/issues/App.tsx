@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactElement } from 'rea
 import { AppHeader } from '../../shared/components/AppHeader';
 import { ToastHost } from '../../shared/components/ToastHost';
 import { listIssues } from '../../shared/lib/api';
+import { urlParam } from '../../shared/lib/urlParams';
 import { showToast } from '../../shared/lib/toastStore';
 import type { IssueRow } from '../../shared/lib/types';
 import { IssueCard } from './IssueCard';
@@ -23,6 +24,8 @@ function loadStoredAutoRefresh(): number {
 // public/issues.html 포팅.
 export function App(): ReactElement {
   const [statusFilter, setStatusFilter] = useState('OPEN');
+  // ?dbms=로 넘어오면 그 DB의 이슈만 (화면에서 풀 수 있음)
+  const [dbmsFilter, setDbmsFilter] = useState<string | null>(() => urlParam('dbms'));
   const [issues, setIssues] = useState<IssueRow[] | null>(null);
   const [autoRefreshSeconds, setAutoRefreshSeconds] = useState(() => loadStoredAutoRefresh());
   const [openIssueId, setOpenIssueId] = useState<number | null>(null);
@@ -53,6 +56,8 @@ export function App(): ReactElement {
     setAutoRefreshSeconds(seconds);
     localStorage.setItem(AUTO_REFRESH_STORAGE_KEY, String(seconds));
   }
+
+  const visibleIssues = (issues ?? []).filter((issue) => !dbmsFilter || String(issue.dbmsId) === dbmsFilter);
 
   return (
     <>
@@ -97,9 +102,17 @@ export function App(): ReactElement {
         </div>
       </div>
 
+      {dbmsFilter && (
+        <p className="oc-hint">
+          {issues?.find((issue) => String(issue.dbmsId) === dbmsFilter)?.dbname ?? `DB #${dbmsFilter}`}의 이슈만 보는 중{' '}
+          <button type="button" className="oc-link" onClick={() => setDbmsFilter(null)}>
+            전체 보기
+          </button>
+        </p>
+      )}
       <div className="issues-grid">
-        {issues && issues.length === 0 && <p className="issues-empty">해당 상태의 이슈가 없습니다.</p>}
-        {issues?.map((issue) => (
+        {issues && visibleIssues.length === 0 && <p className="issues-empty">해당 상태의 이슈가 없습니다.</p>}
+        {visibleIssues.map((issue) => (
           <IssueCard key={issue.id} issue={issue} onOpenDetail={setOpenIssueId} />
         ))}
       </div>

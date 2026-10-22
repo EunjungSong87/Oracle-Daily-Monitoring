@@ -1,5 +1,5 @@
 import oracledb from 'oracledb';
-import * as db from '../db';
+import type { TargetConnectOptions } from '../db';
 import * as dbmsModel from './dbmsModel';
 import type { DbmsIdParam } from './dbmsModel';
 
@@ -93,17 +93,8 @@ export interface LogContent {
 }
 
 // 대상 DBMS에 접속합니다 (다른 model과 같은 방식). dbname도 함께 돌려줍니다.
-async function connectTarget(dbmsid: DbmsIdParam): Promise<{ connection: oracledb.Connection; dbname: string }> {
-  const dbconfig = await dbmsModel.getDbmsInfo(dbmsid);
-  if (!dbconfig) {
-    throw new Error('DBMS 정보를 찾을 수 없습니다.');
-  }
-  const config = {
-    user: dbconfig[0],
-    password: dbconfig[1],
-    connectString: dbconfig[2] + ':' + dbconfig[3] + '/' + dbconfig[4],
-  };
-  return { connection: await db.connectDB(config), dbname: dbconfig[6] };
+async function connectTarget(dbmsid: DbmsIdParam, options: TargetConnectOptions = {}): Promise<{ connection: oracledb.Connection; dbname: string }> {
+  return dbmsModel.connectToTargetById(dbmsid, options);
 }
 
 async function withConnection<T>(dbmsid: DbmsIdParam, work: (connection: oracledb.Connection, dbname: string) => Promise<T>): Promise<T> {
@@ -281,6 +272,35 @@ async function getListSizing(
   });
 }
 
+
+// DB에 없다고 나온 (소유자, 테이블)들에 대해, 대소문자만 다른 실제 테이블 이름 (후보 제시용 — 빠진 항목이 있을 때만, 최대 200개).
+async function findTablesIgnoreCase(
+  dbmsid: DbmsIdParam,
+  pairs: { owner: string; table: string }[],
+  link: string | null = null
+): Promise<{ owner: string; table: string }[]> {
+  if (pairs.length === 0) return [];
+  const at = remote(link);
+  return withConnection(dbmsid, async (connection) => {
+    const binds: Record<string, string> = {};
+    const owners = [...new Set(pairs.map((pair) => pair.owner.toUpperCase()))].map((owner, index) => {
+      binds[`o${index}`] = owner;
+      return `:o${index}`;
+    });
+    const tables = [...new Set(pairs.map((pair) => pair.table.toUpperCase()))].slice(0, 200).map((table, index) => {
+      binds[`t${index}`] = table;
+      return `:t${index}`;
+    });
+    const rows = await query(
+      connection,
+      `SELECT owner, table_name FROM dba_tables${at}
+        WHERE owner IN (SELECT username FROM dba_users${at} WHERE UPPER(username) IN (${owners.join(', ')}))
+          AND UPPER(table_name) IN (${tables.join(', ')})`,
+      binds
+    );
+    return rows.map((row) => ({ owner: row.OWNER, table: row.TABLE_NAME }));
+  });
+}
 
 // 필터 검증용 대상 DB 정보: 버전(v$instance.version — 예: 19.0.0.0.0)과 모드별 오브젝트 경로 목록(*_EXPORT_OBJECTS).
 // 경로 목록은 버전마다 다르고 수백 행이라 서비스가 캐시해서 쓴다.
@@ -778,6 +798,71 @@ async function getJobs(dbmsid: DbmsIdParam): Promise<DataPumpJob[]> {
   });
 }
 
+// 진행 중인 작업 이름만 (외부 작업 감시용 — 매분 감시 대상 DB에 한 번). 멈춰 남은(NOT RUNNING) 작업은 제외.
+async function listActiveJobs(dbmsid: DbmsIdParam): Promise<{ owner: string; jobName: string }[]> {
+  return withConnection(dbmsid, async (connection) => {
+    const rows = await query(connection, `SELECT owner_name, job_name FROM dba_datapump_jobs WHERE state <> 'NOT RUNNING' AND job_name NOT LIKE 'BIN$%'`);
+    return rows.map((row) => ({ owner: row.OWNER_NAME, jobName: row.JOB_NAME }));
+  });
+}
+
+// 직접 돌린 작업의 마스터 테이블 메타 행 (process_order < 0만 — 인덱스 RANGE SCAN, 오브젝트 행은 안 읽음. 해석은 services/dataPumpMaster.ts).
+// owner/jobName은 DBA_DATAPUMP_JOBS에서 읽은 값이고 SQL에 이름으로 붙이므로 서비스가 형식을 검증한 값만 들어온다.
+const MASTER_PARAMS = ['LOG_FILE_NAME', 'LOG_FILE_DIRECTORY', 'CLIENT_COMMAND', 'SCHEMA_LIST', 'SCHEMA_EXPR', 'CUSTOM_FILTER', 'REMAP_SCHEMA'];
+
+async function getMasterRows(dbmsid: DbmsIdParam, owner: string, jobName: string): Promise<Record<string, any>[]> {
+  return withConnection(dbmsid, (connection) =>
+    query(
+      connection,
+      `SELECT /*+ INDEX(m (process_order duplicate)) */ process_order, name, value_t, old_value, file_type, file_name, user_file_name, user_directory,
+              operation, job_mode, user_name, TO_CHAR(start_time, 'YYYY-MM-DD HH24:MI:SS') AS start_time
+         FROM "${owner}"."${jobName}" m
+        WHERE process_order < 0
+          AND (process_order = -1 OR file_name IS NOT NULL OR name IN (${MASTER_PARAMS.map((name) => `'${name}'`).join(', ')}))`
+    )
+  );
+}
+
+export interface DataPumpSession {
+  owner: string;
+  jobName: string;
+  sessionType: string; // DBMS_DATAPUMP(expdp/impdp 클라이언트가 붙은 세션) | MASTER | WORKER
+  username: string | null;
+  osuser: string | null;
+  machine: string | null;
+  program: string | null;
+}
+
+// 작업에 붙은 세션의 실행자 정보 (작업 이름·소유자 조건으로만)
+async function getJobSessions(dbmsid: DbmsIdParam, jobs: { owner: string; jobName: string }[]): Promise<DataPumpSession[]> {
+  if (jobs.length === 0) return [];
+  return withConnection(dbmsid, async (connection) => {
+    const binds: Record<string, string> = {};
+    const pairs = jobs.map((job, index) => {
+      binds[`o${index}`] = job.owner;
+      binds[`j${index}`] = job.jobName;
+      return `(:o${index}, :j${index})`;
+    });
+    const rows = await query(
+      connection,
+      `SELECT d.owner_name, d.job_name, d.session_type, s.username, s.osuser, s.machine, s.program
+         FROM dba_datapump_sessions d
+         JOIN v$session s ON s.saddr = d.saddr
+        WHERE (d.owner_name, d.job_name) IN (${pairs.join(', ')})`,
+      binds
+    );
+    return rows.map((row) => ({
+      owner: row.OWNER_NAME,
+      jobName: row.JOB_NAME,
+      sessionType: row.SESSION_TYPE,
+      username: row.USERNAME,
+      osuser: row.OSUSER,
+      machine: row.MACHINE,
+      program: row.PROGRAM,
+    }));
+  });
+}
+
 // 작업 취소: 붙어서(ATTACH) 즉시 중지하고 마스터 테이블까지 지웁니다 (다시 시작할 수 없음 — KILL_JOB과 같음).
 async function cancelJob(dbmsid: DbmsIdParam, owner: string, jobName: string): Promise<void> {
   await withConnection(dbmsid, async (connection) => {
@@ -944,11 +1029,15 @@ export {
   getSchemas,
   getTableSizes,
   getListSizing,
+  findTablesIgnoreCase,
   getFilterEnv,
   getViews,
   getCurrentScn,
   startJob,
   getJobs,
+  getMasterRows,
+  getJobSessions,
+  listActiveJobs,
   cancelJob,
   jobExists,
   getFileSizes,

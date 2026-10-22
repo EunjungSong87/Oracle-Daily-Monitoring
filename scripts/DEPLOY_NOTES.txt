@@ -63,6 +63,8 @@ SESSION_SECRET이 없을 것이므로 새로 생성해서 추가하세요.
 
 SESSION_SECRET은 나중에 바꾸면 그 순간 전원 로그아웃됩니다.
 2026-09-28 이후 변경(React 전환, Real-Time, Stats Job, ILM, Compare, 로그 정리 등)으로 새로 생긴 .env 항목은 없습니다.
+2026-10-22 대상 DB 타임아웃 추가(전부 선택, 없으면 기본값): TARGET_DB_CONNECT_TIMEOUT_SEC=10, TARGET_DB_CALL_TIMEOUT_MS=30000, TARGET_DB_REALTIME_CALL_TIMEOUT_MS=7000, TARGET_DB_TEST_CALL_TIMEOUT_MS=5000 (CALL_TIMEOUT은 Thick 모드에서 실제 대기가 약 2배).
+2026-10-22 Data Pump 외부 작업 감시(선택): DATAPUMP_WATCH_MINUTES=30 — 이 시간 안에 Data Pump 화면을 연 DB(+진행 중 작업이 있는 DB)만 매분 감시.
 
 
 ============================================================
@@ -75,6 +77,13 @@ SESSION_SECRET은 나중에 바꾸면 그 순간 전원 로그아웃됩니다.
   5) scripts/add_user_roles.sql          -> users에 role(VIEWER/DBA/SUPER_ADMIN) 추가
   6) scripts/add_datapump_history.sql    -> Data Pump 작업 이력 (datapump_job_history) — 2026-10-02 추가
   7) scripts/add_user_screen_access.sql  -> 사용자별 화면 권한 (user_screen_access) — 2026-10-02 추가, 4) 다음
+  8) scripts/add_datapump_history_verify.sql -> Data Pump 이력에 "빠진 항목 확인"·실행 후 로그 대조 컬럼 — 2026-10-22 추가, 6) 다음 (안 돌려도 앱은 동작, 이 정보만 안 남음)
+  9) scripts/add_datapump_history_external.sql -> Data Pump 이력에 외부(직접 실행) 작업·실행자·취소자 컬럼 — 2026-10-22 추가, 6) 다음 (안 돌려도 앱은 동작, 외부 작업만 이력에 안 남음)
+ 10) scripts/add_capacity_history.sql   -> Monitoring > Capacity 용량 이력/설정 (capacity_history, capacity_config) — 2026-10-22 추가 (없으면 화면은 "설치 필요", 예약 점검의 수집만 건너뜀)
+ 11) scripts/add_session_kill_log.sql   -> Real-Time Blocking 체인의 세션 Kill 기록 (monitoring_session_kill_log) — 2026-10-22 추가 (없으면 Blocking 트리는 보이지만 Kill은 거절)
+     * Real-Time Blocking 체인: 대상 DB 계정에 GV$SESSION 조회 권한 필요(DBA_OBJECTS는 잠긴 오브젝트 이름용, 없으면 obj#만). Kill은 SUPER_ADMIN만, 대상 DB 계정에 ALTER SYSTEM 권한이 있어야 함(없으면 버튼에 "권한 없음")
+     * GET /health: 로그인 없이 앱 상태(ok 200 / degraded·down 503). 외부 감시에 등록하려면 README의 예시 참고
+     * 2026-10-22: 첫 화면(index.html)이 전체 DB 현황 Dashboard로 바뀌고 기존 Databases 화면은 databases.html로 이동 (화면 권한 키 dashboard/capacity 추가, 기본 VIEWER)
 
 5)는 반드시 4) 다음에 실행해야 합니다 — users 테이블이 있어야 ALTER할 수 있고, 기존
 is_admin 컬럼을 role로 바꿔치기(추가 후 삭제)하기 때문입니다.

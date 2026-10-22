@@ -1,5 +1,6 @@
 import { useState, type ReactElement } from 'react';
 import { saveDataPumpFiles } from '../../shared/lib/api';
+import type { PlanAck } from '../../shared/lib/types';
 import { showToast } from '../../shared/lib/toastStore';
 import { ConfirmModal } from './ConfirmModal';
 
@@ -7,24 +8,26 @@ interface PendingOverwrite {
   directory: string;
   files: { name: string; content: string }[];
   existing: string[];
+  plan?: PlanAck;
 }
 
 // parfile을 DB 서버 DIRECTORY에 저장하는 흐름: 먼저 덮어쓰지 않고 저장해 보고, 이미 있는 파일이 있으면
 // 목록을 보여주고 확인받은 뒤 그 파일들만 덮어쓴다. confirmNode는 화면 어딘가에 같이 렌더링해야 한다.
 export function useServerSave(dbmsId: string): {
-  save: (directory: string, files: { name: string; content: string }[]) => Promise<void>;
+  // plan: Export 분할 계획의 parfile이면 계획 번호 + 빠지는 항목 확인 (서버가 대조)
+  save: (directory: string, files: { name: string; content: string }[], plan?: PlanAck) => Promise<void>;
   saving: boolean;
   confirmNode: ReactElement;
 } {
   const [saving, setSaving] = useState(false);
   const [pending, setPending] = useState<PendingOverwrite | null>(null);
 
-  async function save(directory: string, files: { name: string; content: string }[]): Promise<void> {
+  async function save(directory: string, files: { name: string; content: string }[], plan?: PlanAck): Promise<void> {
     setSaving(true);
     try {
-      const { written, skipped } = await saveDataPumpFiles(dbmsId, directory, files, false);
+      const { written, skipped } = await saveDataPumpFiles(dbmsId, directory, files, false, plan);
       if (written.length > 0) showToast(`${directory}에 ${written.length}개 파일을 저장했습니다.`);
-      if (skipped.length > 0) setPending({ directory, files: files.filter((file) => skipped.includes(file.name)), existing: skipped });
+      if (skipped.length > 0) setPending({ directory, files: files.filter((file) => skipped.includes(file.name)), existing: skipped, plan });
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'DB 서버에 저장하지 못했습니다.', 'error');
     } finally {
@@ -36,7 +39,7 @@ export function useServerSave(dbmsId: string): {
     if (!pending) return;
     setSaving(true);
     try {
-      const { written } = await saveDataPumpFiles(dbmsId, pending.directory, pending.files, true);
+      const { written } = await saveDataPumpFiles(dbmsId, pending.directory, pending.files, true, pending.plan);
       showToast(`${pending.directory}에 ${written.length}개 파일을 덮어썼습니다.`);
       setPending(null);
     } catch (error) {

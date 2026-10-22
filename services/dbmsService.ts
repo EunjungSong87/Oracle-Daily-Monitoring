@@ -8,7 +8,10 @@ import type {
   ScheduleConfig,
   TestConnectionInput,
 } from '../models/dbmsModel';
+import type oracledb from 'oracledb';
+import { CALL_TIMEOUT_MS, classifyTargetError } from '../models/targetDbTimeouts';
 import * as historyModel from '../models/historyModel';
+import * as capacityService from './capacityService';
 import * as issuesModel from '../models/issuesModel';
 import { logger } from '../utils/logger';
 
@@ -158,12 +161,26 @@ async function getMonResult(
   }
 
   // 태스크마다 새로 연결하지 않고, 대상 DB 커넥션 하나를 열어서 모든 체크에 재사용합니다.
-  let targetConnection;
+  // 태스크 하나가 오래 물려 나머지(그리고 예약 점검의 다음 DB들)를 막지 않도록 쿼리 타임아웃을 겁니다.
+  const callTimeoutMs = CALL_TIMEOUT_MS.monitoring;
+  const connectOptions = { callTimeoutMs };
+  let targetConnection: oracledb.Connection | null;
   try {
-    targetConnection = await dbmsList.connectToTarget(dbconfig);
+    targetConnection = await dbmsList.connectToTarget(dbconfig, connectOptions);
   } catch (error) {
     throw new Error('대상 DB 접속 실패', { cause: error });
   }
+
+  // 타임아웃 뒤 재접속까지 실패하면 남은 태스크는 이 사유로 실패 처리합니다.
+  let reconnectError: string | null = null;
+  const failed = (id: unknown, checkName: unknown, error: string) => ({
+    task_id: id,
+    task_name: checkName,
+    columns: [],
+    rows: [],
+    success: false,
+    error,
+  });
 
   try {
     for (const row of tasks.rows) {
@@ -176,6 +193,12 @@ async function getMonResult(
         continue;
       }
 
+      if (!targetConnection) {
+        results.push(failed(id, checkName, `대상 DB 접속 실패: ${reconnectError}`));
+        continue;
+      }
+
+      const startedAt = Date.now();
       try {
         const result = await dbmsList.executeQuery(targetConnection, sql);
         results.push({
@@ -186,19 +209,43 @@ async function getMonResult(
           success: true,
         });
       } catch (error) {
-        logger.warn('Monitor', `[${dbconfig[6]}] 태스크 ${id}(${checkName}) 실행 실패`, error);
-        results.push({
-          task_id: id,
-          task_name: checkName,
-          columns: [],
-          rows: [],
-          success: false,
-          error: errMsg(error),
-        });
+        const elapsedMs = Date.now() - startedAt;
+        const kind = classifyTargetError(error, elapsedMs, callTimeoutMs);
+        const label = kind === 'TIMEOUT' ? '시간 초과' : kind === 'DISCONNECTED' ? '중 연결 끊김' : '실패';
+        logger.warn('Monitor', `[${dbconfig[6]}] 태스크 ${id}(${checkName}) 실행 ${label}`, error);
+        results.push(
+          failed(
+            id,
+            checkName,
+            kind === 'TIMEOUT'
+              ? `실행 시간 초과 (${Math.round(elapsedMs / 1000)}초)`
+              : kind === 'DISCONNECTED'
+                ? `대상 DB 연결 끊김 (${errMsg(error).split('\n')[0]})`
+                : errMsg(error)
+          )
+        );
+
+        // 타임아웃(Thick 모드에선 NJS-500으로 옴)이나 연결 끊김 뒤의 커넥션은 NJS-003으로 다시 못 쓰므로
+        // 닫고(실패는 무시) 새로 접속해 남은 태스크를 이어 갑니다.
+        if (kind !== 'ERROR') {
+          await targetConnection.close().catch(() => undefined);
+          targetConnection = null;
+          try {
+            targetConnection = await dbmsList.connectToTarget(dbconfig, connectOptions);
+          } catch (reconnectFailure) {
+            reconnectError = errMsg(reconnectFailure);
+            logger.warn('Monitor', `[${dbconfig[6]}] 재접속 실패 — 남은 태스크는 접속 실패로 처리`, reconnectFailure);
+          }
+        }
       }
     }
+    // 예약 점검이면 같은 커넥션으로 용량(테이블스페이스/ASM)을 하루 한 번 수집하고, 소진 예측을 가상 태스크로 붙인다 (실패해도 점검은 그대로).
+    if (triggerType === 'SCHEDULED' && targetConnection) {
+      const capacityTask = await capacityService.collectForScheduled(targetConnection, dbmsid.dbmsid, dbconfig[6]);
+      if (capacityTask) results.push(capacityTask);
+    }
   } finally {
-    await targetConnection.close();
+    if (targetConnection) await targetConnection.close();
   }
 
   // 이력 저장/이슈 동기화는 부가 기능이라, 실패해도 실제 점검 응답에는 영향을 주지 않습니다.

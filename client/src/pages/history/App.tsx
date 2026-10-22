@@ -3,6 +3,7 @@ import { AppHeader } from '../../shared/components/AppHeader';
 import { MonitoringResultTable } from '../../shared/components/MonitoringResultTable';
 import { ToastHost } from '../../shared/components/ToastHost';
 import { getDbmsList, getRunHistoryDetail, getRunHistoryList } from '../../shared/lib/api';
+import { urlParam } from '../../shared/lib/urlParams';
 import { showToast } from '../../shared/lib/toastStore';
 import type { DbmsRow, RunHistoryDetail, RunHistorySummary } from '../../shared/lib/types';
 
@@ -29,8 +30,12 @@ export function App(): ReactElement {
     getDbmsList()
       .then(({ rows }) => {
         setDbmsRows(rows);
-        // placeholder 없이 첫 번째 DBMS를 자동 선택 — 원본과 동일한 동작.
-        if (rows.length > 0) setSelectedDbmsId(String(rows[0].ID));
+        // ?dbms=로 넘어오면 그 DB, 아니면 첫 번째 DBMS를 자동 선택 — 원본과 동일한 동작.
+        const wanted = urlParam('dbms');
+        if (wanted && rows.some((row) => String(row.ID) === wanted)) setSelectedDbmsId(wanted);
+        else if (rows.length > 0) setSelectedDbmsId(String(rows[0].ID));
+        const run = urlParam('run');
+        if (run) viewDetail(Number(run));
       })
       .catch((error) => {
         console.error('DBMS 목록 조회 실패:', error);
@@ -39,7 +44,7 @@ export function App(): ReactElement {
   }, []);
 
   function loadHistoryList(dbmsid: string, from: string, to: string): void {
-    setDetail(null);
+    if (!urlParam('run')) setDetail(null);
     if (!dbmsid) {
       setHistoryList(null);
       return;

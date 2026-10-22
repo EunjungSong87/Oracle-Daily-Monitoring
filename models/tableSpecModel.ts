@@ -1,5 +1,5 @@
 import oracledb from 'oracledb';
-import * as db from '../db';
+import type { TargetConnectOptions } from '../db';
 import * as dbmsModel from './dbmsModel';
 import type { DbmsIdParam } from './dbmsModel';
 
@@ -13,17 +13,8 @@ export interface TableSpec {
 }
 
 // 대상 DBMS에 접속합니다 (모니터링 대상 접속과 동일한 방식).
-async function connectTarget(dbmsid: DbmsIdParam): Promise<oracledb.Connection> {
-  const dbconfig = await dbmsModel.getDbmsInfo(dbmsid);
-  if (!dbconfig) {
-    throw new Error('DBMS 정보를 찾을 수 없습니다.');
-  }
-  const config = {
-    user: dbconfig[0],
-    password: dbconfig[1],
-    connectString: dbconfig[2] + ':' + dbconfig[3] + '/' + dbconfig[4],
-  };
-  return db.connectDB(config);
+async function connectTarget(dbmsid: DbmsIdParam, options: TargetConnectOptions = {}): Promise<oracledb.Connection> {
+  return (await dbmsModel.connectToTargetById(dbmsid, options)).connection;
 }
 
 // Oracle이 기본 제공하는(사용자가 만들지 않은) 스키마를 제외하고 목록을 가져옵니다.

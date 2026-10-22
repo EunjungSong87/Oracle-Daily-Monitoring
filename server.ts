@@ -23,7 +23,9 @@ import realtimeRouters from './routers/realtimeRouters';
 import objectCompareRouters from './routers/objectCompareRouters';
 import parameterCompareRouters from './routers/parameterCompareRouters';
 import dataPumpRouters from './routers/dataPumpRouters';
+import dashboardRouters from './routers/dashboardRouters';
 import { requireAuth, requireScreenPage } from './middleware/auth';
+import { getHealth } from './services/healthService';
 import { startScheduler } from './services/scheduler';
 import { logger } from './utils/logger';
 
@@ -87,6 +89,13 @@ app.use(requireAuth);
 // 숨긴 화면(계정 관리 > 화면 권한)의 페이지는 보이는 첫 화면으로 돌려보냅니다.
 app.use(requireScreenPage);
 
+// 앱 자체 상태 (로그인 없이 — middleware/auth.ts의 PUBLIC 목록). ok면 200, degraded/down이면 503.
+// 메타 DB만 3초 안에 가볍게 보고, 대상 DB에는 접속하지 않는다. 판정은 services/healthService.ts.
+app.get('/health', async (req, res) => {
+  const report = await getHealth();
+  res.status(report.status === 'ok' ? 200 : 503).set('Cache-Control', 'no-store').json(report);
+});
+
 // 메인 기본 HTML 파일을 제공하는 라우트입니다.
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -119,3 +128,4 @@ app.use('/api', realtimeRouters);
 app.use('/api', objectCompareRouters);
 app.use('/api', parameterCompareRouters);
 app.use('/api', dataPumpRouters);
+app.use('/api', dashboardRouters);

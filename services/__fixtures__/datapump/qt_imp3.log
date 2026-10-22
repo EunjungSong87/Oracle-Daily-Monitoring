@@ -1,0 +1,24 @@
+;;; 
+Import: Release 23.0.0.0.0 - Production on Thu Oct 22 02:25:50 2026
+Version 23.4.0.24.05
+
+Copyright (c) 1982, 2024, Oracle and/or its affiliates.  All rights reserved.
+;;; 
+Connected to: Oracle Database 23ai Free Release 23.0.0.0.0 - Develop, Learn, and Run for Free
+;;; **************************************************************************
+;;; Parfile values:
+;;;  parfile:  job_name=QT_IMP3
+;;;  parfile:  table_exists_action=APPEND
+;;;  parfile:  remap_schema="QTest":QUP2
+;;;  parfile:  logfile=qt_imp3.log
+;;;  parfile:  dumpfile=qt_api1.dmp
+;;;  parfile:  directory=DATA_PUMP_DIR
+;;; **************************************************************************
+Master table "SYSTEM"."QT_IMP3" successfully loaded/unloaded
+Starting "SYSTEM"."QT_IMP3":  system/********@localhost:1521/FREEPDB1 parfile=qt_imp3.par 
+Processing object type TABLE_EXPORT/TABLE/TABLE
+Processing object type TABLE_EXPORT/TABLE/TABLE_DATA
+. . imported "QUP2"."MyTable":"p2025"                      5.5 KB       1 rows
+. . imported "QUP2"."UPPER_T"                              5.1 KB       1 rows
+Processing object type TABLE_EXPORT/TABLE/STATISTICS/TABLE_STATISTICS
+Job "SYSTEM"."QT_IMP3" successfully completed at Thu Oct 22 02:25:53 2026 elapsed 0 00:00:02

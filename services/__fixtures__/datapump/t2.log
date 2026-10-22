@@ -1,0 +1,33 @@
+;;; 
+Export: Release 23.0.0.0.0 - Production on Thu Oct 22 02:17:45 2026
+Version 23.4.0.24.05
+
+Copyright (c) 1982, 2024, Oracle and/or its affiliates.  All rights reserved.
+;;; 
+Connected to: Oracle Database 23ai Free Release 23.0.0.0.0 - Develop, Learn, and Run for Free
+;;; **************************************************************************
+;;; Parfile values:
+;;;  parfile:  job_name=QT_T2
+;;;  parfile:  reuse_dumpfiles=Y
+;;;  parfile:  exclude=TABLE:"IN ('Mixed','EMPTY_T')"
+;;;  parfile:  schemas=QTest,QUP
+;;;  parfile:  logfile=t2.log
+;;;  parfile:  dumpfile=t2.dmp
+;;;  parfile:  directory=DATA_PUMP_DIR
+;;; **************************************************************************
+Starting "SYSTEM"."QT_T2":  system/********@localhost:1521/FREEPDB1 parfile=t2.par 
+Processing object type SCHEMA_EXPORT/TABLE/TABLE_DATA
+Processing object type SCHEMA_EXPORT/TABLE/STATISTICS/TABLE_STATISTICS
+Processing object type SCHEMA_EXPORT/USER
+Processing object type SCHEMA_EXPORT/SYSTEM_GRANT
+Processing object type SCHEMA_EXPORT/DEFAULT_ROLE
+Processing object type SCHEMA_EXPORT/TABLESPACE_QUOTA
+Processing object type SCHEMA_EXPORT/PRE_SCHEMA/PROCACT_SCHEMA/LOGREP
+Processing object type SCHEMA_EXPORT/TABLE/TABLE
+. . exported "QUP"."EMP"                                   5.1 KB       5 rows
+ORA-39165: Schema QTEST was not found.
+Master table "SYSTEM"."QT_T2" successfully loaded/unloaded
+******************************************************************************
+Dump file set for SYSTEM.QT_T2 is:
+  /opt/oracle/admin/FREE/dpdump/2467904D40F2106AE0630F02000A30D8/t2.dmp
+Job "SYSTEM"."QT_T2" completed with 1 error(s) at Thu Oct 22 02:18:11 2026 elapsed 0 00:00:24

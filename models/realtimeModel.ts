@@ -1,7 +1,9 @@
 import oracledb from 'oracledb';
-import * as db from '../db';
+import type { TargetConnectOptions } from '../db';
+import { CALL_TIMEOUT_MS } from './targetDbTimeouts';
 import * as dbmsModel from './dbmsModel';
 import type { DbmsIdParam } from './dbmsModel';
+import { buildBlockingTree, killDisabledReason, sessionKey, type BlockingRoot, type BlockingSession } from '../services/realtimeBlocking';
 
 export interface SessionRow {
   sid: number;
@@ -26,18 +28,10 @@ export interface SessionRow {
 // 날짜/시각은 화면과 주고받기 쉽게 전부 이 형식의 문자열로 다룹니다 (DB 서버 시각 기준).
 const TS_FORMAT = 'YYYY-MM-DD HH24:MI:SS';
 
-// 대상 DBMS에 접속합니다 (모니터링 대상 접속과 동일한 방식).
-async function connectTarget(dbmsid: DbmsIdParam): Promise<oracledb.Connection> {
-  const dbconfig = await dbmsModel.getDbmsInfo(dbmsid);
-  if (!dbconfig) {
-    throw new Error('DBMS 정보를 찾을 수 없습니다.');
-  }
-  const config = {
-    user: dbconfig[0],
-    password: dbconfig[1],
-    connectString: dbconfig[2] + ':' + dbconfig[3] + '/' + dbconfig[4],
-  };
-  return db.connectDB(config);
+// 대상 DBMS에 접속합니다 (모니터링 대상 접속과 동일한 방식). 폴링/세션 상세는 짧게 끊어야 해서
+// 기본 쿼리 타임아웃은 TARGET_DB_REALTIME_CALL_TIMEOUT_MS(15초)입니다.
+async function connectTarget(dbmsid: DbmsIdParam, options: TargetConnectOptions = { callTimeoutMs: CALL_TIMEOUT_MS.realtime }): Promise<oracledb.Connection> {
+  return (await dbmsModel.connectToTargetById(dbmsid, options)).connection;
 }
 
 async function query(
@@ -267,11 +261,158 @@ async function loadAshExecutionsSince(connection: oracledb.Connection, since: st
   }));
 }
 
+// ── Blocking 체인 (GV$SESSION, RAC는 inst_id 포함) ─────────────────────────────
+// 2초 폴링에 붙어 도므로 세션 전체를 다시 읽지 않는다: 평소에는 "blocking_session이 있는 세션"만 읽는 쿼리 하나(보통 0행)이고,
+// 대기자가 있을 때만 그 블로커들(정확한 inst_id, sid만)·잠긴 오브젝트(해당 obj#만)·ALTER SYSTEM 권한을 추가로 본다.
+const MAX_BLOCKING_WAITERS = 500;
+const MAX_BLOCKERS = 200;
+const MAX_LOCKED_OBJECTS = 100;
+
+export interface BlockingSnapshot {
+  roots: BlockingRoot[];
+  canKill: boolean | null; // 접속 계정에 ALTER SYSTEM 권한이 있는지 (블로킹이 없으면 확인하지 않아 null)
+  truncated: boolean; // 대기자가 상한(500)을 넘어 일부만 보여 주는 중
+}
+
+const BLOCKING_COLUMNS = `s.inst_id, s.sid, s.serial# AS serial_num, s.username, s.machine, s.program, s.sql_id, s.event, s.status, s.type,
+       CASE WHEN s.state = 'WAITING' THEN ROUND(s.wait_time_micro / 1000000) END AS wait_sec,
+       s.blocking_instance, s.blocking_session, s.row_wait_obj#`;
+
+function toBlockingSession(row: Record<string, any>): BlockingSession {
+  return {
+    instId: row.INST_ID,
+    sid: row.SID,
+    serial: row.SERIAL_NUM,
+    username: row.USERNAME,
+    machine: row.MACHINE,
+    program: row.PROGRAM,
+    sqlId: row.SQL_ID,
+    event: row.EVENT,
+    status: row.STATUS,
+    type: row.TYPE,
+    waitSec: row.WAIT_SEC,
+    blockingInstance: row.BLOCKING_INSTANCE,
+    blockingSession: row.BLOCKING_SESSION,
+    rowWaitObj: row['ROW_WAIT_OBJ#'] >= 0 ? row['ROW_WAIT_OBJ#'] : null,
+    objectName: null,
+  };
+}
+
+async function loadBlocking(connection: oracledb.Connection): Promise<BlockingSnapshot> {
+  const waiterRows = await query(
+    connection,
+    `SELECT * FROM (
+       SELECT ${BLOCKING_COLUMNS}
+         FROM gv$session s
+        WHERE s.blocking_session IS NOT NULL
+        ORDER BY s.wait_time_micro DESC
+     ) WHERE ROWNUM <= ${MAX_BLOCKING_WAITERS + 1}`
+  );
+  if (waiterRows.length === 0) return { roots: [], canKill: null, truncated: false };
+  const truncated = waiterRows.length > MAX_BLOCKING_WAITERS;
+  const waiters = waiterRows.slice(0, MAX_BLOCKING_WAITERS).map(toBlockingSession);
+
+  // 대기자 목록에 없는 블로커만 (inst_id, sid)로 콕 집어 읽는다
+  const known = new Set(waiters.map((w) => sessionKey(w.instId, w.sid)));
+  const wanted = new Map<string, { instId: number; sid: number }>();
+  for (const w of waiters) {
+    const instId = w.blockingInstance ?? w.instId;
+    const key = sessionKey(instId, w.blockingSession!);
+    if (!known.has(key) && wanted.size < MAX_BLOCKERS) wanted.set(key, { instId, sid: w.blockingSession! });
+  }
+  let blockers: BlockingSession[] = [];
+  if (wanted.size > 0) {
+    const binds: Record<string, number> = {};
+    const conditions = [...wanted.values()].map((b, i) => {
+      binds[`i${i}`] = b.instId;
+      binds[`s${i}`] = b.sid;
+      return `(s.inst_id = :i${i} AND s.sid = :s${i})`;
+    });
+    blockers = (await query(connection, `SELECT ${BLOCKING_COLUMNS} FROM gv$session s WHERE ${conditions.join(' OR ')}`, binds)).map(toBlockingSession);
+  }
+
+  // 잠긴 오브젝트: 대기자의 row_wait_obj#만 DBA_OBJECTS에서 (못 읽으면 obj#만 보여 준다)
+  const objIds = [...new Set(waiters.map((w) => w.rowWaitObj).filter((id): id is number => id !== null))].slice(0, MAX_LOCKED_OBJECTS);
+  if (objIds.length > 0) {
+    try {
+      const binds: Record<string, number> = {};
+      objIds.forEach((id, i) => (binds[`o${i}`] = id));
+      const rows = await query(
+        connection,
+        `SELECT object_id, owner, object_name, object_type FROM dba_objects WHERE object_id IN (${objIds.map((_, i) => `:o${i}`).join(', ')})`,
+        binds
+      );
+      const names = new Map(rows.map((row) => [row.OBJECT_ID, `${row.OWNER}.${row.OBJECT_NAME} (${row.OBJECT_TYPE})`]));
+      for (const w of waiters) w.objectName = w.rowWaitObj !== null ? (names.get(w.rowWaitObj) ?? null) : null;
+    } catch {
+      // DBA_OBJECTS 권한이 없으면 obj#만
+    }
+  }
+
+  let canKill: boolean | null;
+  try {
+    canKill = (await query(connection, `SELECT COUNT(*) AS n FROM session_privs WHERE privilege = 'ALTER SYSTEM'`))[0].N > 0;
+  } catch {
+    canKill = null;
+  }
+  return { roots: buildBlockingTree(waiters, blockers), canKill, truncated };
+}
+
+export interface KilledSession {
+  instId: number;
+  sid: number;
+  serial: number;
+  username: string | null;
+  machine: string | null;
+  program: string | null;
+  sqlId: string | null;
+}
+
+// 사용자에게 그대로 보여 줄 거절 사유 (400)
+export class SessionKillRefused extends Error {}
+// 대상 세션 정보까지는 읽었는데 ALTER SYSTEM이 실패 — 감사 기록에 세션 정보를 남기기 위해 같이 넘긴다
+export class SessionKillFailed extends Error {
+  readonly session: KilledSession;
+  constructor(session: KilledSession, cause: unknown) {
+    super(`ALTER SYSTEM KILL SESSION 실패: ${errorText(cause)}`, { cause });
+    this.session = session;
+  }
+}
+
+// SUPER_ADMIN이 화면에서 누른 Kill. 같은 세션(inst_id, sid, serial#)이 아직 있는지, 백그라운드/SYS가 아닌지 다시 확인한 뒤에만 실행한다.
+// 숫자는 컨트롤러에서 정수로 검증했고, ALTER SYSTEM은 바인드를 못 받아 문자열로 만든다.
+async function killSession(dbmsid: DbmsIdParam, instId: number, sid: number, serial: number): Promise<KilledSession> {
+  let connection: oracledb.Connection | undefined;
+  try {
+    connection = await connectTarget(dbmsid);
+    const rows = await query(
+      connection,
+      `SELECT ${BLOCKING_COLUMNS} FROM gv$session s WHERE s.inst_id = :instId AND s.sid = :sid AND s.serial# = :serial`,
+      { instId, sid, serial }
+    );
+    if (rows.length === 0) throw new SessionKillRefused('세션이 이미 없습니다 (끝났거나 SERIAL#가 바뀜).');
+    const session = toBlockingSession(rows[0]);
+    const reason = killDisabledReason(session);
+    if (reason) throw new SessionKillRefused(`${reason}은(는) Kill할 수 없습니다.`);
+    const info: KilledSession = { instId, sid, serial, username: session.username, machine: session.machine, program: session.program, sqlId: session.sqlId };
+    try {
+      await connection.execute(`ALTER SYSTEM KILL SESSION '${sid},${serial},@${instId}' IMMEDIATE`);
+    } catch (error) {
+      throw new SessionKillFailed(info, error);
+    }
+    return info;
+  } finally {
+    if (connection) await connection.close();
+  }
+}
+
 export interface RealtimeSnapshot {
   dbNow: string; // DB 서버 현재 시각 — 화면은 다음 조회 때 이 값을 since로 넘긴다
   sessions: SessionRow[];
   // ASH 권한/라이선스가 없으면 { unavailable } — 세션 목록과 다른 그래프는 그대로 동작한다.
   executions: AshExecution[] | Unavailable;
+  // Blocking 체인. GV$SESSION 권한이 없으면 { unavailable } — 나머지는 그대로 동작한다.
+  blocking: BlockingSnapshot | Unavailable;
 }
 
 // 실시간 화면의 2초 폴링 한 번: 세션 목록 + ASH의 최근 SQL 실행 목록을 한 커넥션으로 가져옵니다.
@@ -290,7 +431,13 @@ async function getSnapshot(dbmsid: DbmsIdParam, since: string | null): Promise<R
     } catch (error) {
       executions = { unavailable: errorText(error) };
     }
-    return { dbNow, sessions, executions };
+    let blocking: RealtimeSnapshot['blocking'];
+    try {
+      blocking = await loadBlocking(connection);
+    } catch (error) {
+      blocking = { unavailable: errorText(error) };
+    }
+    return { dbNow, sessions, executions, blocking };
   } finally {
     if (connection) await connection.close();
   }
@@ -580,4 +727,4 @@ async function getSessionDetail(
   }
 }
 
-export { getSnapshot, getSessionDetail };
+export { getSnapshot, getSessionDetail, killSession };

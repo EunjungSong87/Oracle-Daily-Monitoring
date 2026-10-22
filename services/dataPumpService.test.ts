@@ -260,7 +260,7 @@ describe('parseSize / suggestFilesize', () => {
 describe('planExportGroups — 스키마 선택', () => {
   it('분할 크기 이하면 스키마 작업 하나', () => {
     const sizes = [table('HR', 'EMP', 300 * G), table('HR', 'DEPT', 200 * G)];
-    const { groups } = planExportGroups({ kind: 'SCHEMAS', schemas: ['hr'] }, sizes, splitOptions(), NOW);
+    const { groups } = planExportGroups({ kind: 'SCHEMAS', schemas: ['HR'] }, sizes, splitOptions(), NOW);
     expect(groups).toHaveLength(1);
     expect(groups[0]).toMatchObject({ no: 1, owners: ['HR'], mode: 'SCHEMA', bytes: 500 * G, excludedTables: [] });
     expect(groups[0].request).toMatchObject({ mode: 'SCHEMA', schemas: ['HR'], dumpfile: 'exp_20261002_01_%U.dmp', jobName: 'DBC_EXP_20261002140509_01' });

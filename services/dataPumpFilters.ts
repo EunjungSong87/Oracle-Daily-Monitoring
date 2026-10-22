@@ -442,29 +442,37 @@ function nameMatches(op: NameOp, values: string[], name: string): boolean | null
   }
 }
 
-// 테이블 하나에 대해 필터를 적용한 크기 비율 (0 = 데이터 안 나감, 1 = 그대로, SAMPLE이면 그 비율).
-// approx = 서브쿼리/QUERY처럼 미리 알 수 없는 조건이 걸려 실제와 다를 수 있음.
-function tableSizeFactor(objectFilter: ObjectFilter | null | undefined, dataFilter: DataFilter | null | undefined, owner: string, table: string): { factor: number; approx: boolean } {
+// 오브젝트 필터(이름 조건)로 테이블(또는 그 데이터)이 빠지는지: IN = 나감, EXCLUDED = 빠짐, UNKNOWN = 서브쿼리라 미리 알 수 없음.
+function tableFilterStatus(objectFilter: ObjectFilter | null | undefined, owner: string, table: string): 'IN' | 'EXCLUDED' | 'UNKNOWN' {
+  void owner; // 이름 조건은 스키마를 구분하지 않는다 (Data Pump NAME_EXPR와 같음)
   const rules = (objectFilter?.rules ?? []).map((rule) => ({
     ...rule,
     path: String(rule.path ?? '').toUpperCase(),
     values: (rule.values ?? []).map((value) => String(value).toUpperCase()),
   }));
-  let approx = false;
-  const tableRules = rules.filter((rule) => rule.path === 'TABLE' || rule.path === 'TABLE_DATA');
+  let unknown = false;
   const includes = rules.filter((rule) => rule.kind === 'INCLUDE');
   if (includes.length > 0) {
     const tableIncludes = includes.filter((rule) => rule.path === 'TABLE' || rule.path === 'TABLE_DATA');
-    if (tableIncludes.length === 0) return { factor: 0, approx: false }; // INCLUDE에 TABLE이 없으면 데이터 0
+    if (tableIncludes.length === 0) return 'EXCLUDED'; // INCLUDE에 TABLE이 없으면 테이블은 하나도 안 나감
     const matched = tableIncludes.map((rule) => nameMatches(rule.op, rule.values, table));
-    if (matched.includes(null)) approx = true;
-    else if (!matched.some(Boolean)) return { factor: 0, approx: false };
+    if (matched.includes(null)) unknown = true;
+    else if (!matched.some(Boolean)) return 'EXCLUDED';
   }
-  for (const rule of tableRules.filter((item) => item.kind === 'EXCLUDE')) {
+  for (const rule of rules.filter((item) => item.kind === 'EXCLUDE' && (item.path === 'TABLE' || item.path === 'TABLE_DATA'))) {
     const matched = nameMatches(rule.op, rule.values, table);
-    if (matched === null) approx = true;
-    else if (matched) return { factor: 0, approx: false };
+    if (matched === null) unknown = true;
+    else if (matched) return 'EXCLUDED';
   }
+  return unknown ? 'UNKNOWN' : 'IN';
+}
+
+// 테이블 하나에 대해 필터를 적용한 크기 비율 (0 = 데이터 안 나감, 1 = 그대로, SAMPLE이면 그 비율).
+// approx = 서브쿼리/QUERY처럼 미리 알 수 없는 조건이 걸려 실제와 다를 수 있음.
+function tableSizeFactor(objectFilter: ObjectFilter | null | undefined, dataFilter: DataFilter | null | undefined, owner: string, table: string): { factor: number; approx: boolean } {
+  const status = tableFilterStatus(objectFilter, owner, table);
+  if (status === 'EXCLUDED') return { factor: 0, approx: false };
+  let approx = status === 'UNKNOWN';
   const samples = dataFilter?.samples ?? [];
   const sample =
     samples.find((item) => item.table && String(item.table).toUpperCase() === table && (!item.owner || String(item.owner).toUpperCase() === owner)) ??
@@ -473,4 +481,4 @@ function tableSizeFactor(objectFilter: ObjectFilter | null | undefined, dataFilt
   return { factor: sample ? Number(sample.percent) / 100 : 1, approx };
 }
 
-export { checkSqlCondition, compileFilters, tableSizeFactor };
+export { checkSqlCondition, compileFilters, tableFilterStatus, tableSizeFactor };

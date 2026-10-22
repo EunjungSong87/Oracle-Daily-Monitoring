@@ -150,6 +150,19 @@ function collectAlertGroups(results: Record<string, any>[]): Map<string, AlertGr
   return groups;
 }
 
+// 자동 해제 대상: 열린 티켓 중 이번 실행에서 다시 감지되지 않았고, 그 티켓의 태스크가 이번 실행에서 성공적으로 돈 것.
+// (실패한 태스크나 이번 실행에 없는 태스크 — 예: 예약 점검에만 붙는 용량 예측 — 의 티켓은 그대로 둔다)
+function autoResolveTargets(
+  existingByKey: Map<string, { id: number; status: string }>,
+  detected: Set<string>,
+  results: Record<string, any>[]
+): number[] {
+  const ran = new Set(results.filter((task) => task.success).map((task) => String(task.task_id)));
+  return [...existingByKey]
+    .filter(([key, existing]) => existing.status !== 'RESOLVED' && !detected.has(key) && ran.has(key.slice(0, key.indexOf(':'))))
+    .map(([, existing]) => existing.id);
+}
+
 // 이번 실행에서 감지된 위반사항을 monitoring_issues와 동기화합니다.
 // - 새 위반 -> OPEN 티켓 생성
 // - RESOLVED였던 티켓이 재발 -> 같은 행을 OPEN으로 재오픈(reopen_count 증가)
@@ -266,10 +279,10 @@ async function syncIssues(
       );
     }
 
-    // 이번 실행에 더 이상 나타나지 않는, 아직 열려있는 티켓은 자동 해제
-    for (const [key, existing] of existingByKey) {
-      if (groups.has(key)) continue;
-      if (existing.status === 'RESOLVED') continue;
+    // 이번 실행에서 성공적으로 돈 태스크의 티켓 중 더 이상 나타나지 않는 것만 자동 해제
+    const resolveIds = new Set(autoResolveTargets(existingByKey, new Set(groups.keys()), results));
+    for (const [, existing] of existingByKey) {
+      if (!resolveIds.has(existing.id)) continue;
       await connection.execute(
         `update system.monitoring_issues
             set status = 'RESOLVED', resolved_at = TO_CHAR(SYSDATE,'YYYYMMDDHH24MISS'), resolved_by = 'auto',
@@ -468,4 +481,4 @@ async function addComment(issueId: number | string, author: string | undefined, 
   }
 }
 
-export { syncIssues, listIssues, getIssueDetail, acknowledgeIssue, resolveIssue, reopenIssue, assignIssue, addComment };
+export { syncIssues, listIssues, getIssueDetail, acknowledgeIssue, resolveIssue, reopenIssue, assignIssue, addComment, autoResolveTargets };

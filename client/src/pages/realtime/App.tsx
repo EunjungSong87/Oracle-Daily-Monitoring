@@ -6,11 +6,12 @@ import { ToastHost } from '../../shared/components/ToastHost';
 import { useTheme } from '../../shared/hooks/useTheme';
 import { getDbmsList, pollSessions } from '../../shared/lib/api';
 import { showToast } from '../../shared/lib/toastStore';
-import type { AshExecution, DbmsRow, SessionRow } from '../../shared/lib/types';
+import type { AshExecution, BlockingSnapshot, DbmsRow, SessionRow, Unavailable } from '../../shared/lib/types';
 import { colorFor, WAIT_CLASS_ORDER } from './waitClasses';
 import { ElapsedScatter, type ElapsedPoint } from './ElapsedScatter';
 import { SessionDetailModal } from './SessionDetailModal';
 import { AshSelectionModal, type DetailTarget } from './AshSelectionModal';
+import { BlockingPanel } from './BlockingPanel';
 
 // Chart.js는 번들에 포함한다 (vite.config.ts에서 별도 'chart' 청크로 분리).
 // 예전처럼 CDN에서 받으면 인터넷이 안 되는 내부망에서 window.Chart가 없어 페이지 전체가 죽는다.
@@ -133,6 +134,7 @@ export function App(): ReactElement {
   const [activeOnly, setActiveOnly] = useState(readActiveOnly);
   const [detailTarget, setDetailTarget] = useState<DetailTarget | null>(null);
   const [selection, setSelection] = useState<AshExecution[] | null>(null);
+  const [blocking, setBlocking] = useState<BlockingSnapshot | Unavailable | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chartRef = useRef<ChartInstance | null>(null);
@@ -253,7 +255,7 @@ export function App(): ReactElement {
 
   async function pollOnce(currentDbmsId: string): Promise<void> {
     try {
-      const { sessions: fetched, dbNow, executions } = await pollSessions(currentDbmsId, ashSinceRef.current);
+      const { sessions: fetched, dbNow, executions, blocking: fetchedBlocking } = await pollSessions(currentDbmsId, ashSinceRef.current);
       if ('unavailable' in executions) {
         setAshUnavailable(executions.unavailable);
       } else {
@@ -274,6 +276,7 @@ export function App(): ReactElement {
       setNowCounts(counts);
       setActiveTotal(total);
       setSessions(fetched);
+      setBlocking(fetchedBlocking ?? null);
       updateChart();
       setStatusText('실시간 갱신 중');
       setStatusLive(true);
@@ -508,6 +511,13 @@ export function App(): ReactElement {
         {sessions.length === 0 && <p className="issues-empty">세션 정보가 없습니다.</p>}
         {sessions.length > 0 && sortedSessions.length === 0 && <p className="issues-empty">지금 ACTIVE 세션이 없습니다.</p>}
       </div>
+
+      <BlockingPanel
+        dbmsId={dbmsId}
+        dbname={dbmsRows.find((row) => String(row.ID) === dbmsId)?.DBNAME ?? ''}
+        blocking={blocking}
+        onOpenDetail={(sid, serial) => setDetailTarget({ sid, serial, sqlId: null, range: null })}
+      />
 
       <AshSelectionModal
         executions={selection}

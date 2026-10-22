@@ -4,7 +4,9 @@ export type Role = 'VIEWER' | 'DBA' | 'SUPER_ADMIN';
 
 // 화면 표시 권한의 화면 키 (services/screenAccessService.ts의 SCREENS와 같음). 계정 관리(users)는 최고관리자 고정이라 없음.
 export type ScreenKey =
+  | 'dashboard'
   | 'databases'
+  | 'capacity'
   | 'dailyMonitoring'
   | 'scripts'
   | 'thresholds'
@@ -369,6 +371,37 @@ export interface RealtimeSnapshot {
   sessions: SessionRow[];
   // ASH의 SQL 실행 목록(산점도용). ASH 권한/라이선스가 없으면 { unavailable }.
   executions: AshExecution[] | Unavailable;
+  // Blocking 체인 (GV$SESSION). 권한이 없으면 { unavailable }.
+  blocking: BlockingSnapshot | Unavailable;
+}
+
+export interface BlockingNode {
+  instId: number;
+  sid: number;
+  serial: number;
+  username: string | null;
+  machine: string | null;
+  program: string | null;
+  sqlId: string | null;
+  event: string | null;
+  status: string | null;
+  type: string | null;
+  waitSec: number | null;
+  rowWaitObj: number | null;
+  objectName: string | null;
+  killDisabled: string | null;
+  waiters: BlockingNode[];
+}
+
+export interface BlockingRoot extends BlockingNode {
+  blockedSec: number;
+  waiterCount: number;
+}
+
+export interface BlockingSnapshot {
+  roots: BlockingRoot[];
+  canKill: boolean | null;
+  truncated: boolean;
 }
 
 // POST /api/statsJob/status 한 행 (DBA_SCHEDULER_JOBS + 최근 실행 이력, models/statsJobModel.ts 기준).
@@ -661,6 +694,17 @@ export interface ExportPlanResponse {
   sizesReadAt: string; // 크기를 대상 DB에서 읽은 시각 (서버가 10분간 재사용)
   sizeNotes: string[]; // 크기 안내 (서브쿼리/QUERY로 어림, 뷰 크기 미반영)
   summary: ExportPlanSummary;
+  planId: string; // 실행/저장 때 함께 보냄 (서버가 빠진 항목 확인 여부를 대조)
+  filteredOut: string[]; // 사용자 필터(이름 조건)로 빠지는 테이블 OWNER.TABLE (정확한 이름)
+  filterUnknown: string | null; // 서브쿼리 조건이라 미리 확인할 수 없음
+  suggestions: Record<string, string[]>; // 빠진 항목 → 대소문자만 다른 실제 이름 후보 (SQL 표기)
+  summaryFile: { name: string; text: string }; // parfile과 함께 남기는 요약
+}
+
+// 빠지는 항목을 사용자가 확인했다는 표시 (계획의 목록 그대로 보냄)
+export interface PlanAck {
+  planId: string;
+  acknowledged: { missing: string[]; filteredOut: string[] };
 }
 
 export interface ExportPlanSummary {
@@ -669,6 +713,7 @@ export interface ExportPlanSummary {
   merged: number; // 같은 테이블을 통째로도 적어서 통째에 합쳐진 파티션 줄
   planned: number; // 계획에 들어간 줄(통째 테이블 + 파티션), 스키마 선택이면 테이블 수
   missing: number; // DB에 없어서 뺀 줄
+  filteredOut: number; // 사용자 필터로 빠지는 테이블
   viewJobs: number;
   views: number;
   filters: string[]; // 적용 중인 오브젝트·데이터 필터
@@ -683,9 +728,22 @@ export interface ParfilePreview {
   command: string;
 }
 
+// 작업에 붙은 세션의 실행자 (V$SESSION)
+export interface DataPumpRunner {
+  username: string | null;
+  osuser: string | null;
+  machine: string | null;
+  program: string | null;
+}
+
 export interface DataPumpJob {
   owner: string;
   jobName: string;
+  source?: 'APP' | 'EXTERNAL'; // 앱에서 시작 / 앱 밖에서 직접 실행
+  runner?: DataPumpRunner | null;
+  logDirectory?: string | null; // 앱 작업은 이력에서, 외부 작업은 마스터 테이블에서
+  logFile?: string | null;
+  noLogfile?: boolean;
   operation: string;
   jobMode: string;
   state: string;
@@ -731,6 +789,16 @@ export interface DataPumpHistoryRow {
   elapsedSec: number | null;
   errorCount: number | null;
   resultMessage: string | null;
+  // 실행 후 대조 (scripts/add_datapump_history_verify.sql 컬럼이 없으면 null)
+  expectedItems?: { items: string[] | null; remap: { from: string; to: string }[] } | null;
+  acknowledged?: { missing: string[]; filteredOut: string[]; by: string | null } | null;
+  verifyStatus?: 'MATCH' | 'MISMATCH' | 'NA' | null;
+  verifyDetail?: { notInLog: string[]; notInPlan: string[]; skipped: string[]; rowDiffs: string[] } | null;
+  errorSummary?: string | null;
+  source?: 'APP' | 'EXTERNAL';
+  runner?: DataPumpRunner | null;
+  firstSeenAt?: string | null;
+  cancelledBy?: string | null;
 }
 
 export interface DataPumpHistory {
@@ -836,4 +904,65 @@ export interface SecuritySelection {
   users: string[];
   roles: string[];
   profiles: string[];
+}
+
+// ── Dashboard (첫 화면) ──
+export type DashboardSignal = 'RED' | 'YELLOW' | 'GREEN' | 'GRAY';
+
+export interface DashboardCard {
+  dbmsId: number;
+  dbname: string;
+  memo: string | null;
+  autoSchedule: boolean;
+  signal: DashboardSignal;
+  signalReason: string;
+  lastRun: { id: number; at: string; trigger: string; errors: number; warns: number; failedTasks: number } | null;
+  issues: { ERROR: number; WARN: number; other: number; acknowledged: number };
+  dataPump: {
+    running: { jobName: string; operation: string; startedAt: string | null }[];
+    latest: { jobName: string; operation: string; status: string; finishedAt: string | null } | null;
+  };
+  lastScheduled: { at: string; ok: boolean } | null;
+}
+
+export interface Dashboard {
+  generatedAt: string;
+  cards: DashboardCard[];
+  summary: { total: number; problem: number; scheduledToday: { ok: number; expected: number; runTime: string | null; enabled: boolean }; openIssues: number };
+  dataPumpAvailable: boolean;
+}
+
+// ── Capacity ──
+export interface CapacityConfig {
+  retentionDays: number;
+  alertDays: number;
+  thresholdPct: number;
+}
+
+export interface CapacityItem {
+  kind: 'TABLESPACE' | 'ASM';
+  name: string;
+  used: number;
+  max: number;
+  lastDay: string;
+  status: 'OK' | 'REACHED' | 'NO_GROWTH' | 'INSUFFICIENT';
+  usedPct: number | null;
+  date: string | null;
+  daysLeft: number | null;
+  slopePerDay: number | null;
+  samples: number;
+}
+
+export interface CapacityView {
+  available: boolean;
+  config: CapacityConfig;
+  items: CapacityItem[];
+}
+
+export interface CapacityPoint {
+  kind: string;
+  name: string;
+  day: string;
+  used: number;
+  max: number;
 }

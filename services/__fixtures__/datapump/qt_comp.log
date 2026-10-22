@@ -1,0 +1,14 @@
+Starting "SYSTEM"."QT_COMP":  
+Processing object type TABLE_EXPORT/TABLE/TABLE_DATA
+Processing object type TABLE_EXPORT/TABLE/STATISTICS/TABLE_STATISTICS
+Processing object type TABLE_EXPORT/TABLE/TABLE
+. . exported "QUP"."COMP":"P1"."SYS_SUBP1368"              5.6 KB       4 rows
+. . exported "QUP"."COMP":"P1"."SYS_SUBP1369"              5.6 KB       6 rows
+. . exported "QUP"."EMP"                                   5.1 KB       5 rows
+. . exported "QUP"."EMPTY_T"                                 0 KB       0 rows
+. . exported "QUP"."Mixed"                                   0 KB       0 rows
+Master table "SYSTEM"."QT_COMP" successfully loaded/unloaded
+******************************************************************************
+Dump file set for SYSTEM.QT_COMP is:
+  /opt/oracle/admin/FREE/dpdump/2467904D40F2106AE0630F02000A30D8/qt_comp.dmp
+Job "SYSTEM"."QT_COMP" successfully completed at Thu Oct 22 02:25:10 2026 elapsed 0 00:00:13

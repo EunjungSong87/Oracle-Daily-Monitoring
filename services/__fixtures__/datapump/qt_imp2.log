@@ -1,0 +1,26 @@
+;;; 
+Import: Release 23.0.0.0.0 - Production on Thu Oct 22 02:25:45 2026
+Version 23.4.0.24.05
+
+Copyright (c) 1982, 2024, Oracle and/or its affiliates.  All rights reserved.
+;;; 
+Connected to: Oracle Database 23ai Free Release 23.0.0.0.0 - Develop, Learn, and Run for Free
+;;; **************************************************************************
+;;; Parfile values:
+;;;  parfile:  job_name=QT_IMP2
+;;;  parfile:  table_exists_action=SKIP
+;;;  parfile:  remap_schema=QUP:QUP2
+;;;  parfile:  logfile=qt_imp2.log
+;;;  parfile:  dumpfile=qt_comp.dmp
+;;;  parfile:  directory=DATA_PUMP_DIR
+;;; **************************************************************************
+Master table "SYSTEM"."QT_IMP2" successfully loaded/unloaded
+Starting "SYSTEM"."QT_IMP2":  system/********@localhost:1521/FREEPDB1 parfile=qt_imp2.par 
+Processing object type TABLE_EXPORT/TABLE/TABLE
+Table "QUP2"."COMP" exists. All dependent metadata and data will be skipped due to table_exists_action of skip
+Table "QUP2"."Mixed" exists. All dependent metadata and data will be skipped due to table_exists_action of skip
+Table "QUP2"."EMP" exists. All dependent metadata and data will be skipped due to table_exists_action of skip
+Table "QUP2"."EMPTY_T" exists. All dependent metadata and data will be skipped due to table_exists_action of skip
+Processing object type TABLE_EXPORT/TABLE/TABLE_DATA
+Processing object type TABLE_EXPORT/TABLE/STATISTICS/TABLE_STATISTICS
+Job "SYSTEM"."QT_IMP2" successfully completed at Thu Oct 22 02:25:48 2026 elapsed 0 00:00:02

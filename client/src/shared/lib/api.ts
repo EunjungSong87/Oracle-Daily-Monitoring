@@ -1,5 +1,9 @@
 import type {
+  CapacityConfig,
+  CapacityPoint,
+  CapacityView,
   CurrentUser,
+  Dashboard,
   DbmsFormPayload,
   DbmsListResponse,
   IlmRetentionAddPayload,
@@ -18,6 +22,7 @@ import type {
   DataPumpRequest,
   ExportPlanResponse,
   ExportSplitOptions,
+  PlanAck,
   ParfilePreview,
   PartitionImportOptions,
   PartitionImportPlan,
@@ -292,6 +297,10 @@ export function pollSessions(dbmsid: string | number, since: string | null = nul
   return postJson('/api/realtime/sessions', { dbmsid, since });
 }
 
+export function killRealtimeSession(dbmsid: string | number, target: { instId: number; sid: number; serial: number }, confirmDbname: string): Promise<unknown> {
+  return postJson('/api/realtime/killSession', { dbmsid, ...target, confirmDbname });
+}
+
 // range를 주면 그 기간의 ASH만 보고, 안 주면(세션 목록 더블클릭) 서버가 최근 10분을 본다.
 export function getRealtimeSessionDetail(
   dbmsid: string | number,
@@ -367,7 +376,31 @@ export function runParameterCompare(sourceDbmsId: string | number, targetDbmsId:
   return postJson('/api/parameterCompare/run', { sourceDbmsId, targetDbmsId });
 }
 
+// ── Dashboard / Capacity (메타데이터 DB만) ───────────────────────────────────
+export function getDashboard(): Promise<Dashboard> {
+  return getJson('/api/dashboard');
+}
+
+export function getCapacity(dbmsid: string | number): Promise<CapacityView> {
+  return postJson('/api/capacity', { dbmsid });
+}
+
+export async function getCapacityTrend(dbmsid: string | number, kind: string, name: string, days = 365): Promise<CapacityPoint[]> {
+  const { points } = await postJson<{ points: CapacityPoint[] }>('/api/capacity/trend', { dbmsid, kind, name, days });
+  return points;
+}
+
+export function saveCapacityConfig(config: CapacityConfig): Promise<unknown> {
+  return postJson('/api/capacity/config', config);
+}
+
 // ── Data Pump ────────────────────────────────────────────────────────────────
+// 화면 목록의 이름은 DB의 정확한 이름(예: QTest)이라, 서버에 보낼 때는 SQL 표기로 바꾼다 — 서버는 따옴표 없는 이름을 대문자로 읽는다.
+const PLAIN_IDENTIFIER = /^[A-Z][A-Z0-9_$#]{0,127}$/;
+export function sqlName(name: string): string {
+  return PLAIN_IDENTIFIER.test(name) ? name : `"${name}"`;
+}
+
 export function getDataPumpMeta(dbmsid: string | number): Promise<DataPumpMeta> {
   return postJson('/api/dataPump/meta', { dbmsid });
 }
@@ -375,7 +408,7 @@ export function getDataPumpMeta(dbmsid: string | number): Promise<DataPumpMeta> 
 // 스키마(schemas) 또는 "OWNER.TABLE" 목록 텍스트(tableList) 중 하나로 분할 계획을 만든다.
 // 스키마의 뷰 목록 (VIEWS_AS_TABLES, networkLink면 링크 너머)
 export async function getDataPumpViews(dbmsid: string | number, owner: string, networkLink: string | null = null): Promise<string[]> {
-  const { views } = await postJson<{ views: string[] }>('/api/dataPump/views', { dbmsid, owner, networkLink });
+  const { views } = await postJson<{ views: string[] }>('/api/dataPump/views', { dbmsid, owner: sqlName(owner), networkLink });
   return views;
 }
 
@@ -389,7 +422,17 @@ export function planDataPumpExport(
   source: { schemas?: string[]; tableList?: string; partitionSource?: { owner: string; table: string; partitions: string[] }; refreshSizes?: boolean },
   options: ExportSplitOptions
 ): Promise<ExportPlanResponse> {
-  return postJson('/api/dataPump/exportPlan', { dbmsid, ...source, options });
+  // 스키마/파티션 대상은 화면 목록에서 고른 정확한 이름 → SQL 표기 (테이블 목록 텍스트는 사용자가 쓴 그대로)
+  const wire = {
+    ...source,
+    schemas: source.schemas?.map(sqlName),
+    partitionSource: source.partitionSource && {
+      owner: sqlName(source.partitionSource.owner),
+      table: sqlName(source.partitionSource.table),
+      partitions: source.partitionSource.partitions.map(sqlName),
+    },
+  };
+  return postJson('/api/dataPump/exportPlan', { dbmsid, ...wire, options });
 }
 
 // networkLink가 있으면 링크 너머(데이터를 읽는) DB의 SCN
@@ -407,21 +450,24 @@ export function startDataPump(
   dbmsid: string | number,
   request: DataPumpRequest,
   confirmDbname?: string,
-  estimatedBytes?: number
+  estimatedBytes?: number,
+  plan?: PlanAck
 ): Promise<{ jobName: string; jobNames?: string[] }> {
-  return postJson('/api/dataPump/start', { dbmsid, request, confirmDbname, estimatedBytes });
+  return postJson('/api/dataPump/start', { dbmsid, request, confirmDbname, estimatedBytes, ...plan });
 }
 
-export function getDataPumpHistory(dbmsid: string | number): Promise<DataPumpHistory> {
-  return postJson('/api/dataPump/history', { dbmsid });
+// includeExternal: 예상 시간 계산(평균 속도)에 앱 밖에서 직접 돌린 작업 기록도 쓸지
+export function getDataPumpHistory(dbmsid: string | number, includeExternal = false): Promise<DataPumpHistory> {
+  return postJson('/api/dataPump/history', { dbmsid, includeExternal });
 }
 
 export function getDataPumpJobs(dbmsid: string | number): Promise<DataPumpJob[]> {
   return postJson('/api/dataPump/jobs', { dbmsid });
 }
 
-export function cancelDataPumpJob(dbmsid: string | number, owner: string, jobName: string): Promise<unknown> {
-  return postJson('/api/dataPump/cancel', { dbmsid, owner, jobName });
+// 외부(직접 실행) 작업은 confirmDbname(대상 DB명 직접 입력)이 있어야 서버가 취소한다
+export function cancelDataPumpJob(dbmsid: string | number, owner: string, jobName: string, confirmDbname?: string): Promise<unknown> {
+  return postJson('/api/dataPump/cancel', { dbmsid, owner: sqlName(owner), jobName: sqlName(jobName), confirmDbname });
 }
 
 export function readDataPumpLog(dbmsid: string | number, directory: string, logfile: string): Promise<DataPumpLog> {
@@ -437,7 +483,8 @@ export async function saveDataPumpFiles(
   dbmsid: string | number,
   directory: string,
   files: { name: string; content: string }[],
-  overwrite: boolean
+  overwrite: boolean,
+  plan?: PlanAck
 ): Promise<{ written: string[]; skipped: string[] }> {
   const batches: { name: string; content: string }[][] = [];
   let size = 0;
@@ -453,7 +500,7 @@ export async function saveDataPumpFiles(
   }
   const result = { written: [] as string[], skipped: [] as string[] };
   for (const batch of batches) {
-    const part = await postJson<{ written: string[]; skipped: string[] }>('/api/dataPump/saveFiles', { dbmsid, directory, files: batch, overwrite });
+    const part = await postJson<{ written: string[]; skipped: string[] }>('/api/dataPump/saveFiles', { dbmsid, directory, files: batch, overwrite, ...plan });
     result.written.push(...part.written);
     result.skipped.push(...part.skipped);
   }
@@ -463,12 +510,12 @@ export async function saveDataPumpFiles(
 // ── Data Pump: Range 파티션 단위 export/import ──
 
 export async function getPartitionTables(dbmsid: string | number, owner: string): Promise<PartitionTableInfo[]> {
-  const { tables } = await postJson<{ tables: PartitionTableInfo[] }>('/api/dataPump/partition/tables', { dbmsid, owner });
+  const { tables } = await postJson<{ tables: PartitionTableInfo[] }>('/api/dataPump/partition/tables', { dbmsid, owner: sqlName(owner) });
   return tables;
 }
 
 export function getPartitionList(dbmsid: string | number, owner: string, table: string): Promise<{ table: PartitionTableInfo; partitions: PartitionRange[] }> {
-  return postJson('/api/dataPump/partition/list', { dbmsid, owner, table });
+  return postJson('/api/dataPump/partition/list', { dbmsid, owner: sqlName(owner), table: sqlName(table) });
 }
 
 // DB 서버 DIRECTORY에 있는 매니페스트(.json) 읽기

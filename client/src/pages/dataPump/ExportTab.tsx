@@ -21,6 +21,7 @@ import type {
   ObjectFilter,
   PartitionRange,
   PartitionTableInfo,
+  PlanAck,
 } from '../../shared/lib/types';
 import { ConfirmModal } from './ConfirmModal';
 import { downloadText, estimateSeconds, formatBytes, formatDuration, todayPrefix } from './helpers';
@@ -62,6 +63,8 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
   const [partitions, setPartitions] = useState<PartitionRange[] | null>(null);
   const [selectedPartitions, setSelectedPartitions] = useState<Set<string>>(new Set());
   const [selectedSchemas, setSelectedSchemas] = useState<Set<string>>(new Set());
+  // 붙여넣었는데 목록에 없는 스키마 이름 — 지우거나 고칠 때까지 계획을 못 만든다
+  const [unknownSchemas, setUnknownSchemas] = useState<string[]>([]);
   const [tableList, setTableList] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -93,13 +96,18 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
   const [startingNo, setStartingNo] = useState<number | 'ALL' | null>(null);
   const [confirmAll, setConfirmAll] = useState(false);
   const [parfileView, setParfileView] = useState<ParfileView | null>(null);
+  // 계획에서 빠지는 항목(DB에 없음 / 필터로 제외)을 사용자가 직접 확인했는지 — 확인 전에는 실행·저장·다운로드를 막는다 (서버도 대조)
+  const [ackMissing, setAckMissing] = useState(false);
+  const [ackFiltered, setAckFiltered] = useState(false);
   const serverSave = useServerSave(dbmsId);
   // 지난 export 이력의 평균 속도 — 작업별 예상 시간 어림용. 이력이 없거나 못 읽으면 예상 시간 칸만 비운다.
   const [throughput, setThroughput] = useState<{ bytesPerSec: number | null; samples: number }>({ bytesPerSec: null, samples: 0 });
+  // 예상 시간에 앱 밖에서 직접 돌린 export 기록도 쓸지 (기본: 앱 작업만)
+  const [etaWithExternal, setEtaWithExternal] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    getDataPumpHistory(dbmsId)
+    getDataPumpHistory(dbmsId, etaWithExternal)
       .then((history) => {
         if (!cancelled) setThroughput({ bytesPerSec: history.throughput.exportBytesPerSec, samples: history.throughput.samples });
       })
@@ -107,7 +115,7 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
     return () => {
       cancelled = true;
     };
-  }, [dbmsId]);
+  }, [dbmsId, etaWithExternal]);
 
   const directoryPath = meta.directories.find((dir) => dir.name === directory)?.path;
   const schemaOptions = networkLink ? (linkSchemas ?? []) : meta.schemas;
@@ -115,6 +123,7 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
   // 원본을 바꾸면 고른 스키마/계획은 이전 DB 기준이라 비우고, 링크면 그 너머 DB의 스키마 목록을 읽는다.
   useEffect(() => {
     setSelectedSchemas(new Set());
+    setUnknownSchemas([]);
     setPlan(null);
     setLinkSchemas(null);
     setLinkError(null);
@@ -228,6 +237,10 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
       showToast('파티션을 하나 이상 골라주세요.', 'error');
       return;
     }
+    if (sourceKind === 'SCHEMAS' && unknownSchemas.length > 0) {
+      showToast(`목록에 없는 스키마 이름 ${unknownSchemas.length}개를 지우거나 고쳐주세요.`, 'error');
+      return;
+    }
     if (sourceKind === 'SCHEMAS' && selectedSchemas.size === 0) {
       showToast('스키마를 하나 이상 골라주세요.', 'error');
       return;
@@ -244,7 +257,11 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
       setPlanKey(key);
       setStarted(new Map());
       setExpanded(new Set());
-      if (result.missing.length > 0) showToast(`목록 중 ${result.missing.length}개 항목(테이블/파티션)은 DB에 없어 뺐습니다.`, 'error');
+      setAckMissing(false);
+      setAckFiltered(false);
+      if (result.missing.length > 0 || result.filteredOut.length > 0) {
+        showToast('계획에서 빠지는 항목이 있습니다. 목록을 확인하고 체크해야 실행·저장할 수 있습니다.', 'error');
+      }
     } catch (error) {
       console.error('Error planning export:', error);
       showToast(error instanceof Error ? error.message : '분할 계획을 만들지 못했습니다.', 'error');
@@ -257,7 +274,7 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
     try {
       // 계획에 지정 SCN이 있으면 그대로, 없으면 전체 실행이 읽어 온 SCN (단건 실행은 null = 작업 시작 시점)
       const scn = group.request.flashbackScn ?? flashbackScn;
-      const { jobName, jobNames } = await startDataPump(dbmsId, { ...group.request, flashbackScn: scn }, undefined, group.bytes);
+      const { jobName, jobNames } = await startDataPump(dbmsId, { ...group.request, flashbackScn: scn }, undefined, group.bytes, planAck());
       setStarted((current) => new Map(current).set(group.no, jobNames && jobNames.length > 1 ? jobNames.join(', ') : jobName));
       return true;
     } catch (error) {
@@ -313,6 +330,14 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
     }
   }
 
+  const acked = !!plan && (plan.missing.length === 0 || ackMissing) && (plan.filteredOut.length === 0 || ackFiltered);
+  const blocked = planStale || !acked;
+
+  function planAck(): PlanAck | undefined {
+    if (!plan) return undefined;
+    return { planId: plan.planId, acknowledged: { missing: ackMissing ? plan.missing : [], filteredOut: ackFiltered ? plan.filteredOut : [] } };
+  }
+
   // 계획을 만든 시점의 DIRECTORY (옵션을 나중에 바꿔도 계획과 어긋나지 않게)
   const planDirectory = plan?.groups[0]?.request.directory ?? directory;
   const planDirectoryPath = meta.directories.find((dir) => dir.name === planDirectory)?.path ?? null;
@@ -339,7 +364,8 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
       dbmsId,
       planDirectory,
       plan.manifests.map((manifest) => ({ name: manifest.name, content: manifest.text })),
-      true
+      true,
+      planAck()
     );
   }
 
@@ -349,6 +375,8 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
     return [
       ...plan.groups.map((group) => ({ name: group.parfileName, content: group.parfile })),
       { name: runScriptName, content: runScript() },
+      // 빠진 항목 목록이 든 요약 (서버에 저장할 때는 서버가 확인자/시각을 붙여 다시 씀)
+      { name: plan.summaryFile.name, content: plan.summaryFile.text },
       ...(withManifests ? plan.manifests.map((manifest) => ({ name: manifest.name, content: manifest.text })) : []),
     ];
   }
@@ -361,7 +389,7 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
   // DB 서버의 DIRECTORY(덤프가 생길 곳)에 바로 만든다.
   function saveAllToServer(withManifests = true): void {
     if (!plan) return;
-    serverSave.save(planDirectory, allFiles(withManifests));
+    serverSave.save(planDirectory, allFiles(withManifests), planAck());
   }
 
   const pending = plan ? plan.groups.filter((group) => !started.has(group.no)).length : 0;
@@ -456,6 +484,9 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
               options={schemaOptions}
               selected={selectedSchemas}
               onChange={setSelectedSchemas}
+              strict
+              unknown={unknownSchemas}
+              onUnknownChange={setUnknownSchemas}
               placeholder={`스키마 검색 (${schemaOptions.length}개) — 입력하면 목록이 걸러집니다`}
             />
             <p className="oc-hint">
@@ -611,7 +642,7 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
         />
 
         <div className="oc-actions dp-buttons">
-          <button type="button" disabled={planning || !directory} onClick={() => makePlan(false)}>
+          <button type="button" disabled={planning || !directory || (sourceKind === 'SCHEMAS' && unknownSchemas.length > 0)} onClick={() => makePlan(false)}>
             {planning ? '테이블 크기 확인 중...' : '분할 계획 만들기'}
           </button>
           {plan && (
@@ -648,27 +679,31 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
                 {throughput.bytesPerSec !== null
                   ? `예상 시간: 하나씩 돌리면 합계 약 ${formatDuration(estimateSeconds(plan.totalBytes, throughput.bytesPerSec))} (지난 export ${throughput.samples}개 평균 속도 ${formatBytes(throughput.bytesPerSec)}/초 기준)`
                   : '예상 시간: 이 DB에서 끝난 export 이력(30초 이상)이 쌓이면 지난 작업 평균 속도로 보여 줍니다.'}
+                <label className="oc-check dp-inline">
+                  <input type="checkbox" checked={etaWithExternal} onChange={(e) => setEtaWithExternal(e.target.checked)} />
+                  외부(직접 실행) 작업 기록도 사용
+                </label>
               </span>
             </h3>
             <div className="rt-panel-controls">
-              <button type="button" className="btn-secondary" disabled={planStale} onClick={downloadAllParfiles}>
+              <button type="button" className="btn-secondary" disabled={blocked} onClick={downloadAllParfiles}>
                 parfile 전체 다운로드
               </button>
-              <button type="button" className="btn-secondary" disabled={serverSave.saving || planStale} onClick={() => saveAllToServer()}>
+              <button type="button" className="btn-secondary" disabled={serverSave.saving || blocked} onClick={() => saveAllToServer()}>
                 {serverSave.saving ? '저장 중...' : `DB 서버 ${planDirectory}에 parfile${plan.manifests.length > 0 ? ' + 매니페스트' : ''} 저장`}
               </button>
               {plan.manifests.length > 0 && (
                 <button
                   type="button"
                   className="btn-secondary"
-                  disabled={serverSave.saving || planStale}
+                  disabled={serverSave.saving || blocked}
                   onClick={() => saveAllToServer(false)}
                   title="매니페스트는 빼고 parfile과 실행 스크립트만 저장합니다. (전체 실행 시에는 매니페스트를 그대로 먼저 저장합니다)"
                 >
                   {serverSave.saving ? '저장 중...' : 'parfile만 저장'}
                 </button>
               )}
-              <button type="button" className="btn-danger" disabled={pending === 0 || startingNo !== null || planStale} onClick={() => setConfirmAll(true)}>
+              <button type="button" className="btn-danger" disabled={pending === 0 || startingNo !== null || blocked} onClick={() => setConfirmAll(true)}>
                 전체 실행 ({pending}개)
               </button>
             </div>
@@ -692,8 +727,26 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
             </p>
           ))}
           {plan.missing.length > 0 && (
-            <p className="pc-warning">DB에 없는 테이블/파티션이라 뺀 항목 {plan.missing.length}개: {plan.missing.slice(0, 20).join(', ')}{plan.missing.length > 20 ? ' …' : ''}</p>
+            <ExcludedList
+              title={`DB에 없는 테이블/파티션 ${plan.missing.length}개 — 이대로는 실행·저장할 수 없습니다`}
+              items={plan.missing}
+              suggestions={plan.suggestions}
+              checked={ackMissing}
+              onCheck={setAckMissing}
+              checkLabel={`이 ${plan.missing.length}개를 빼고 진행 (작업 이력과 요약 파일에 기록됩니다)`}
+            />
           )}
+          {plan.filteredOut.length > 0 && (
+            <ExcludedList
+              title={`필터(INCLUDE/EXCLUDE 이름 조건)로 제외되는 테이블 ${plan.filteredOut.length}개`}
+              items={plan.filteredOut}
+              suggestions={{}}
+              checked={ackFiltered}
+              onCheck={setAckFiltered}
+              checkLabel={`필터로 이 ${plan.filteredOut.length}개가 빠지는 것을 확인함`}
+            />
+          )}
+          {plan.filterUnknown && <p className="pc-warning">{plan.filterUnknown}</p>}
           <table className="table oc-items-table dp-groups">
             <thead>
               <tr>
@@ -773,6 +826,7 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
                         <button
                           type="button"
                           className="btn-secondary"
+                          disabled={!acked}
                           onClick={() =>
                             setParfileView({ title: `작업 ${group.no} — parfile`, command: group.command, parfile: group.parfile, parfileName: group.parfileName, notes: group.notes })
                           }
@@ -784,7 +838,7 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
                             실행됨
                           </span>
                         ) : (
-                          <button type="button" disabled={startingNo !== null || planStale} onClick={() => runOne(group)}>
+                          <button type="button" disabled={startingNo !== null || blocked} onClick={() => runOne(group)}>
                             {startingNo === group.no ? '시작 중...' : '실행'}
                           </button>
                         )}
@@ -858,10 +912,66 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
         onClose={() => setParfileView(null)}
         serverDirectory={planDirectory}
         saving={serverSave.saving}
-        onSaveToServer={(view) => serverSave.save(planDirectory, [{ name: view.parfileName, content: view.parfile }])}
+        onSaveToServer={(view) => serverSave.save(planDirectory, [{ name: view.parfileName, content: view.parfile }], planAck())}
       />
       {serverSave.confirmNode}
     </>
+  );
+}
+
+// 계획에서 빠지는 항목 전체 목록 (자르지 않음, 스크롤 + 복사) + 대소문자 후보 + 확인 체크
+function ExcludedList({
+  title,
+  items,
+  suggestions,
+  checked,
+  onCheck,
+  checkLabel,
+}: {
+  title: string;
+  items: string[];
+  suggestions: Record<string, string[]>;
+  checked: boolean;
+  onCheck: (value: boolean) => void;
+  checkLabel: string;
+}): ReactElement {
+  // 정확한 이름 → SQL 표기 (대소문자 섞인 이름은 따옴표)
+  const display = (line: string) =>
+    line
+      .split(/([.:])/)
+      .map((part) => (part === '.' || part === ':' || /^[A-Z][A-Z0-9_$#]*$/.test(part) ? part : `"${part}"`))
+      .join('');
+  const text = items.map(display).join('\n');
+  return (
+    <div className="pc-warning dp-excluded">
+      <div className="rt-panel-header">
+        <strong>{title}</strong>
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={() =>
+            navigator.clipboard
+              .writeText(text)
+              .then(() => showToast('목록을 복사했습니다.'))
+              .catch(() => showToast('복사하지 못했습니다.', 'error'))
+          }
+        >
+          목록 복사
+        </button>
+      </div>
+      <ul className="dp-excluded-list">
+        {items.map((line) => (
+          <li key={line}>
+            <code>{display(line)}</code>
+            {suggestions[line] && <span className="dp-hint-line"> — 혹시 {suggestions[line].join(', ')} 인가요? (목록을 고쳐 다시 계획을 만드세요)</span>}
+          </li>
+        ))}
+      </ul>
+      <label className="oc-check">
+        <input type="checkbox" checked={checked} onChange={(e) => onCheck(e.target.checked)} />
+        {checkLabel}
+      </label>
+    </div>
   );
 }
 
@@ -870,7 +980,8 @@ function PlanSummaryBox({ summary }: { summary: ExportPlanSummary }): ReactEleme
   const parts = [
     summary.listed !== null ? `목록 ${summary.listed}개` : null,
     `계획 포함 ${summary.planned}개`,
-    summary.listed !== null ? `DB에 없어 뺀 ${summary.missing}개` : null,
+    summary.listed !== null ? `DB에 없음 ${summary.missing}개` : null,
+    summary.filteredOut > 0 ? `필터로 제외 ${summary.filteredOut}개` : null,
     summary.merged > 0 ? `통째 테이블에 합쳐진 파티션 줄 ${summary.merged}개` : null,
     summary.duplicates > 0 ? `중복 줄 ${summary.duplicates}개는 하나로` : null,
     `뷰 작업 ${summary.viewJobs}개${summary.views > 0 ? ` (뷰 ${summary.views}개)` : ''}`,

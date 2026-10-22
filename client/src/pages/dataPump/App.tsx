@@ -3,6 +3,7 @@ import { AppHeader } from '../../shared/components/AppHeader';
 import { ToastHost } from '../../shared/components/ToastHost';
 import { canSee, isDbaOrAbove, useCurrentUser } from '../../shared/hooks/useCurrentUser';
 import { getDataPumpMeta, getDbmsList } from '../../shared/lib/api';
+import { urlParam } from '../../shared/lib/urlParams';
 import { showToast } from '../../shared/lib/toastStore';
 import type { DataPumpMeta, DbmsRow } from '../../shared/lib/types';
 import { ExportTab } from './ExportTab';
@@ -30,7 +31,9 @@ export function App(): ReactElement {
     getDbmsList()
       .then(({ rows }) => {
         setDbmsRows(rows);
-        if (rows.length > 0) setDbmsId(String(rows[0].ID));
+        const wanted = urlParam('dbms');
+        if (wanted && rows.some((row) => String(row.ID) === wanted)) setDbmsId(wanted);
+        else if (rows.length > 0) setDbmsId(String(rows[0].ID));
       })
       .catch((error) => {
         console.error('Error loading dbms list:', error);
@@ -106,7 +109,7 @@ export function App(): ReactElement {
           {meta && tab === 'EXPORT' && <ExportTab key={dbmsId} dbmsId={dbmsId} meta={meta} sqlAllowed={sqlAllowed} />}
           {meta && tab === 'IMPORT' && <ImportTab key={dbmsId} dbmsId={dbmsId} meta={meta} sqlAllowed={sqlAllowed} />}
           {meta && tab === 'PARTITION' && <PartitionTab key={dbmsId} dbmsId={dbmsId} meta={meta} sqlAllowed={sqlAllowed} />}
-          {meta && tab === 'JOBS' && <JobsTab key={dbmsId} dbmsId={dbmsId} />}
+          {meta && tab === 'JOBS' && <JobsTab key={dbmsId} dbmsId={dbmsId} dbname={meta.target.dbname} directories={meta.directories.map((dir) => dir.name)} />}
         </>
       )}
     </>

@@ -46,6 +46,41 @@ function TimeCell({ job }: { job: DataPumpJob }): ReactElement {
   );
 }
 
+// 실행 후 대조 결과: 계획 대상 vs 로그의 exported/imported 줄 (+ import는 export 행 수). 확인하고 뺀 항목도 함께.
+function VerifyBadge({ row }: { row: DataPumpHistoryRow }): ReactElement | null {
+  const [open, setOpen] = useState(false);
+  const detail = row.verifyDetail;
+  const ack = row.acknowledged;
+  if (!row.verifyStatus && !ack) return null;
+  const count = detail ? detail.notInLog.length + detail.notInPlan.length + detail.rowDiffs.length : 0;
+  const label =
+    row.verifyStatus === 'MATCH' ? '대조: 일치' : row.verifyStatus === 'MISMATCH' ? `대조: 불일치 ${count}개` : row.verifyStatus === 'NA' ? '대조: 판단 불가' : null;
+  return (
+    <div className="dp-verify">
+      {label && (
+        <button type="button" className={`oc-link dp-verify-${row.verifyStatus}`} onClick={() => setOpen(!open)}>
+          {label}
+        </button>
+      )}
+      {ack && (ack.missing.length > 0 || ack.filteredOut.length > 0) && (
+        <div className="dp-hint-line">
+          확인 후 제외: DB에 없음 {ack.missing.length}개 · 필터 {ack.filteredOut.length}개{ack.by ? ` (${ack.by})` : ''}
+        </div>
+      )}
+      {open && detail && (
+        <div className="dp-verify-detail">
+          {detail.notInLog.length > 0 && <div>계획에 있는데 로그에 없음: {detail.notInLog.join(', ')}</div>}
+          {detail.skipped.length > 0 && <div>TABLE_EXISTS_ACTION=SKIP으로 건너뜀: {detail.skipped.join(', ')}</div>}
+          {detail.notInPlan.length > 0 && <div>로그에 있는데 계획에 없음: {detail.notInPlan.join(', ')}</div>}
+          {detail.rowDiffs.length > 0 && <div>행 수 차이: {detail.rowDiffs.join(', ')}</div>}
+          {ack && ack.missing.length > 0 && <div>확인하고 뺀 항목(DB에 없음): {ack.missing.join(', ')}</div>}
+          {ack && ack.filteredOut.length > 0 && <div>확인하고 뺀 항목(필터): {ack.filteredOut.join(', ')}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // 여러 스키마 테이블 작업은 화면 실행 때 스키마별 하위 작업(<작업 이름>_S1, _S2…)으로 나뉜다 — 목록에서는 한 묶음으로 보여 준다.
 const SUB_JOB = /^(.+)_S\d+$/;
 
@@ -154,6 +189,24 @@ function LogModal({ dbmsId, target, running, onClose }: { dbmsId: string; target
 
 interface Props {
   dbmsId: string;
+  dbname: string; // 외부 작업 취소 확인용
+  directories: string[]; // 로그 위치를 모를 때 직접 고르는 DIRECTORY 목록
+}
+
+// 작업 행의 "앱에서 시작 / 외부(직접 실행)" 배지와 실행자
+function SourceCell({ job }: { job: DataPumpJob }): ReactElement {
+  const runner = job.runner;
+  return (
+    <div className="dp-hint-line">
+      <span className={`issue-badge ${job.source === 'EXTERNAL' ? 'oc-badge-DIFF' : 'oc-badge-SAME'}`}>{job.source === 'EXTERNAL' ? '외부(직접 실행)' : '앱에서 시작'}</span>
+      {runner && (
+        <span title={runner.program ?? ''}>
+          {' '}
+          {runner.username ?? '?'} · {runner.osuser ?? '?'}@{runner.machine ?? '?'}
+        </span>
+      )}
+    </div>
+  );
 }
 
 const STATUS_LABEL: Record<DataPumpHistoryStatus, string> = {
@@ -174,7 +227,10 @@ const STATUS_BADGE: Record<DataPumpHistoryStatus, string> = {
   UNKNOWN: 'oc-badge-DIFF',
 };
 
-export function JobsTab({ dbmsId }: Props): ReactElement {
+export function JobsTab({ dbmsId, dbname, directories }: Props): ReactElement {
+  // 로그 위치를 모르는 작업(NOLOGFILE, 마스터 테이블을 못 읽음)은 DIRECTORY와 파일 이름을 직접 입력해서 연다
+  const [manualLog, setManualLog] = useState<{ jobName: string; directory: string; logfile: string } | null>(null);
+  const [historyFilter, setHistoryFilter] = useState<'ALL' | 'APP' | 'EXTERNAL'>('ALL');
   const [jobs, setJobs] = useState<DataPumpJob[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<DataPumpHistory | null>(null);
@@ -217,12 +273,12 @@ export function JobsTab({ dbmsId }: Props): ReactElement {
 
   const runningNames = new Set((jobs ?? []).map((job) => job.jobName));
 
-  async function cancel(): Promise<void> {
+  async function cancel(typedDbname: string): Promise<void> {
     if (!cancelTarget) return;
     setCancelling(true);
     try {
       // 스키마별로 나눠 실행한 묶음은 한꺼번에 취소한다.
-      for (const job of cancelTarget) await cancelDataPumpJob(dbmsId, job.owner, job.jobName);
+      for (const job of cancelTarget) await cancelDataPumpJob(dbmsId, job.owner, job.jobName, job.source === 'EXTERNAL' ? typedDbname : undefined);
       showToast(`${cancelTarget.map((job) => job.jobName).join(', ')} 작업을 취소했습니다.`);
       setCancelTarget(null);
       load();
@@ -234,13 +290,18 @@ export function JobsTab({ dbmsId }: Props): ReactElement {
   }
 
   // 로그 위치는 작업 이력에서 찾는다 (이 화면 밖에서 시작한 작업은 모름).
+  // 로그 위치: 이력(앱 작업) → 마스터 테이블(외부 작업, 서버가 채움) → 둘 다 없으면 직접 입력
   function openLog(job: DataPumpJob): void {
-    const known = history?.rows.find((row) => row.jobName === job.jobName && (row.jobOwner ?? '') === job.owner);
-    if (!known) {
-      showToast('이 화면에서 시작한 작업이 아니라 로그 파일 위치를 모릅니다. DB 서버의 DIRECTORY에서 확인하세요.', 'error');
+    const known = history?.rows.find((row) => row.jobName === job.jobName && (row.jobOwner ?? '') === job.owner && row.logfile);
+    if (known) {
+      setLogTarget({ jobName: job.jobName, directory: known.directory, logfile: known.logfile });
       return;
     }
-    setLogTarget({ jobName: job.jobName, directory: known.directory, logfile: known.logfile });
+    if (job.logDirectory && job.logFile) {
+      setLogTarget({ jobName: job.jobName, directory: job.logDirectory, logfile: job.logFile });
+      return;
+    }
+    setManualLog({ jobName: job.jobName, directory: directories.includes('DATA_PUMP_DIR') ? 'DATA_PUMP_DIR' : (directories[0] ?? ''), logfile: '' });
   }
 
   type RowKind = 'single' | 'group' | 'sub';
@@ -255,6 +316,8 @@ export function JobsTab({ dbmsId }: Props): ReactElement {
           </td>
           <td>
             {job.operation} / {job.jobMode}
+            {kind !== 'sub' && <SourceCell job={job} />}
+            {job.noLogfile && kind !== 'group' && <div className="dp-hint-line">로그 없음 (직접 입력해서 열기)</div>}
           </td>
           <td>
             <span className={`issue-badge ${job.state === 'EXECUTING' ? 'oc-badge-SAME' : 'oc-badge-DIFF'}`}>{job.state}</span>
@@ -316,10 +379,20 @@ export function JobsTab({ dbmsId }: Props): ReactElement {
           <td className="dp-target-cell" title={row.targetDesc ?? ''}>
             {row.targetDesc}
           </td>
-          <td>{row.startedBy ?? '-'}</td>
+          <td>
+            {row.startedBy ?? '-'}
+            {row.source === 'EXTERNAL' && (
+              <div className="dp-hint-line" title={row.runner?.program ?? ''}>
+                <span className="issue-badge oc-badge-DIFF">외부</span> {row.runner?.osuser ?? '?'}@{row.runner?.machine ?? '?'}
+              </div>
+            )}
+            {row.cancelledBy && <div className="dp-hint-line">취소: {row.cancelledBy}</div>}
+          </td>
           <td title={row.resultMessage ?? ''}>
             <span className={`issue-badge ${STATUS_BADGE[row.status]}`}>{STATUS_LABEL[row.status]}</span>
             {row.status === 'COMPLETED_WITH_ERRORS' && row.errorCount !== null && <div className="dp-hint-line">에러 {row.errorCount}개</div>}
+            {row.errorSummary && <div className="dp-hint-line dp-error-summary" title={row.errorSummary}>{row.errorSummary}</div>}
+            <VerifyBadge row={row} />
           </td>
           <td className="dp-nowrap">
             {row.status === 'RUNNING' ? <span className="oc-none">진행 중</span> : formatDuration(row.elapsedSec)}
@@ -338,7 +411,11 @@ export function JobsTab({ dbmsId }: Props): ReactElement {
             <button
               type="button"
               className="btn-secondary"
-              onClick={() => setLogTarget({ jobName: row.jobName, directory: row.directory, logfile: row.logfile })}
+              onClick={() =>
+                row.logfile
+                  ? setLogTarget({ jobName: row.jobName, directory: row.directory, logfile: row.logfile })
+                  : setManualLog({ jobName: row.jobName, directory: row.directory || directories[0] || '', logfile: '' })
+              }
             >
               로그
             </button>
@@ -386,11 +463,18 @@ export function JobsTab({ dbmsId }: Props): ReactElement {
       <div className="rt-panel">
         <div className="rt-panel-header">
           <h3>
-            작업 이력 <span className="oc-subtle">이 화면에서 시작한 작업 · 최근 100개 · 끝난 작업도 로그를 볼 수 있습니다</span>
+            작업 이력 <span className="oc-subtle">앱에서 시작한 작업 + 감시 중 발견한 외부 작업 · 최근 100개 · 끝난 작업도 로그를 볼 수 있습니다</span>
           </h3>
-          <button type="button" className="btn-secondary" onClick={loadHistory}>
-            새로고침
-          </button>
+          <div className="rt-panel-controls">
+            <select aria-label="이력 필터" value={historyFilter} onChange={(e) => setHistoryFilter(e.target.value as typeof historyFilter)}>
+              <option value="ALL">전체</option>
+              <option value="APP">앱에서 시작</option>
+              <option value="EXTERNAL">외부(직접 실행)</option>
+            </select>
+            <button type="button" className="btn-secondary" onClick={loadHistory}>
+              새로고침
+            </button>
+          </div>
         </div>
         {historyError && <p className="pc-warning">{historyError}</p>}
         {history && !history.available && (
@@ -412,7 +496,10 @@ export function JobsTab({ dbmsId }: Props): ReactElement {
               </tr>
             </thead>
             <tbody>
-              {bundleBy(history.rows, (row) => row.jobName).flatMap(({ key, items }) =>
+              {bundleBy(
+                history.rows.filter((row) => historyFilter === 'ALL' || (row.source ?? 'APP') === historyFilter),
+                (row) => row.jobName
+              ).flatMap(({ key, items }) =>
                 items.length === 1 ? [renderHistory(items[0], 'single')] : [renderHistory(combineHistory(key, items), 'group'), ...items.map((row) => renderHistory(row, 'sub'))]
               )}
             </tbody>
@@ -427,6 +514,7 @@ export function JobsTab({ dbmsId }: Props): ReactElement {
         confirmLabel="작업 취소"
         danger
         busy={cancelling}
+        requireText={cancelTarget?.some((job) => job.source === 'EXTERNAL') ? dbname : null}
         onConfirm={cancel}
         onClose={() => setCancelTarget(null)}
       >
@@ -434,7 +522,43 @@ export function JobsTab({ dbmsId }: Props): ReactElement {
           <strong>{cancelTarget?.map((job) => `${job.owner}.${job.jobName}`).join(', ')}</strong>
           을(를) 즉시 중지하고 작업을 지웁니다. 다시 이어서 실행할 수 없습니다.
         </p>
+        {cancelTarget?.some((job) => job.source === 'EXTERNAL') && (
+          <div className="pc-warning">
+            <strong>앱 밖에서 직접 실행한 작업입니다</strong> — 다른 사람이 돌리는 마이그레이션일 수 있습니다.
+            {cancelTarget
+              .filter((job) => job.source === 'EXTERNAL')
+              .map((job) => (
+                <div key={job.jobName}>
+                  {job.jobName}: 실행 계정 {job.runner?.username ?? '?'} · OS 사용자 {job.runner?.osuser ?? '?'} · MACHINE {job.runner?.machine ?? '?'}
+                  {job.runner?.program ? ` · ${job.runner.program}` : ''}
+                </div>
+              ))}
+          </div>
+        )}
         <p className="oc-hint">Import 도중에 취소하면 이미 들어간 데이터/오브젝트는 그대로 남습니다.</p>
+      </ConfirmModal>
+      <ConfirmModal
+        open={!!manualLog}
+        title={`로그 열기 — ${manualLog?.jobName ?? ''}`}
+        confirmLabel="열기"
+        onConfirm={() => {
+          if (!manualLog?.logfile.trim()) return;
+          setLogTarget({ jobName: manualLog.jobName, directory: manualLog.directory, logfile: manualLog.logfile.trim() });
+          setManualLog(null);
+        }}
+        onClose={() => setManualLog(null)}
+      >
+        <p className="oc-hint">이 작업의 로그 위치를 알 수 없습니다 (NOLOGFILE이거나 마스터 테이블을 읽지 못함). DIRECTORY와 로그 파일 이름을 직접 입력하세요.</p>
+        <label htmlFor="dp-manual-dir">DIRECTORY</label>
+        <select id="dp-manual-dir" value={manualLog?.directory ?? ''} onChange={(e) => manualLog && setManualLog({ ...manualLog, directory: e.target.value })}>
+          {directories.map((dir) => (
+            <option key={dir} value={dir}>
+              {dir}
+            </option>
+          ))}
+        </select>
+        <label htmlFor="dp-manual-file">로그 파일 이름</label>
+        <input id="dp-manual-file" type="text" placeholder="예: exp_20261022.log" value={manualLog?.logfile ?? ''} onChange={(e) => manualLog && setManualLog({ ...manualLog, logfile: e.target.value })} />
       </ConfirmModal>
     </>
   );

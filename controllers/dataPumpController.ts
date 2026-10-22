@@ -115,7 +115,9 @@ async function start(req: Request, res: Response): Promise<void> {
       req.body.confirmDbname,
       req.session.username ?? null,
       req.body.estimatedBytes,
-      req.session.role ?? null
+      req.session.role ?? null,
+      req.body.planId ?? null,
+      req.body.acknowledged ?? null
     );
     logger.info(
       'DataPump',
@@ -146,9 +148,9 @@ async function getJobs(req: Request, res: Response): Promise<void> {
 async function cancel(req: Request, res: Response): Promise<void> {
   const dbmsid = requireDbmsid(req, res);
   if (dbmsid === null) return;
-  const { owner, jobName } = req.body;
+  const { owner, jobName, confirmDbname } = req.body;
   try {
-    await dataPumpService.cancel({ dbmsid }, owner, jobName);
+    await dataPumpService.cancel({ dbmsid }, owner, jobName, confirmDbname, req.session.username ?? null);
     logger.info('DataPump', `${req.session.username} 작업 취소: ${owner}.${jobName} (dbmsid=${dbmsid})`);
     res.json({ message: '작업을 취소했습니다.' });
   } catch (error) {
@@ -160,9 +162,9 @@ async function cancel(req: Request, res: Response): Promise<void> {
 async function saveFiles(req: Request, res: Response): Promise<void> {
   const dbmsid = requireDbmsid(req, res);
   if (dbmsid === null) return;
-  const { directory, files, overwrite } = req.body;
+  const { directory, files, overwrite, planId, acknowledged } = req.body;
   try {
-    const result = await dataPumpService.saveFiles({ dbmsid }, directory, files, overwrite === true);
+    const result = await dataPumpService.saveFiles({ dbmsid }, directory, files, overwrite === true, planId ?? null, acknowledged ?? null, req.session.username ?? null);
     if (result.written.length > 0) {
       logger.info('DataPump', `${req.session.username} 파일 저장: ${directory}/${result.written.join(', ')} (dbmsid=${dbmsid})`);
     }
@@ -177,7 +179,7 @@ async function getHistory(req: Request, res: Response): Promise<void> {
   const dbmsid = requireDbmsid(req, res);
   if (dbmsid === null) return;
   try {
-    res.json(await historyService.getHistory(dbmsid));
+    res.json(await historyService.getHistory(dbmsid, 100, req.body.includeExternal === true));
   } catch (error) {
     handleError(res, error, `작업 이력 조회 오류 (dbmsid=${dbmsid})`);
   }

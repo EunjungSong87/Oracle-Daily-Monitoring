@@ -7,7 +7,9 @@ import { logger } from '../utils/logger';
 // 계정 관리(Users)는 여기 없다 — 최고관리자 전용 고정 (예외로 열면 그 사람이 스스로 권한을 올릴 수 있어서).
 
 export type ScreenKey =
+  | 'dashboard'
   | 'databases'
+  | 'capacity'
   | 'dailyMonitoring'
   | 'scripts'
   | 'thresholds'
@@ -31,12 +33,14 @@ export interface ScreenDef {
 
 // 메뉴 순서와 같게 둔다 (첫 번째로 보이는 화면이 "갈 곳" 기본값).
 const SCREENS: ScreenDef[] = [
-  { key: 'databases', label: 'Databases', group: 'Databases', page: 'index.html', defaultRole: 'VIEWER' },
+  { key: 'dashboard', label: 'Dashboard', group: 'Databases', page: 'index.html', defaultRole: 'VIEWER' },
+  { key: 'databases', label: 'Databases', group: 'Databases', page: 'databases.html', defaultRole: 'VIEWER' },
   { key: 'dailyMonitoring', label: 'Daily Monitoring', group: 'Monitoring', page: 'dailyMonitoring.html', defaultRole: 'VIEWER' },
   { key: 'scripts', label: 'Scripts', group: 'Monitoring', page: 'monitoringScript.html', defaultRole: 'VIEWER' },
   { key: 'thresholds', label: 'Thresholds', group: 'Monitoring', page: 'monitoringThresholds.html', defaultRole: 'VIEWER' },
   { key: 'history', label: 'Run History', group: 'Monitoring', page: 'history.html', defaultRole: 'VIEWER' },
   { key: 'issues', label: 'Issues', group: 'Monitoring', page: 'issues.html', defaultRole: 'VIEWER' },
+  { key: 'capacity', label: 'Capacity', group: 'Monitoring', page: 'capacity.html', defaultRole: 'VIEWER' },
   { key: 'realtime', label: 'Real-Time', group: 'Monitoring', page: 'realtimeMonitoring.html', defaultRole: 'VIEWER' },
   { key: 'tableSpec', label: 'Table Spec', group: 'Maintenance', page: 'tableSpec.html', defaultRole: 'DBA' },
   { key: 'statsJob', label: 'Stats Job Status', group: 'Maintenance', page: 'statsJob.html', defaultRole: 'SUPER_ADMIN' },

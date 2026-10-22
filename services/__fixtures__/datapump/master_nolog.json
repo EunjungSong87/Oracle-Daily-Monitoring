@@ -1,0 +1,98 @@
+{
+  "rows": [
+    {
+      "PROCESS_ORDER": -59,
+      "NAME": "CLIENT_COMMAND",
+      "VALUE_T": "system/********@localhost:1521/FREEPDB1 parfile=ext_nolog.par ",
+      "FILE_TYPE": null,
+      "FILE_NAME": null,
+      "USER_FILE_NAME": null,
+      "USER_DIRECTORY": null,
+      "OPERATION": null,
+      "JOB_MODE": null,
+      "USER_NAME": null,
+      "START_TIME": null
+    },
+    {
+      "PROCESS_ORDER": -53,
+      "NAME": "CUSTOM_FILTER",
+      "VALUE_T": "((ku$.schema_obj.owner_name = 'QUP' AND ku$.schema_obj.name IN ('BIG','Mixed')))",
+      "FILE_TYPE": null,
+      "FILE_NAME": null,
+      "USER_FILE_NAME": null,
+      "USER_DIRECTORY": null,
+      "OPERATION": null,
+      "JOB_MODE": null,
+      "USER_NAME": null,
+      "START_TIME": null
+    },
+    {
+      "PROCESS_ORDER": -53,
+      "NAME": "SCHEMA_EXPR",
+      "VALUE_T": "IN ('QUP')",
+      "FILE_TYPE": null,
+      "FILE_NAME": null,
+      "USER_FILE_NAME": null,
+      "USER_DIRECTORY": null,
+      "OPERATION": null,
+      "JOB_MODE": null,
+      "USER_NAME": null,
+      "START_TIME": null
+    },
+    {
+      "PROCESS_ORDER": -21,
+      "NAME": null,
+      "VALUE_T": null,
+      "FILE_TYPE": 0,
+      "FILE_NAME": "/opt/oracle/admin/FREE/dpdump/2467904D40F2106AE0630F02000A30D8/ext_nolog.dmp",
+      "USER_FILE_NAME": "ext_nolog.dmp",
+      "USER_DIRECTORY": "DATA_PUMP_DIR",
+      "OPERATION": null,
+      "JOB_MODE": null,
+      "USER_NAME": null,
+      "START_TIME": null
+    },
+    {
+      "PROCESS_ORDER": -1,
+      "NAME": "EXT_NOLOG",
+      "VALUE_T": "FREEPDB1",
+      "FILE_TYPE": null,
+      "FILE_NAME": null,
+      "USER_FILE_NAME": null,
+      "USER_DIRECTORY": null,
+      "OPERATION": "EXPORT",
+      "JOB_MODE": "TABLE",
+      "USER_NAME": "SYSTEM",
+      "START_TIME": "2026-10-22 02:42:49"
+    }
+  ],
+  "sessions": [
+    {
+      "owner": "SYSTEM",
+      "jobName": "EXT_NOLOG",
+      "sessionType": "DBMS_DATAPUMP",
+      "username": "SYSTEM",
+      "osuser": "oracle",
+      "machine": "8c7d47ec79be",
+      "program": "ude@8c7d47ec79be (TNS V1-V3)"
+    },
+    {
+      "owner": "SYSTEM",
+      "jobName": "EXT_NOLOG",
+      "sessionType": "MASTER",
+      "username": "SYSTEM",
+      "osuser": "oracle",
+      "machine": "8c7d47ec79be",
+      "program": "oracle@8c7d47ec79be (DM01)"
+    },
+    {
+      "owner": "SYSTEM",
+      "jobName": "EXT_NOLOG",
+      "sessionType": "WORKER",
+      "username": "SYSTEM",
+      "osuser": "oracle",
+      "machine": "8c7d47ec79be",
+      "program": "oracle@8c7d47ec79be (DW00)"
+    }
+  ]
+}
