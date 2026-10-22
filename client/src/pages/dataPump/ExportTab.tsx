@@ -75,6 +75,9 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
   const [content, setContent] = useState<DataPumpContent>('ALL');
   const [excludeStatistics, setExcludeStatistics] = useState(true);
   const [flashbackConsistent, setFlashbackConsistent] = useState(true);
+  // 비우면 작업 시작 시점(전체 실행은 실행 직전에 읽은 SCN 하나), 채우면 모든 작업과 parfile이 이 SCN
+  const [flashbackScn, setFlashbackScn] = useState('');
+  const [fetchingScn, setFetchingScn] = useState(false);
   const [reuseDumpfiles, setReuseDumpfiles] = useState(false);
   // 오브젝트 필터(INCLUDE/EXCLUDE)와 데이터 필터·옵션 — 분할된 모든 작업에 걸린다
   const [objectFilter, setObjectFilter] = useState<ObjectFilter>({ rules: [] });
@@ -198,6 +201,7 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
       content,
       excludeStatistics,
       flashbackConsistent,
+      flashbackScn: flashbackConsistent && flashbackScn.trim() ? flashbackScn.trim() : null,
       reuseDumpfiles,
       networkLink: networkLink || null,
       objectFilter: cleanObjectFilter(objectFilter),
@@ -251,13 +255,27 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
 
   async function startGroup(group: ExportGroup, flashbackScn: string | null): Promise<boolean> {
     try {
-      const { jobName, jobNames } = await startDataPump(dbmsId, { ...group.request, flashbackScn }, undefined, group.bytes);
+      // 계획에 지정 SCN이 있으면 그대로, 없으면 전체 실행이 읽어 온 SCN (단건 실행은 null = 작업 시작 시점)
+      const scn = group.request.flashbackScn ?? flashbackScn;
+      const { jobName, jobNames } = await startDataPump(dbmsId, { ...group.request, flashbackScn: scn }, undefined, group.bytes);
       setStarted((current) => new Map(current).set(group.no, jobNames && jobNames.length > 1 ? jobNames.join(', ') : jobName));
       return true;
     } catch (error) {
       console.error('Error starting export:', error);
       showToast(`작업 ${group.no} 시작 실패: ${error instanceof Error ? error.message : String(error)}`, 'error');
       return false;
+    }
+  }
+
+  // 데이터를 읽는 DB(링크면 링크 너머)의 지금 SCN을 입력란에 채운다.
+  async function fetchCurrentScn(): Promise<void> {
+    setFetchingScn(true);
+    try {
+      setFlashbackScn(await getDataPumpScn(dbmsId, networkLink || null));
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '현재 SCN을 읽지 못했습니다.', 'error');
+    } finally {
+      setFetchingScn(false);
     }
   }
 
@@ -279,7 +297,8 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
     setStartingNo('ALL');
     try {
       await saveManifest();
-      const scn = flashbackConsistent ? await getDataPumpScn(dbmsId, networkLink || null) : null;
+      const planScn = plan.groups[0]?.request.flashbackScn ?? null;
+      const scn = planScn ?? (flashbackConsistent ? await getDataPumpScn(dbmsId, networkLink || null) : null);
       let ok = 0;
       for (const group of plan.groups) {
         if (started.has(group.no)) continue;
@@ -324,13 +343,13 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
     );
   }
 
-  // parfile 전부 + 실행 스크립트 (+ 파티션 대상이면 매니페스트)
-  function allFiles(): { name: string; content: string }[] {
+  // parfile 전부 + 실행 스크립트 (+ 파티션 대상이면 매니페스트, withManifests가 false면 빼고)
+  function allFiles(withManifests = true): { name: string; content: string }[] {
     if (!plan) return [];
     return [
       ...plan.groups.map((group) => ({ name: group.parfileName, content: group.parfile })),
       { name: runScriptName, content: runScript() },
-      ...plan.manifests.map((manifest) => ({ name: manifest.name, content: manifest.text })),
+      ...(withManifests ? plan.manifests.map((manifest) => ({ name: manifest.name, content: manifest.text })) : []),
     ];
   }
 
@@ -340,9 +359,9 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
   }
 
   // DB 서버의 DIRECTORY(덤프가 생길 곳)에 바로 만든다.
-  function saveAllToServer(): void {
+  function saveAllToServer(withManifests = true): void {
     if (!plan) return;
-    serverSave.save(planDirectory, allFiles());
+    serverSave.save(planDirectory, allFiles(withManifests));
   }
 
   const pending = plan ? plan.groups.filter((group) => !started.has(group.no)).length : 0;
@@ -549,6 +568,21 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
             <input type="checkbox" checked={flashbackConsistent} onChange={(e) => setFlashbackConsistent(e.target.checked)} />
             일관성 있는 시점으로 (FLASHBACK — 전체 실행 시 모든 작업이 같은 SCN)
           </label>
+          <label className="oc-check" title="비워 두면 작업 시작 시점입니다. 지정하면 화면 실행과 parfile(FLASHBACK_SCN=...) 모두 이 SCN 시점의 데이터로 내보냅니다.">
+            FLASHBACK_SCN
+            <input
+              type="text"
+              inputMode="numeric"
+              placeholder="비우면 시작 시점"
+              value={flashbackScn}
+              disabled={!flashbackConsistent}
+              onChange={(e) => setFlashbackScn(e.target.value.replace(/\D/g, ''))}
+              style={{ width: '14em' }}
+            />
+            <button type="button" className="btn-secondary" disabled={!flashbackConsistent || fetchingScn} onClick={fetchCurrentScn}>
+              {fetchingScn ? '조회 중...' : '현재 SCN'}
+            </button>
+          </label>
           <label className="oc-check">
             <input type="checkbox" checked={reuseDumpfiles} onChange={(e) => setReuseDumpfiles(e.target.checked)} />
             같은 이름의 덤프 파일 덮어쓰기 (REUSE_DUMPFILES)
@@ -620,10 +654,21 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
               <button type="button" className="btn-secondary" disabled={planStale} onClick={downloadAllParfiles}>
                 parfile 전체 다운로드
               </button>
-              <button type="button" className="btn-secondary" disabled={serverSave.saving || planStale} onClick={saveAllToServer}>
+              <button type="button" className="btn-secondary" disabled={serverSave.saving || planStale} onClick={() => saveAllToServer()}>
                 {serverSave.saving ? '저장 중...' : `DB 서버 ${planDirectory}에 parfile${plan.manifests.length > 0 ? ' + 매니페스트' : ''} 저장`}
               </button>
-              <button type="button" disabled={pending === 0 || startingNo !== null || planStale} onClick={() => setConfirmAll(true)}>
+              {plan.manifests.length > 0 && (
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  disabled={serverSave.saving || planStale}
+                  onClick={() => saveAllToServer(false)}
+                  title="매니페스트는 빼고 parfile과 실행 스크립트만 저장합니다. (전체 실행 시에는 매니페스트를 그대로 먼저 저장합니다)"
+                >
+                  {serverSave.saving ? '저장 중...' : 'parfile만 저장'}
+                </button>
+              )}
+              <button type="button" className="btn-danger" disabled={pending === 0 || startingNo !== null || planStale} onClick={() => setConfirmAll(true)}>
                 전체 실행 ({pending}개)
               </button>
             </div>
@@ -783,8 +828,10 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
           </table>
           <p className="oc-hint">
             예상 크기는 세그먼트(할당 공간) 기준이라 실제 덤프는 보통 이보다 작습니다. 각 작업의 덤프/로그는 DB 서버의 {directory}
-            {directoryPath ? ` (${directoryPath})` : ''}에 생깁니다. parfile로 직접 돌릴 때는 작업마다 FLASHBACK_TIME=SYSTIMESTAMP라 작업끼리 시점이
-            조금씩 다를 수 있습니다.
+            {directoryPath ? ` (${directoryPath})` : ''}에 생깁니다.
+            {plan.groups[0]?.request.flashbackScn
+              ? ` 모든 작업(parfile 포함)이 FLASHBACK_SCN=${plan.groups[0].request.flashbackScn} 시점입니다.`
+              : ' parfile로 직접 돌릴 때는 작업마다 FLASHBACK_TIME=SYSTIMESTAMP라 작업끼리 시점이 조금씩 다를 수 있습니다 (FLASHBACK_SCN을 지정하면 같은 시점).'}
           </p>
         </div>
       )}

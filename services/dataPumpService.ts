@@ -505,6 +505,7 @@ export interface ExportSplitOptions {
   content?: DataPumpRequest['content'];
   excludeStatistics?: boolean;
   flashbackConsistent?: boolean;
+  flashbackScn?: string | null; // 지정하면 모든 작업(parfile 포함)을 이 SCN 시점으로 (FLASHBACK_SCN)
   reuseDumpfiles?: boolean;
   networkLink?: string | null; // 링크 너머 DB의 오브젝트를 export (크기/스키마도 그 DB 기준)
   // 모든 작업에 그대로 거는 오브젝트 필터와 데이터 필터·옵션 (테이블을 지정한 QUERY/SAMPLE은 그 테이블이 든 작업에만, 뷰는 따로 한 작업)
@@ -851,6 +852,7 @@ function planExportGroups(
       content: options.content ?? 'ALL',
       excludeStatistics: !!options.excludeStatistics,
       flashbackConsistent: !!options.flashbackConsistent,
+      flashbackScn: options.flashbackScn ?? null,
       reuseDumpfiles: !!options.reuseDumpfiles,
       networkLink: options.networkLink ?? null,
       objectFilter,

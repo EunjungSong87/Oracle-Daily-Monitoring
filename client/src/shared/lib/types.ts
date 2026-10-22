@@ -618,6 +618,7 @@ export interface ExportSplitOptions {
   content?: DataPumpContent;
   excludeStatistics?: boolean;
   flashbackConsistent?: boolean;
+  flashbackScn?: string | null; // 지정하면 모든 작업(parfile 포함)이 이 SCN 시점
   reuseDumpfiles?: boolean;
   networkLink?: string | null;
   objectFilter?: ObjectFilter | null;
