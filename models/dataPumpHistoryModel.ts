@@ -420,4 +420,54 @@ async function findExportLogItems(dumpfile: string): Promise<unknown[] | null> {
   });
 }
 
+export interface CompletedExportRow {
+  id: number;
+  jobName: string;
+  jobMode: string;
+  status: string;
+  directory: string;
+  dumpfile: string | null;
+  startedAt: string | null;
+  targetDesc: string | null;
+  request: Record<string, any> | null; // add_datapump_bundle.sql 이후 앱이 남긴 요청 (없으면 null)
+  expected: string[] | null; // add_datapump_history_verify.sql의 대조용 대상 목록 (없으면 null)
+  bundleId: string | null; // 분할 묶음 (add_datapump_bundle.sql 이후)
+  bundleJobs: number; // 그 묶음의 Export 작업 수 (묶음이 없으면 1)
+}
+
+// Import 탭 "기존 Export에서 가져오기": 이 DB에서 끝난 Export (메타 DB만 — 대상 DB는 읽지 않음). 추가 컬럼은 있을 때만 읽는다.
+async function listCompletedExports(dbmsId: number | string, historyId: number | null = null): Promise<CompletedExportRow[]> {
+  return withPool(async (connection) => {
+    const bundle = await hasBundleColumns(connection);
+    const extra = await hasExtraColumns(connection);
+    const result = await connection.execute<Record<string, any>>(
+      `SELECT * FROM (
+         SELECT id, job_name, job_mode, status, directory_name, dumpfile, TO_CHAR(started_at, '${TS}') AS started_at, target_desc
+                ${bundle ? ", request_json, bundle_id, (SELECT COUNT(*) FROM system.datapump_job_history b WHERE b.bundle_id = h.bundle_id AND b.operation = 'EXPORT') AS bundle_jobs" : ''}${extra ? ', expected_items' : ''}
+           FROM system.datapump_job_history h
+          WHERE dbms_id = :dbmsId AND operation = 'EXPORT' AND status IN ('COMPLETED', 'COMPLETED_WITH_ERRORS')
+            AND (:historyId IS NULL OR id = :historyId)
+          ORDER BY started_at DESC, id DESC
+       ) WHERE ROWNUM <= 100`,
+      { dbmsId: Number(dbmsId), historyId },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT, fetchInfo: { REQUEST_JSON: { type: oracledb.STRING }, EXPECTED_ITEMS: { type: oracledb.STRING } } }
+    );
+    return (result.rows ?? []).map((row) => ({
+      id: row.ID,
+      jobName: row.JOB_NAME,
+      jobMode: row.JOB_MODE,
+      status: row.STATUS,
+      directory: row.DIRECTORY_NAME,
+      dumpfile: row.DUMPFILE ?? null,
+      startedAt: row.STARTED_AT,
+      targetDesc: row.TARGET_DESC ?? null,
+      request: parseJson(row.REQUEST_JSON),
+      expected: parseJson<ExpectedSpec>(row.EXPECTED_ITEMS)?.items ?? null,
+      bundleId: row.BUNDLE_ID ?? null,
+      bundleJobs: row.BUNDLE_ID ? Number(row.BUNDLE_JOBS ?? 1) : 1,
+    }));
+  });
+}
+
+export { listCompletedExports };
 export { insertHistory, listHistory, listRunning, finishHistory, markCancelled, getExportThroughput, findExportLogItems, hasBundleColumns, withPool, parseJson };

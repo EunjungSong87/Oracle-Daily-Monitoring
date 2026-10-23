@@ -23,6 +23,8 @@ router.post('/dataPump/partition/tables', requireScreen('dataPump'), dataPumpCon
 router.post('/dataPump/partition/list', requireScreen('dataPump'), dataPumpController.partitionList);
 router.post('/dataPump/partition/manifest', requireScreen('dataPump'), dataPumpController.partitionManifest);
 router.post('/dataPump/partition/importPlan', requireScreen('dataPump'), dataPumpController.partitionImportPlan);
+router.post('/dataPump/importDraft/exports', requireScreen('dataPump'), dataPumpController.importDraftExports);
+router.post('/dataPump/importDraft', requireScreen('dataPump'), dataPumpController.importDraft);
 router.post('/dataPump/partition/historyList', requireScreen('dataPump'), dataPumpController.partitionHistoryList);
 router.post('/dataPump/partition/historyManifest', requireScreen('dataPump'), dataPumpController.partitionHistoryManifest);
 // 이관 Import: Export 이력(묶음) → Import 생성 → 덤프 파일 확인 → 사전 점검. 실행은 /dataPump/start(대상 DB)가 생성 기록과 대조해 막는다.

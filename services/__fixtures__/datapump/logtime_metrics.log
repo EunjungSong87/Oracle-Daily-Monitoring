@@ -1,0 +1,24 @@
+22-OCT-26 13:47:15.870: Starting "SYSTEM"."DBC_EXP_20261022224701_01":  
+22-OCT-26 13:47:17.473: W-1 Startup on instance 1 took 2 seconds
+22-OCT-26 13:47:21.424: W-1 Processing object type TABLE_EXPORT/TABLE/TABLE_DATA
+22-OCT-26 13:47:21.611: W-1 Processing object type TABLE_EXPORT/TABLE/INDEX/STATISTICS/INDEX_STATISTICS
+22-OCT-26 13:47:21.665: W-1      Completed 2 INDEX_STATISTICS objects in 0 seconds
+22-OCT-26 13:47:21.812: W-1 Processing object type TABLE_EXPORT/TABLE/STATISTICS/TABLE_STATISTICS
+22-OCT-26 13:47:21.822: W-1      Completed 2 TABLE_STATISTICS objects in 0 seconds
+22-OCT-26 13:47:43.100: W-1      Completed 1 [internal] STATISTICS objects in 22 seconds
+22-OCT-26 13:47:50.746: W-1 Processing object type TABLE_EXPORT/TABLE/TABLE
+22-OCT-26 13:47:52.785: W-1      Completed 2 TABLE objects in 9 seconds
+22-OCT-26 13:47:53.385: W-1 Processing object type TABLE_EXPORT/TABLE/GRANT/OWNER_GRANT/OBJECT_GRANT
+22-OCT-26 13:47:53.433: W-1      Completed 1 OBJECT_GRANT objects in 0 seconds
+22-OCT-26 13:47:55.077: W-1 Processing object type TABLE_EXPORT/TABLE/INDEX/INDEX
+22-OCT-26 13:47:55.338: W-1      Completed 1 INDEX objects in 1 seconds
+22-OCT-26 13:47:57.408: W-1 Processing object type TABLE_EXPORT/TABLE/CONSTRAINT/CONSTRAINT
+22-OCT-26 13:47:57.455: W-1      Completed 1 CONSTRAINT objects in 2 seconds
+22-OCT-26 13:47:58.178: W-1 . . exported "CMP_SRC"."MIG_SALES":"P2026_01"             21.2 KB     526 rows in 0 seconds using direct_path
+22-OCT-26 13:47:58.227: W-1 . . exported "CMP_SRC"."MIG_CUST"                         13.6 KB     500 rows in 0 seconds using direct_path
+22-OCT-26 13:48:00.271: W-1      Completed 2 TABLE_EXPORT/TABLE/TABLE_DATA objects in 0 seconds
+22-OCT-26 13:48:00.954: W-1 Master table "SYSTEM"."DBC_EXP_20261022224701_01" successfully loaded/unloaded
+22-OCT-26 13:48:01.047: ******************************************************************************
+22-OCT-26 13:48:01.047: Dump file set for SYSTEM.DBC_EXP_20261022224701_01 is:
+22-OCT-26 13:48:01.047:   /opt/oracle/admin/FREE/dpdump/2467904D40F2106AE0630F02000A30D8/lt1_01_01.dmp
+22-OCT-26 13:48:01.061: Job "SYSTEM"."DBC_EXP_20261022224701_01" successfully completed at Thu Oct 22 13:48:01 2026 elapsed 0 00:00:49

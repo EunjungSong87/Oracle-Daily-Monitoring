@@ -110,7 +110,18 @@ export function App(): ReactElement {
 
           {/* DBMS를 바꾸면 탭 상태(선택/계획)가 이전 DB 기준으로 남지 않게 key로 새로 만든다. */}
           {meta && tab === 'EXPORT' && <ExportTab key={dbmsId} dbmsId={dbmsId} meta={meta} sqlAllowed={sqlAllowed} />}
-          {meta && tab === 'IMPORT' && <ImportTab key={dbmsId} dbmsId={dbmsId} meta={meta} sqlAllowed={sqlAllowed} />}
+          {meta && tab === 'IMPORT' && (
+            <ImportTab
+              key={dbmsId}
+              dbmsId={dbmsId}
+              meta={meta}
+              sqlAllowed={sqlAllowed}
+              onOpenMigration={(key) => {
+                setMigrationKey(key);
+                setTab('MIGRATION');
+              }}
+            />
+          )}
           {meta && tab === 'PARTITION' && <PartitionTab key={dbmsId} dbmsId={dbmsId} meta={meta} sqlAllowed={sqlAllowed} dbmsRows={dbmsRows} />}
           {meta && tab === 'MIGRATION' && (
             <MigrationTab key={`${dbmsId}:${migrationKey ?? ''}`} dbmsId={dbmsId} dbname={meta.target.dbname} dbmsRows={dbmsRows} sqlAllowed={sqlAllowed} initialBundleKey={migrationKey} />

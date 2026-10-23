@@ -220,6 +220,8 @@ export interface GenerateInput {
     parallel?: unknown;
     content?: unknown;
     excludeStatistics?: unknown;
+    metrics?: unknown;
+    logtime?: unknown;
     tableExistsAction?: unknown;
     truncatePartitions?: unknown;
     objectFilter?: ObjectFilter | null;
@@ -278,6 +280,7 @@ async function truncatePlan(
 }
 
 const TEA = ['SKIP', 'APPEND', 'TRUNCATE', 'REPLACE'] as const;
+const LOGTIMES = ['STATUS', 'LOGFILE', 'ALL'] as const;
 
 async function generate(dbmsid: DbmsIdParam, bundleKey: string, input: GenerateInput, user: { name: string | null; role: string | null }) {
   const loaded = await loadBundle(dbmsid, bundleKey);
@@ -325,7 +328,7 @@ async function generate(dbmsid: DbmsIdParam, bundleKey: string, input: GenerateI
   const truncate = input.options.truncatePartitions === true ? await truncatePlan(bundleKey, selected, mapping, targetDbmsId) : new Map<number, string[]>();
   const now = new Date();
   const bySet = new Map(selected.map((item) => [item.set.historyId, tablespacesOf(placementsFor([...item.baseline.keys()], placements.rows))]));
-  const jobs = buildImportJobs(selected, mapping, bySet, { directory, parallel, content, excludeStatistics: input.options.excludeStatistics !== false, tableExistsAction, objectFilter: input.options.objectFilter ?? null, dataFilter: input.options.dataFilter ?? null, stamp: timestamp(now) }, truncate);
+  const jobs = buildImportJobs(selected, mapping, bySet, { directory, parallel, content, excludeStatistics: input.options.excludeStatistics !== false, metrics: input.options.metrics === true, logtime: LOGTIMES.find((value) => value === input.options.logtime) ?? null, tableExistsAction, objectFilter: input.options.objectFilter ?? null, dataFilter: input.options.dataFilter ?? null, stamp: timestamp(now) }, truncate);
 
   // 같은 buildPlan에서 parfile과 실행 필터를 만들고 둘 다 기준과 대조한다 (불변식 3, 5)
   const env = await getFilterEnv({ dbmsid: targetDbmsId }, user.role);

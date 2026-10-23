@@ -16,6 +16,7 @@ import {
 import { showToast } from '../../shared/lib/toastStore';
 import type {
   DataFilter,
+  DataPumpLogtime,
   DataPumpMeta,
   DbmsRow,
   DumpFileCheckRow,
@@ -32,10 +33,11 @@ import type {
 import { ConfirmModal } from './ConfirmModal';
 import { DataFilterEditor } from './DataFilterEditor';
 import { cleanDataFilter, cleanObjectFilter } from './filterHelpers';
-import { formatBytes } from './helpers';
+import { downloadText, formatBytes } from './helpers';
 import { ObjectFilterEditor } from './ObjectFilterEditor';
 import { ParfileModal, type ParfileView } from './ParfileModal';
 import { useServerSave } from './useServerSave';
+import { LogOptions } from './LogOptions';
 
 // 이관 Import: 이 DB(원본)의 Export 이력 묶음 → 대상 DB용 impdp 작업(덤프 세트마다 하나)을 만들고, 덤프 파일·사전 점검을 거쳐 실행한다.
 // 기준 목록은 Export 로그에서 실제로 나간 테이블/파티션이다. 빠짐·중복·매핑 누락은 서버가 막고, 화면은 그 목록 전체를 보여 준다.
@@ -188,6 +190,8 @@ export function MigrationTab({ dbmsId, dbname, dbmsRows, sqlAllowed, initialBund
   const [parallel, setParallel] = useState(1);
   const [content, setContent] = useState<'ALL' | 'DATA_ONLY' | 'METADATA_ONLY'>('ALL');
   const [excludeStatistics, setExcludeStatistics] = useState(true);
+  const [metrics, setMetrics] = useState(false);
+  const [logtime, setLogtime] = useState<DataPumpLogtime>('NONE');
   const [truncatePartitions, setTruncatePartitions] = useState(false);
   const [objectFilter, setObjectFilter] = useState<ObjectFilter>({ rules: [] });
   const [dataFilter, setDataFilter] = useState<DataFilter>({});
@@ -278,7 +282,13 @@ export function MigrationTab({ dbmsId, dbname, dbmsRows, sqlAllowed, initialBund
         directory,
         mapping: { schemas: schemaRows, tablespaces: tsRows },
         selected: [...selected],
-        options: { parallel, content, excludeStatistics, tableExistsAction, truncatePartitions, objectFilter: cleanObjectFilter(objectFilter), dataFilter: cleanDataFilter(dataFilter) },
+        options: {
+          parallel,
+          content,
+          excludeStatistics,
+          metrics: metrics && (targetMeta?.versionNumber ?? 0) >= 12.1,
+          logtime: (targetMeta?.versionNumber ?? 0) >= 12.1 && logtime !== 'NONE' ? logtime : null,
+          tableExistsAction, truncatePartitions, objectFilter: cleanObjectFilter(objectFilter), dataFilter: cleanDataFilter(dataFilter) },
         ack: { omitted: ackOmitted ? omitted : [], filterExcluded: ackFilter && filterExcluded ? filterExcluded : [] },
       });
       setPlan(result);
@@ -590,6 +600,7 @@ export function MigrationTab({ dbmsId, dbname, dbmsRows, sqlAllowed, initialBund
           <label>
             <input type="checkbox" checked={excludeStatistics} onChange={(e) => setExcludeStatistics(e.target.checked)} /> 통계 제외 (EXCLUDE=STATISTICS)
           </label>
+          {targetMeta && <LogOptions metrics={metrics} logtime={logtime} onMetrics={setMetrics} onLogtime={setLogtime} versionNumber={targetMeta.versionNumber} />}
           {detail.partitionTables.length > 0 && (
             <label>
               <input type="checkbox" checked={truncatePartitions} onChange={(e) => setTruncatePartitions(e.target.checked)} /> 파티션 덤프는 같은 범위의 대상 파티션을 비우고 넣기 (범위로 짝지음 — 이름이 달라도 됨)
@@ -684,6 +695,13 @@ export function MigrationTab({ dbmsId, dbname, dbmsRows, sqlAllowed, initialBund
             </tbody>
           </table>
           <div className="oc-actions dp-buttons">
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => plan.jobs.forEach((job, index) => window.setTimeout(() => downloadText(job.parfileName, job.parfile), index * 300))}
+            >
+              parfile 전체 다운로드 ({plan.jobs.length}개)
+            </button>
             <button type="button" className="btn-secondary" disabled={serverSave.saving} onClick={() => serverSave.save(directory || String(plan.jobs[0]?.request.directory ?? ''), plan.jobs.map((job) => ({ name: job.parfileName, content: job.parfile })))}>
               대상 DB DIRECTORY에 parfile 저장
             </button>

@@ -82,3 +82,17 @@ describe('compareRows — export 로그 vs import 로그 (REMAP 반영)', () => 
     expect(compareRows(exported, parseLogItems(log('qt_imp1')), [{ from: 'QUP', to: 'QUP2' }])).toEqual(['QUP2.EMP: export 7행 / import 5행']);
   });
 });
+
+describe('LOGTIME=ALL + METRICS=YES 로그 (23ai 실제 로그)', () => {
+  const text = readFileSync(path.join(__dirname, '__fixtures__/datapump/logtime_metrics.log'), 'utf8');
+
+  it('줄 앞 시각·작업자 표시와 줄 끝 수행 시간을 떼고 읽는다', () => {
+    expect(parseLogItems(text).map((item) => `${item.owner}.${item.table}${item.partition ? `:${item.partition}` : ''}=${item.rows}`)).toEqual(['CMP_SRC.MIG_SALES:P2026_01=526', 'CMP_SRC.MIG_CUST=500']);
+    expect(reconcile(['CMP_SRC.MIG_SALES:P2026_01', 'CMP_SRC.MIG_CUST'], text).status).toBe('MATCH');
+  });
+
+  it('결과 줄과 덤프 파일 목록도 읽는다', async () => {
+    const { parseDataPumpLog } = await import('./dataPumpHistoryService');
+    expect(parseDataPumpLog(text)).toMatchObject({ status: 'COMPLETED', elapsedSec: 49, dumpFiles: ['lt1_01_01.dmp'] });
+  });
+});

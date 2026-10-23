@@ -22,6 +22,7 @@ import type {
   PartitionRange,
   PartitionTableInfo,
   PlanAck,
+  DataPumpLogtime,
 } from '../../shared/lib/types';
 import { ConfirmModal } from './ConfirmModal';
 import { downloadText, estimateSeconds, formatBytes, formatDuration, todayPrefix } from './helpers';
@@ -33,6 +34,7 @@ import { cleanDataFilter, cleanObjectFilter, hasIncludeRules } from './filterHel
 import { FilterSummary } from './FilterSummary';
 import { ObjectFilterEditor } from './ObjectFilterEditor';
 import { useServerSave } from './useServerSave';
+import { LogOptions } from './LogOptions';
 
 const CHUNK_PRESETS = [
   { value: '500G', label: '500 GB' },
@@ -82,6 +84,8 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
   const [flashbackScn, setFlashbackScn] = useState('');
   const [fetchingScn, setFetchingScn] = useState(false);
   const [reuseDumpfiles, setReuseDumpfiles] = useState(false);
+  const [metrics, setMetrics] = useState(false);
+  const [logtime, setLogtime] = useState<DataPumpLogtime>('NONE');
   // 오브젝트 필터(INCLUDE/EXCLUDE)와 데이터 필터·옵션 — 분할된 모든 작업에 걸린다
   const [objectFilter, setObjectFilter] = useState<ObjectFilter>({ rules: [] });
   const [dataFilter, setDataFilter] = useState<DataFilter>({});
@@ -212,6 +216,8 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
       customFilesize: filesizeMode === 'CUSTOM' ? customFilesize : null,
       content,
       excludeStatistics,
+      metrics: metrics && meta.versionNumber >= 12.1,
+      logtime: meta.versionNumber >= 12.1 && logtime !== 'NONE' ? logtime : null,
       flashbackConsistent,
       flashbackScn: flashbackConsistent && flashbackScn.trim() ? flashbackScn.trim() : null,
       reuseDumpfiles,
@@ -621,6 +627,7 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
             <input type="checkbox" checked={reuseDumpfiles} onChange={(e) => setReuseDumpfiles(e.target.checked)} />
             같은 이름의 덤프 파일 덮어쓰기 (REUSE_DUMPFILES)
           </label>
+          <LogOptions metrics={metrics} logtime={logtime} onMetrics={setMetrics} onLogtime={setLogtime} versionNumber={meta.versionNumber} />
         </div>
         <ObjectFilterEditor
           value={objectFilter}

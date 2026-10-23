@@ -1,7 +1,7 @@
 import { useRef, useState, type ChangeEvent, type ReactElement } from 'react';
 import { getPartitionHistory, getPartitionHistoryManifest, planPartitionImport, readPartitionManifest, startDataPump } from '../../shared/lib/api';
 import { showToast } from '../../shared/lib/toastStore';
-import type { DataFilter, DataPumpMeta, DbmsRow, ObjectFilter, PartitionHistoryRow, PartitionImportPlan, PartitionImportJobView, PartitionManifest } from '../../shared/lib/types';
+import type { DataFilter, DataPumpLogtime, DataPumpMeta, DbmsRow, ObjectFilter, PartitionHistoryRow, PartitionImportPlan, PartitionImportJobView, PartitionManifest } from '../../shared/lib/types';
 import { ConfirmModal } from './ConfirmModal';
 import { formatBytes, todayPrefix } from './helpers';
 import { PartitionJobList } from './PartitionJobList';
@@ -11,6 +11,7 @@ import { DataFilterEditor } from './DataFilterEditor';
 import { cleanDataFilter, cleanObjectFilter } from './filterHelpers';
 import { FilterSummary } from './FilterSummary';
 import { ObjectFilterEditor } from './ObjectFilterEditor';
+import { LogOptions } from './LogOptions';
 
 interface Props {
   dbmsId: string;
@@ -39,6 +40,8 @@ export function PartitionImport({ dbmsId, meta, sqlAllowed, dbmsRows }: Props): 
   const [parallel, setParallel] = useState(1);
   const [content, setContent] = useState<'ALL' | 'DATA_ONLY'>('DATA_ONLY');
   const [excludeStatistics, setExcludeStatistics] = useState(true);
+  const [metrics, setMetrics] = useState(false);
+  const [logtime, setLogtime] = useState<DataPumpLogtime>('NONE');
   const [truncateBeforeLoad, setTruncateBeforeLoad] = useState(false);
   const [objectFilter, setObjectFilter] = useState<ObjectFilter>({ rules: [] });
   const [dataFilter, setDataFilter] = useState<DataFilter>({});
@@ -118,6 +121,8 @@ export function PartitionImport({ dbmsId, meta, sqlAllowed, dbmsRows }: Props): 
         parallel,
         content,
         excludeStatistics,
+        metrics: metrics && meta.versionNumber >= 12.1,
+        logtime: meta.versionNumber >= 12.1 && logtime !== 'NONE' ? logtime : null,
         truncateBeforeLoad,
         objectFilter: cleanObjectFilter(objectFilter),
         dataFilter: { ...cleanDataFilter(dataFilter), viewsAsTables: [] },
@@ -309,6 +314,7 @@ export function PartitionImport({ dbmsId, meta, sqlAllowed, dbmsRows }: Props): 
               <input type="checkbox" checked={excludeStatistics} onChange={(e) => setExcludeStatistics(e.target.checked)} />
               통계 제외
             </label>
+            <LogOptions metrics={metrics} logtime={logtime} onMetrics={setMetrics} onLogtime={setLogtime} versionNumber={meta.versionNumber} />
             <label className="oc-check">
               <input type="checkbox" checked={truncateBeforeLoad} onChange={(e) => setTruncateBeforeLoad(e.target.checked)} />
               비우고 넣기 (같은 범위의 대상 파티션을 먼저 TRUNCATE — 범위가 다르면 거부)

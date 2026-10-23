@@ -34,6 +34,9 @@ export interface DataPumpRequest {
   filesize?: string | null; // 덤프 파일 하나의 최대 크기 (예: 2G, 512M)
   content?: 'ALL' | 'METADATA_ONLY' | 'DATA_ONLY';
   excludeStatistics?: boolean;
+  // 로그에 작업 통계(METRICS=YES)와 시각(LOGTIME) — 12c(12.1) 이상
+  metrics?: boolean;
+  logtime?: 'NONE' | 'STATUS' | 'LOGFILE' | 'ALL' | null;
   reuseDumpfiles?: boolean; // EXPORT
   flashbackConsistent?: boolean; // EXPORT(또는 NETWORK_LINK import) — 작업 시작 시점 SCN으로 일관성 있게
   flashbackScn?: string | null; // EXPORT — 여러 작업을 같은 시점으로 맞출 때 쓰는 지정 SCN
@@ -234,8 +237,8 @@ function buildPlan(request: DataPumpRequest, now: Date = new Date(), env: Filter
     }
   }
   if (hasPartitions) {
-    if (!isExport) fail('파티션 지정은 Export에서만 합니다 (파티션 덤프는 덤프 전체를 가져오면 됩니다).');
-    if (networkLink) fail('파티션 단위 export는 DB 링크 없이 이 DB에서만 지원합니다.');
+    // Import도 덤프에서 그 파티션만 가져올 수 있다 (impdp TABLES=OWNER.TAB:PART — 기존 Export에서 가져올 때 파티션 항목을 그대로 유지)
+    if (networkLink) fail(isExport ? '파티션 단위 export는 DB 링크 없이 이 DB에서만 지원합니다.' : 'DB 링크로 가져올 때는 파티션을 지정할 수 없습니다 (덤프 파일 Import만).');
     if (mode !== 'TABLE') fail('파티션 지정은 테이블 모드에서만 할 수 있습니다.');
     const encodedLength = partitionFilters.reduce((sum, filter) => sum + filter.owner.length + filter.table.length + filter.partitions.join(',').length + 3, 0);
     if (encodedLength > MAX_FILTER_LENGTH) fail('한 작업의 파티션 목록이 너무 깁니다. 분할 크기를 줄여 작업을 나눠주세요.');
@@ -276,6 +279,10 @@ function buildPlan(request: DataPumpRequest, now: Date = new Date(), env: Filter
     flashbackScn = String(request.flashbackScn).trim();
     if (!/^\d{1,30}$/.test(flashbackScn)) fail('FLASHBACK_SCN 형식이 올바르지 않습니다.');
   }
+
+  const logtime = request.logtime && request.logtime !== 'NONE' ? request.logtime : null;
+  if (logtime && !['STATUS', 'LOGFILE', 'ALL'].includes(logtime)) fail('LOGTIME 값이 올바르지 않습니다 (NONE/STATUS/LOGFILE/ALL).');
+  if ((request.metrics || logtime) && env && env.versionNumber < 12.1) fail('METRICS/LOGTIME은 Oracle 12c(12.1) 이상에서만 쓸 수 있습니다.');
 
   const jobName = request.jobName
     ? identifier(request.jobName, '작업')
@@ -333,6 +340,8 @@ function buildPlan(request: DataPumpRequest, now: Date = new Date(), env: Filter
     excludeTableExpr,
     content,
     excludeStatistics: !!request.excludeStatistics,
+    metrics: !!request.metrics,
+    logtime,
     reuseDumpfiles: isExport && !!request.reuseDumpfiles,
     // 덤프 import는 덤프가 이미 한 시점의 데이터라 의미가 없고, 링크 import는 원본 DB 쪽 SCN으로 맞춘다.
     flashbackConsistent: (isExport || networkImport) && (!!request.flashbackConsistent || flashbackScn !== null),
@@ -481,6 +490,8 @@ function buildParfile(
   lines.push(...plan.filters.parfileLines);
   if (plan.parallel > 1) lines.push(`PARALLEL=${plan.parallel}`);
   if (plan.filesize) lines.push(`FILESIZE=${plan.filesize}`);
+  if (plan.metrics) lines.push('METRICS=YES');
+  if (plan.logtime) lines.push(`LOGTIME=${plan.logtime}`);
   if (plan.reuseDumpfiles) lines.push('REUSE_DUMPFILES=YES');
   if (plan.flashbackScn) lines.push(`FLASHBACK_SCN=${plan.flashbackScn}`);
   else if (plan.flashbackConsistent) lines.push('FLASHBACK_TIME=SYSTIMESTAMP');
@@ -507,6 +518,8 @@ export interface ExportSplitOptions {
   customFilesize?: string | null;
   content?: DataPumpRequest['content'];
   excludeStatistics?: boolean;
+  metrics?: boolean;
+  logtime?: DataPumpRequest['logtime'];
   flashbackConsistent?: boolean;
   flashbackScn?: string | null; // 지정하면 모든 작업(parfile 포함)을 이 SCN 시점으로 (FLASHBACK_SCN)
   reuseDumpfiles?: boolean;
@@ -863,6 +876,8 @@ function planExportGroups(
       filesize,
       content: options.content ?? 'ALL',
       excludeStatistics: !!options.excludeStatistics,
+      metrics: !!options.metrics,
+      logtime: options.logtime ?? null,
       flashbackConsistent: !!options.flashbackConsistent,
       flashbackScn: options.flashbackScn ?? null,
       reuseDumpfiles: !!options.reuseDumpfiles,
@@ -1618,7 +1633,11 @@ function assertImportCovers(plan: DataPumpPlan, request: DataPumpRequest, parfil
     compare(schemas, listOf('SCHEMAS').map((item) => identifier(item, '스키마')), 'SCHEMAS=');
     sources = schemas;
   } else if (plan.jobMode === 'TABLE') {
-    const pairs = plan.tables.map((pair) => `${pair.owner}.${pair.table}`);
+    // 파티션을 지정한 테이블은 OWNER.TABLE:PART로 파티션마다
+    const pairs = plan.tables.flatMap((pair) => {
+      const filter = plan.partitionFilters.find((item) => item.owner === pair.owner && item.table === pair.table);
+      return filter ? filter.partitions.map((partition) => `${pair.owner}.${pair.table}:${partition}`) : [`${pair.owner}.${pair.table}`];
+    });
     compare(pairs, listOf('TABLES').map((item) => sourceLineOf(parseQualified(item))), 'TABLES=');
     sources = [...new Set(plan.tables.map((pair) => pair.owner))];
   }

@@ -1,4 +1,6 @@
 import type {
+  ImportDraft,
+  ImportDraftExportRow,
   DumpFileCheckRow,
   MigrationBundleDetail,
   MigrationBundleRow,
@@ -537,6 +539,19 @@ export function getPartitionList(dbmsid: string | number, owner: string, table: 
 }
 
 // DB 서버 DIRECTORY에 있는 매니페스트(.json) 읽기
+// ── Import 탭 '기존 Export에서 가져오기' (작업 이력 / parfile / 로그 — 대상 DB에 새 조회 없음) ──
+export async function getImportDraftExports(dbmsid: string | number): Promise<ImportDraftExportRow[]> {
+  const { rows } = await postJson<{ rows: ImportDraftExportRow[] }>('/api/dataPump/importDraft/exports', { dbmsid });
+  return rows;
+}
+
+export function getImportDraft(
+  dbmsid: string | number,
+  input: { source: 'HISTORY'; historyId: number } | { source: 'PARFILE'; text: string } | { source: 'LOG'; directory: string; logfile: string }
+): Promise<ImportDraft> {
+  return postJson('/api/dataPump/importDraft', { dbmsid, ...input });
+}
+
 // ── 이관 Import (Export 이력 → Import 생성 → 사전 점검) ──
 export async function getMigrationBundles(dbmsid: string | number): Promise<MigrationBundleRow[]> {
   const { rows } = await postJson<{ rows: MigrationBundleRow[] }>('/api/dataPump/migration/bundles', { dbmsid });

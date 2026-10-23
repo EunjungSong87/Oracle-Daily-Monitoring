@@ -4,6 +4,7 @@ import { DataPumpValidationError } from '../services/dataPumpService';
 import * as historyService from '../services/dataPumpHistoryService';
 import * as partitionService from '../services/dataPumpPartitionService';
 import * as migrationService from '../services/dataPumpMigrationService';
+import * as importDraftService from '../services/dataPumpImportDraftService';
 import { logger } from '../utils/logger';
 
 function errMsg(error: unknown): string {
@@ -240,6 +241,30 @@ async function partitionImportPlan(req: Request, res: Response): Promise<void> {
   }
 }
 
+// ── Import 탭 "기존 Export에서 가져오기" (작업 이력 / parfile / 로그) ──
+
+async function importDraftExports(req: Request, res: Response): Promise<void> {
+  const dbmsid = requireDbmsid(req, res);
+  if (dbmsid === null) return;
+  try {
+    res.json({ rows: await importDraftService.listExports({ dbmsid }) });
+  } catch (error) {
+    handleError(res, error, `Export 이력 조회 오류 (dbmsid=${dbmsid})`);
+  }
+}
+
+async function importDraft(req: Request, res: Response): Promise<void> {
+  const dbmsid = requireDbmsid(req, res);
+  if (dbmsid === null) return;
+  try {
+    // QUERY/서브쿼리 조건은 DBA 이상만 채운다 (화면과 같은 기준)
+    const sqlAllowed = req.session.role === 'DBA' || req.session.role === 'SUPER_ADMIN';
+    res.json(await importDraftService.draft({ dbmsid }, req.body ?? {}, sqlAllowed));
+  } catch (error) {
+    handleError(res, error, `기존 Export 가져오기 오류 (dbmsid=${dbmsid})`);
+  }
+}
+
 // ── 이관 Import (Export 이력 → Import 생성 → 사전 점검) ──
 
 async function migrationBundles(req: Request, res: Response): Promise<void> {
@@ -354,6 +379,8 @@ async function partitionHistoryManifest(req: Request, res: Response): Promise<vo
 }
 
 export {
+  importDraftExports,
+  importDraft,
   migrationBundles,
   migrationBundle,
   migrationGenerate,

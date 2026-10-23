@@ -88,7 +88,9 @@ describe('Export 분할 — Range 파티션 대상', () => {
   it('파티션 지정은 export에서만, 테이블 하나일 때만', () => {
     const base = { operation: 'EXPORT' as const, mode: 'TABLE' as const, tableOwner: 'SALES', directory: 'D', dumpfile: 'x.dmp', logfile: 'x.log' };
     expect(() => buildPlan({ ...base, tables: ['A', 'B'], partitions: ['P1'] }, NOW)).toThrow(/테이블을 하나만/);
-    expect(() => buildPlan({ ...base, operation: 'IMPORT', tables: ['A'], partitions: ['P1'] }, NOW)).toThrow(/Export에서만/);
+    // Import도 덤프에서 그 파티션만 가져올 수 있다 (기존 Export에서 가져오기) — DB 링크 Import만 안 됨
+    expect(buildPlan({ ...base, operation: 'IMPORT', tables: ['A'], partitions: ['P1'] }, NOW).partitionFilters).toHaveLength(1);
+    expect(() => buildPlan({ ...base, operation: 'IMPORT', tables: ['A'], partitions: ['P1'], dumpfile: undefined, networkLink: 'SRC' } as never, NOW)).toThrow(/DB 링크/);
   });
 });
 

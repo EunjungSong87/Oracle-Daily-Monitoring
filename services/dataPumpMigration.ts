@@ -1,6 +1,6 @@
 import { fail } from './dataPumpErrors';
 import { tableFilterStatus, type DataFilter, type ObjectFilter } from './dataPumpFilters';
-import { parseLogItems, type LogItem } from './dataPumpLogVerify';
+import { logLines, parseLogItems, type LogItem } from './dataPumpLogVerify';
 import { exactName, parseIdentifier, parseParList, parseQualified, sqlName } from './dataPumpNames';
 import type { DataPumpPlan } from '../models/dataPumpModel';
 import type { DataPumpRequest } from './dataPumpService';
@@ -245,6 +245,8 @@ export interface ImportBuildOptions {
   parallel: number;
   content: 'ALL' | 'DATA_ONLY' | 'METADATA_ONLY';
   excludeStatistics: boolean;
+  metrics?: boolean; // METRICS=YES (12c 이상)
+  logtime?: 'NONE' | 'STATUS' | 'LOGFILE' | 'ALL' | null; // LOGTIME (12c 이상)
   tableExistsAction: 'SKIP' | 'APPEND' | 'TRUNCATE' | 'REPLACE';
   objectFilter?: ObjectFilter | null; // 사용자가 추가한 대상 축소 조건 (불변식 4로 확인)
   dataFilter?: DataFilter | null;
@@ -321,6 +323,8 @@ export function buildImportJobs(
       parallel: options.parallel,
       content: options.content,
       excludeStatistics: options.excludeStatistics,
+      metrics: !!options.metrics,
+      logtime: options.logtime ?? null,
       tableExistsAction: truncate.length > 0 || mineShared.length > 0 ? 'APPEND' : options.tableExistsAction,
       remapSchemas: remap.map((pair) => ({ from: sqlName(pair.from), to: sqlName(pair.to) })),
       remapTablespaces: tsRemap.map((pair) => ({ from: sqlName(pair.from), to: sqlName(pair.to) })),
@@ -480,7 +484,7 @@ export function verifyMigrationImport(baseline: Record<string, number>, remap: {
   const extra = [...imported.keys()].filter((key) => !expected.has(key)).sort();
   const errorTables = new Set<string>();
   const expectedTables = new Set([...expected.keys()].map(tableKeyOf));
-  for (const line of logText.split(/\r?\n/)) {
+  for (const line of logLines(logText)) {
     if (!/ORA-\d{5}/.test(line)) continue;
     for (const match of line.matchAll(QUOTED_OBJECT)) {
       const table = itemKey(match[1], match[2]);

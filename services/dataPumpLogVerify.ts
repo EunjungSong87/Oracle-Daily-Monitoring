@@ -21,12 +21,26 @@ export interface VerifyResult {
   skipped: string[]; // TABLE_EXISTS_ACTION=SKIP으로 건너뛴 테이블 (이유 표시용)
 }
 
-const ITEM_LINE = /^\. \. (exported|imported) "([^"]+)"\."([^"]+)"(?::"([^"]+)")?(?:\."([^"]+)")?\s+.*?(\d+) rows\s*$/;
+// METRICS=YES면 줄 끝에 " in 0 seconds using direct_path"가 붙는다
+const ITEM_LINE = /^\. \. (exported|imported) "([^"]+)"\."([^"]+)"(?::"([^"]+)")?(?:\."([^"]+)")?\s+.*?(\d+) rows(?:\s+in\s+\d+\s+seconds?\b.*)?\s*$/;
 const SKIP_LINE = /^Table "([^"]+)"\."([^"]+)" exists\..*skipped/;
+
+// LOGTIME=LOGFILE/ALL이면 줄마다 "22-OCT-26 13:47:58.178: " 같은 시각이, METRICS=YES면 "W-1 " 같은 작업자 표시가 앞에 붙는다.
+// 로그를 읽는 곳은 모두 이걸 떼고 본다 (날짜 표기는 NLS에 따라 달라서 "공백 없는 날짜 + 시각:" 꼴로 맞춘다).
+const LOGTIME_PREFIX = /^\S+ \d{1,2}:\d{2}:\d{2}(?:[.,]\d+)?: ?/;
+const WORKER_PREFIX = /^W-\d+ /;
+
+function cleanLogLine(line: string): string {
+  return line.replace(/\s+$/, '').replace(LOGTIME_PREFIX, '').replace(WORKER_PREFIX, '');
+}
+
+function logLines(text: string): string[] {
+  return text.split(/\r?\n/).map(cleanLogLine);
+}
 
 function parseLogItems(text: string): LogItem[] {
   const items: LogItem[] = [];
-  for (const raw of text.split(/\r?\n/)) {
+  for (const raw of logLines(text)) {
     const match = raw.trim().match(ITEM_LINE);
     if (!match) continue;
     items.push({
@@ -44,7 +58,7 @@ function parseLogItems(text: string): LogItem[] {
 // ORA- 줄을 코드별로 묶어 "ORA-39166 ×5: 첫 메시지 / …" (없으면 null)
 function parseErrorSummary(text: string): string | null {
   const byCode = new Map<string, { count: number; first: string }>();
-  for (const raw of text.split(/\r?\n/)) {
+  for (const raw of logLines(text)) {
     const match = raw.trim().match(/^(ORA-\d{5}):\s*(.*)$/);
     if (!match) continue;
     const found = byCode.get(match[1]);
@@ -61,8 +75,7 @@ function parseErrorSummary(text: string): string | null {
 // expected: 정확한 이름의 OWNER.TABLE(통째 — 그 테이블의 어떤 줄이든 있으면 됨) 또는 OWNER.TABLE:PART. null이면 판단하지 않음.
 function reconcile(expected: string[] | null, text: string): VerifyResult {
   const items = parseLogItems(text);
-  const skipped = text
-    .split(/\r?\n/)
+  const skipped = logLines(text)
     .map((line) => line.trim().match(SKIP_LINE))
     .filter((match): match is RegExpMatchArray => !!match)
     .map((match) => `${match[1]}.${match[2]}`);
@@ -105,4 +118,4 @@ function compareRows(exported: LogItem[], imported: LogItem[], remapSchemas: { f
   return diffs;
 }
 
-export { parseLogItems, parseErrorSummary, reconcile, compareRows };
+export { cleanLogLine, logLines, parseLogItems, parseErrorSummary, reconcile, compareRows };

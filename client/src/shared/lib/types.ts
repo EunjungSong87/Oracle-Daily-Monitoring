@@ -609,6 +609,8 @@ export interface DataPumpDbLink {
 }
 
 export type DataPumpContent = 'ALL' | 'METADATA_ONLY' | 'DATA_ONLY';
+// LOGTIME: 로그/화면 메시지에 시각 (12c 이상)
+export type DataPumpLogtime = 'NONE' | 'STATUS' | 'LOGFILE' | 'ALL';
 export type TableExistsAction = 'SKIP' | 'APPEND' | 'TRUNCATE' | 'REPLACE';
 
 export interface DataPumpRequest {
@@ -626,6 +628,8 @@ export interface DataPumpRequest {
   filesize?: string | null;
   content?: DataPumpContent;
   excludeStatistics?: boolean;
+  metrics?: boolean; // METRICS=YES (12c 이상)
+  logtime?: DataPumpLogtime | null; // LOGTIME (12c 이상)
   reuseDumpfiles?: boolean;
   flashbackConsistent?: boolean;
   flashbackScn?: string | null;
@@ -650,6 +654,8 @@ export interface ExportSplitOptions {
   customFilesize?: string | null;
   content?: DataPumpContent;
   excludeStatistics?: boolean;
+  metrics?: boolean; // METRICS=YES (12c 이상)
+  logtime?: DataPumpLogtime | null; // LOGTIME (12c 이상)
   flashbackConsistent?: boolean;
   flashbackScn?: string | null; // 지정하면 모든 작업(parfile 포함)이 이 SCN 시점
   reuseDumpfiles?: boolean;
@@ -874,6 +880,8 @@ export interface PartitionImportOptions {
   parallel: number;
   content?: 'ALL' | 'DATA_ONLY';
   excludeStatistics?: boolean;
+  metrics?: boolean;
+  logtime?: DataPumpLogtime | null;
   truncateBeforeLoad?: boolean;
   objectFilter?: ObjectFilter | null;
   dataFilter?: DataFilter | null;
@@ -1046,6 +1054,8 @@ export interface MigrationGenerateInput {
     parallel: number;
     content: 'ALL' | 'DATA_ONLY' | 'METADATA_ONLY';
     excludeStatistics: boolean;
+    metrics: boolean;
+    logtime: DataPumpLogtime | null;
     tableExistsAction: TableExistsAction;
     truncatePartitions: boolean;
     objectFilter: ObjectFilter | null;
@@ -1102,4 +1112,37 @@ export interface PartitionHistoryRow {
   owner: string;
   table: string;
   partitions: number;
+}
+
+// ── Import 탭 '기존 Export에서 가져오기' (services/dataPumpParfileParse.ts) ──
+export interface ImportDraftExportRow {
+  id: number;
+  jobName: string;
+  jobMode: string;
+  status: string;
+  startedAt: string | null;
+  dumpfile: string | null;
+  targetDesc: string | null;
+  hasRequest: boolean;
+  bundleKey: string | null;
+  bundleJobs: number; // 분할 묶음의 Export 작업 수 — 2개 이상이면 이관 Import 탭에서 묶음 전체로
+}
+
+export interface ImportDraft {
+  source: string;
+  directory: string | null;
+  dumpfile: string | null;
+  mode: 'FULL' | 'SCHEMA' | 'TABLE';
+  schemas: string[];
+  tables: string[]; // OWNER.TABLE 또는 OWNER.TABLE:PART
+  parallel: number | null;
+  content: DataPumpContent | null;
+  excludeStatistics: boolean | null;
+  metrics: boolean | null;
+  logtime: DataPumpLogtime | null;
+  objectFilter: ObjectFilter;
+  dataFilter: DataFilter;
+  warnings: string[];
+  unknownKeys: string[];
+  items: string[]; // 폼에 채울 스키마/테이블 항목 (채운 뒤 다시 대조)
 }

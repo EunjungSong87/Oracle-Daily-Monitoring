@@ -45,6 +45,8 @@ export interface DataPumpPlan {
   excludeTableExpr: string | null; // 스키마 모드에서 빼는 테이블 (분할 시 다른 작업으로 떼어 낸 큰 테이블), 예: NOT IN ('BIG1')
   content: 'ALL' | 'METADATA_ONLY' | 'DATA_ONLY';
   excludeStatistics: boolean;
+  metrics?: boolean; // METRICS=YES (12.1+)
+  logtime?: 'STATUS' | 'LOGFILE' | 'ALL' | null; // LOGTIME (12.1+)
   reuseDumpfiles: boolean; // EXPORT
   flashbackConsistent: boolean; // EXPORT(또는 NETWORK_LINK import) — 시작 시점 원본 SCN으로 일관성 있게
   flashbackScn: string | null; // EXPORT — 여러 작업을 같은 시점으로 맞출 때 지정 SCN (없으면 작업 시작 시점)
@@ -490,6 +492,12 @@ async function startJob(dbmsid: DbmsIdParam, plan: DataPumpPlan): Promise<void> 
              END IF;
              DBMS_DATAPUMP.SET_PARAMETER(handle => h, name => 'FLASHBACK_SCN', value => scn);
            END IF;
+           IF :metrics = 1 THEN
+             DBMS_DATAPUMP.SET_PARAMETER(handle => h, name => 'METRICS', value => 1);
+           END IF;
+           IF :logtime IS NOT NULL THEN
+             DBMS_DATAPUMP.SET_PARAMETER(handle => h, name => 'LOGTIME', value => :logtime);
+           END IF;
            IF :tableExistsAction IS NOT NULL THEN
              DBMS_DATAPUMP.SET_PARAMETER(handle => h, name => 'TABLE_EXISTS_ACTION', value => :tableExistsAction);
            END IF;
@@ -555,6 +563,8 @@ async function startJob(dbmsid: DbmsIdParam, plan: DataPumpPlan): Promise<void> 
         content: plan.content,
         flashback: plan.flashbackConsistent ? 1 : 0,
         tableExistsAction: plan.tableExistsAction,
+        metrics: plan.metrics ? 1 : 0,
+        logtime: plan.logtime ?? null,
         remapSchemas: plan.remapSchemas.map((pair) => `${pair.from}:${pair.to}`).join(',') || null,
         remapTablespaces: plan.remapTablespaces.map((pair) => `${pair.from}:${pair.to}`).join(',') || null,
         parallel: plan.parallel,

@@ -68,6 +68,8 @@ export interface PartitionImportOptions {
   parallel: number;
   content?: 'ALL' | 'DATA_ONLY'; // DATA_ONLY = 이미 있는 테이블에 데이터만
   excludeStatistics?: boolean;
+  metrics?: boolean; // METRICS=YES (12c 이상)
+  logtime?: 'NONE' | 'STATUS' | 'LOGFILE' | 'ALL' | null; // LOGTIME (12c 이상)
   truncateBeforeLoad?: boolean; // 같은 범위의 대상 파티션을 비우고 넣기
   objectFilter?: ObjectFilter | null; // 작업마다 그대로 거는 오브젝트 필터 / 데이터 필터·옵션
   dataFilter?: DataFilter | null;
@@ -171,6 +173,8 @@ function planPartitionImportJobs(
       parallel,
       content,
       excludeStatistics: options.excludeStatistics !== false,
+      metrics: options.metrics === true,
+      logtime: options.logtime ?? null,
       // 파티션 덤프를 기존 테이블에 넣으려면 APPEND (TRUNCATE는 파티션이 아니라 테이블 전체를 비울 수 있어서 쓰지 않음)
       tableExistsAction: 'APPEND',
       remapSchemas: targetOwner !== manifest.owner ? [{ from: sqlName(manifest.owner), to: sqlName(targetOwner) }] : [],

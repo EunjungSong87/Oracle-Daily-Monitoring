@@ -1,7 +1,7 @@
 import * as dataPumpModel from '../models/dataPumpModel';
 import * as historyModel from '../models/dataPumpHistoryModel';
 import type { DataPumpHistoryRow, DataPumpHistoryStatus, ExpectedSpec, HistoryExtras, NewHistory } from '../models/dataPumpHistoryModel';
-import { compareRows, parseErrorSummary, parseLogItems, reconcile } from './dataPumpLogVerify';
+import { compareRows, logLines, parseErrorSummary, parseLogItems, reconcile } from './dataPumpLogVerify';
 import type { LogItem } from './dataPumpLogVerify';
 import { parseMasterRows, runnerOf } from './dataPumpMaster';
 import type { MasterInfo, MasterRow, Runner } from './dataPumpMaster';
@@ -54,7 +54,7 @@ export interface ParsedLog {
 //   Job "SYSTEM"."DBC_IMP_..." completed with 1 error(s) at Fri Oct 2 07:49:33 2026 elapsed 0 00:00:08
 //   Job "SYSTEM"."X" stopped due to fatal error at ...
 function parseDataPumpLog(text: string): ParsedLog {
-  const lines = text.split(/\r?\n/);
+  const lines = logLines(text); // LOGTIME/METRICS 접두어를 뗀 줄
   const resultLine = [...lines].reverse().find((line) => /^Job ".+"\.".+" .+ at /.test(line.trim()))?.trim() ?? null;
 
   let status: DataPumpHistoryStatus = 'UNKNOWN';
