@@ -24,7 +24,9 @@ export function App(): ReactElement {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [historyList, setHistoryList] = useState<RunHistorySummary[] | null>(null);
-  const [detail, setDetail] = useState<RunHistoryDetail | null>(null);
+  // "보기"로 연 실행 결과는 탭으로 (Daily Monitoring의 결과 탭과 같은 방식). LIST = 이력 목록 탭.
+  const [resultTabs, setResultTabs] = useState<RunHistoryDetail[]>([]);
+  const [activeTab, setActiveTab] = useState<number | 'LIST'>('LIST');
 
   useEffect(() => {
     getDbmsList()
@@ -44,7 +46,6 @@ export function App(): ReactElement {
   }, []);
 
   function loadHistoryList(dbmsid: string, from: string, to: string): void {
-    if (!urlParam('run')) setDetail(null);
     if (!dbmsid) {
       setHistoryList(null);
       return;
@@ -73,14 +74,25 @@ export function App(): ReactElement {
     loadHistoryList(selectedDbmsId, '', '');
   }
 
+  // 이미 열린 실행이면 그 탭으로, 아니면 새 탭으로 연다.
   async function viewDetail(id: number): Promise<void> {
+    if (resultTabs.some((tab) => tab.id === id)) {
+      setActiveTab(id);
+      return;
+    }
     try {
       const result = await getRunHistoryDetail(id);
-      setDetail(result);
+      setResultTabs((current) => (current.some((tab) => tab.id === result.id) ? current : [...current, result]));
+      setActiveTab(result.id);
     } catch (error) {
       console.error('이력 상세 조회 실패:', error);
       showToast('이력 상세 조회 실패', 'error');
     }
+  }
+
+  function closeTab(id: number): void {
+    setResultTabs((current) => current.filter((tab) => tab.id !== id));
+    setActiveTab((current) => (current === id ? 'LIST' : current));
   }
 
   return (
@@ -90,74 +102,91 @@ export function App(): ReactElement {
 
       <h2 className="page-title">Run History</h2>
 
-      <div className="history-filter-bar">
-        <label htmlFor="history-dbms-select">DBMS:</label>
-        <select
-          id="history-dbms-select"
-          value={selectedDbmsId}
-          onChange={(e) => setSelectedDbmsId(e.target.value)}
-        >
-          {dbmsRows.map((row) => (
-            <option key={String(row.ID)} value={String(row.ID)}>
-              {row.DBNAME} ({row.IP})
-            </option>
-          ))}
-        </select>
-
-        <label htmlFor="history-from-date">시작일:</label>
-        <input type="date" id="history-from-date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-        <label htmlFor="history-to-date">종료일:</label>
-        <input type="date" id="history-to-date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
-        <button type="button" className="btn-secondary" onClick={applyDateFilter}>
-          조회
+      <div className="tab">
+        <button type="button" className={`tab-link${activeTab === 'LIST' ? ' active' : ''}`} onClick={() => setActiveTab('LIST')}>
+          이력 목록
         </button>
-        <button type="button" className="btn-secondary" onClick={clearDateFilter}>
-          전체보기
-        </button>
+        {resultTabs.map((tab) => (
+          <span key={tab.id} className={`tab-link history-tab${activeTab === tab.id ? ' active' : ''}`}>
+            <button type="button" className="history-tab-open" onClick={() => setActiveTab(tab.id)} title={`${tab.dbname} ${formatRunAt(tab.runAt)}`}>
+              {tab.dbname} {formatRunAt(tab.runAt).slice(5, 19)}
+            </button>
+            <button type="button" className="history-tab-close" aria-label={`${tab.dbname} 탭 닫기`} onClick={() => closeTab(tab.id)}>
+              ×
+            </button>
+          </span>
+        ))}
       </div>
 
-      <table id="history-list" className="table">
-        <thead>
-          <tr>
-            <th>실행 시각</th>
-            <th>실행 방식</th>
-            <th>성공</th>
-            <th>실패</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {historyList && historyList.length === 0 && (
+      <div className={`tab-content${activeTab === 'LIST' ? ' active' : ''}`}>
+        <div className="history-filter-bar">
+          <label htmlFor="history-dbms-select">DBMS:</label>
+          <select
+            id="history-dbms-select"
+            value={selectedDbmsId}
+            onChange={(e) => setSelectedDbmsId(e.target.value)}
+          >
+            {dbmsRows.map((row) => (
+              <option key={String(row.ID)} value={String(row.ID)}>
+                {row.DBNAME} ({row.IP})
+              </option>
+            ))}
+          </select>
+
+          <label htmlFor="history-from-date">시작일:</label>
+          <input type="date" id="history-from-date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+          <label htmlFor="history-to-date">종료일:</label>
+          <input type="date" id="history-to-date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+          <button type="button" className="btn-secondary" onClick={applyDateFilter}>
+            조회
+          </button>
+          <button type="button" className="btn-secondary" onClick={clearDateFilter}>
+            전체보기
+          </button>
+        </div>
+
+        <table id="history-list" className="table">
+          <thead>
             <tr>
-              <td colSpan={5}>실행 이력이 없습니다.</td>
+              <th>실행 시각</th>
+              <th>실행 방식</th>
+              <th>성공</th>
+              <th>실패</th>
+              <th></th>
             </tr>
-          )}
-          {historyList?.map((h) => (
-            <tr key={h.id}>
-              <td>{formatRunAt(h.runAt)}</td>
-              <td>{h.triggerType === 'SCHEDULED' ? '자동' : '수동'}</td>
-              <td>{h.successCount}</td>
-              <td className={h.failCount > 0 ? 'cell-error' : undefined}>{h.failCount}</td>
-              <td>
-                <button type="button" className="btn-secondary" onClick={() => viewDetail(h.id)}>
-                  보기
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {historyList && historyList.length === 0 && (
+              <tr>
+                <td colSpan={5}>실행 이력이 없습니다.</td>
+              </tr>
+            )}
+            {historyList?.map((h) => (
+              <tr key={h.id}>
+                <td>{formatRunAt(h.runAt)}</td>
+                <td>{h.triggerType === 'SCHEDULED' ? '자동' : '수동'}</td>
+                <td>{h.successCount}</td>
+                <td className={h.failCount > 0 ? 'cell-error' : undefined}>{h.failCount}</td>
+                <td>
+                  <button type="button" className="btn-secondary" onClick={() => viewDetail(h.id)}>
+                    {resultTabs.some((tab) => tab.id === h.id) ? '탭 열기' : '보기'}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
 
-      <div id="history-detail">
-        {detail && (
-          <>
-            <h2>
-              {detail.dbname} — {formatRunAt(detail.runAt)} ({detail.triggerType === 'SCHEDULED' ? '자동' : '수동'})
-            </h2>
-            <MonitoringResultTable results={detail.results} />
-          </>
-        )}
       </div>
+
+      {resultTabs.map((tab) => (
+        <div key={tab.id} className={`tab-content${activeTab === tab.id ? ' active' : ''}`}>
+          <h3>
+            {tab.dbname} — {formatRunAt(tab.runAt)} ({tab.triggerType === 'SCHEDULED' ? '자동' : '수동'})
+          </h3>
+          <MonitoringResultTable results={tab.results} />
+        </div>
+      ))}
     </>
   );
 }

@@ -2449,3 +2449,9 @@ button.rt-kill-btn { padding: 2px 10px; font-size: 12px; }
 .dp-imports h4 { margin: 4px 0; font-size: 13px; }
 .dp-warn { color: #d97706; font-weight: 600; }
 .dp-sql { margin: 4px 0 0; padding: 4px 6px; background: var(--bg-subtle, rgba(127, 127, 127, 0.12)); border-radius: 4px; font-size: 12px; white-space: pre-wrap; user-select: all; }
+
+/* Run History: 결과 탭 (탭 이름 + 닫기) */
+.tab-link.history-tab { display: inline-flex; align-items: center; gap: 2px; padding: 0; }
+.history-tab button { background: none; border: none; color: inherit; font: inherit; cursor: pointer; padding: 8px 6px 8px 12px; }
+.history-tab button.history-tab-close { padding: 8px 10px 8px 2px; opacity: 0.6; }
+.history-tab button.history-tab-close:hover { opacity: 1; }
