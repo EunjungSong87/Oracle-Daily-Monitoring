@@ -194,15 +194,14 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
     };
   }, [dbmsId, partOwner, partTable]);
 
-  // "파티션마다 하나"는 파티션 대상에서만 고를 수 있다.
+  // "파티션마다 하나"는 파티션 대상에서만 고를 수 있다 (테이블 목록은 한 테이블을 항상 한 parfile에).
   function changeSourceKind(next: typeof sourceKind): void {
     setSourceKind(next);
-    if (next === 'SCHEMAS' && chunkPreset === 'PARTITION') setChunkPreset('1T');
+    if (next !== 'PARTITIONS' && chunkPreset === 'PARTITION') setChunkPreset('1T');
   }
 
   const partTableInfo = partTables?.find((table) => table.name === partTable) ?? null;
-  // "파티션마다 하나"는 Range 파티션 대상, 또는 파티션 줄을 올릴 수 있는 테이블 목록에서만.
-  const chunkPresets = sourceKind !== 'SCHEMAS' ? [...CHUNK_PRESETS, { value: 'PARTITION', label: '파티션마다 하나' }] : CHUNK_PRESETS;
+  const chunkPresets = sourceKind === 'PARTITIONS' ? [...CHUNK_PRESETS, { value: 'PARTITION', label: '파티션마다 하나' }] : CHUNK_PRESETS;
 
   // 지금 화면의 대상/옵션. 계획은 만들 때의 값으로 요청(PARALLEL, FILESIZE 등)이 정해지므로, 그 뒤에 바꾸면
   // 계획이 옛 값 그대로 실행된다 — planKey와 비교해 "계획을 다시 만들어야 함"으로 막는다.
@@ -521,8 +520,8 @@ export function ExportTab({ dbmsId, meta, sqlAllowed }: Props): ReactElement {
             </div>
             <p className="oc-hint">
               "OWNER.TABLE", "OWNER TABLE", "OWNER,TABLE" 형식 모두 됩니다. 파티션만 내보내려면 "OWNER.TABLE:PARTITION"처럼 적으세요 (expdp TABLES와 같은 형식) —
-              같은 스키마는 통째 테이블과 파티션 테이블을 섞어서라도 분할 크기 안에서 한 작업(parfile)에 모으고, 한 테이블의 파티션은 그 테이블 혼자 분할 크기를
-              넘을 때만 기간 순서로 나눕니다. 같은 테이블을 통째로도 적으면 통째로 내보냅니다.
+              같은 스키마는 통째 테이블과 파티션 테이블을 섞어서라도 분할 크기 안에서 한 작업(parfile)에 모으고, 한 테이블(의 파티션)은 분할 크기를 넘어도
+              나누지 않고 항상 한 작업에만 넣습니다. 같은 테이블을 통째로도 적으면 통째로 내보냅니다.
               테이블 데이터만 내보내며(TABLE 모드), 스키마가 달라도 분할 크기 안이면 한 작업(TABLES=HR.EMP,SCOTT.DEPT)으로 묶습니다. 단, 묶으면 목록에 없는
               같은 이름 테이블(예: SCOTT.EMP)까지 딸려 오는 조합은 따로 나눕니다.
             </p>

@@ -632,7 +632,8 @@ function planExportGroups(
   if (!FILE_PREFIX.test(prefix)) fail('파일 이름 접두어는 영문/숫자/_ - 만 쓸 수 있습니다.');
   const chunkText = String(options.chunkSize ?? '').trim().toUpperCase();
   const perPartition = chunkText === 'PARTITION';
-  if (perPartition && source.kind === 'SCHEMAS') fail('"파티션마다 하나"는 Range 파티션 대상이나 테이블 목록에서만 고를 수 있습니다.');
+  // 테이블 목록은 한 테이블을 반드시 한 작업(parfile)에 담으므로 파티션 단위로 나누는 옵션이 없다.
+  if (perPartition && source.kind !== 'PARTITIONS') fail('"파티션마다 하나"는 Range 파티션 대상에서만 고를 수 있습니다.');
   const chunkBytes = chunkText === 'NONE' || perPartition ? null : parseSize(chunkText, '분할 크기');
   const limit = chunkBytes ?? Number.POSITIVE_INFINITY;
   const parallel = Number(options.parallel ?? 1);
@@ -735,8 +736,8 @@ function planExportGroups(
   } else {
     // 올린 목록을 DB의 실제 테이블/파티션과 맞춰 보고, 없는 건 따로 알려줍니다. 스키마와 상관없이 분할 크기 안에서
     // 되도록 한 작업(= 한 parfile)에 모읍니다. 통째로 적은 테이블과 파티션을 적은 테이블이
-    // 섞여도 같은 작업에 담고(TABLES=O.T1,O.T2:P1,O.T2:P2), 한 테이블의 파티션은 그 테이블 혼자 분할 크기를 넘을 때만
-    // 기간 순서로 나눕니다. 같은 테이블을 통째로도 적었으면 통째로 내보냅니다.
+    // 섞여도 같은 작업에 담습니다(TABLES=O.T1,O.T2:P1,O.T2:P2). 한 테이블(의 파티션들)은 크기와 상관없이 항상 한 작업에만
+    // 들어갑니다 — 그 테이블 혼자 분할 크기를 넘으면 그 테이블만 담은 작업이 됩니다. 같은 테이블을 통째로도 적었으면 통째로 내보냅니다.
     const byKey = new Map(sizes.map((table) => [`${table.owner}.${table.name}`, table]));
     const partitionsByTable = new Map<string, Set<string>>();
     const wholeKeys: string[] = [];
@@ -749,7 +750,7 @@ function planExportGroups(
       }
     }
 
-    // 묶음 단위: 통째 테이블 하나, 또는 한 테이블의 파티션 묶음(분할 크기를 넘으면 기간 순서로 여러 개).
+    // 묶음 단위: 통째 테이블 하나, 또는 한 테이블의 고른 파티션 전부 (나누지 않음).
     type Unit = { owner: string; table: TableSize; partitions: TablePartition[] };
     const units: Unit[] = [];
     for (const key of wholeKeys) {
@@ -768,20 +769,18 @@ function planExportGroups(
       const picked = ranges.filter((range) => names.has(range.name));
       if (picked.length === 0) continue;
       const [owner, name] = key.split('.');
-      for (const bin of packPartitions(picked, limit, perPartition)) {
-        const bytes = bin.reduce((sum, partition) => sum + partition.bytes, 0);
-        units.push({ owner, table: { owner, name, bytes }, partitions: bin.map((partition) => ({ ...partition, owner, table: name })) });
-      }
+      const sorted = [...picked].sort((a, b) => a.position - b.position);
+      const bytes = sorted.reduce((sum, partition) => sum + partition.bytes, 0);
+      units.push({ owner, table: { owner, name, bytes }, partitions: sorted.map((partition) => ({ ...partition, owner, table: name })) });
     }
 
     // 스키마와 상관없이 분할 크기까지 채워 묶는다 (큰 것부터 First-Fit Decreasing). 실행은 스키마별 작업으로 나뉘므로
-    // (executionPlans) 다른 스키마의 같은 이름 테이블이 딸려 들어가지 않는다. 같은 테이블의 파티션 묶음끼리는 한 작업에
-    // 넣지 않는다 (그 테이블 혼자 분할 크기를 넘어서 나뉜 것이므로).
+    // (executionPlans) 다른 스키마의 같은 이름 테이블이 딸려 들어가지 않는다. 테이블마다 묶음 단위가 하나뿐이라 한 테이블이
+    // 두 작업에 나뉘어 들어갈 수 없다 (assertSourceCovered에서도 다시 확인).
     const bins: { bytes: number; units: Unit[]; owners: Set<string>; keys: Set<string> }[] = [];
     for (const unit of [...units].sort((a, b) => b.table.bytes - a.table.bytes || a.owner.localeCompare(b.owner) || a.table.name.localeCompare(b.table.name))) {
       const key = `${unit.owner}.${unit.table.name}`;
-      // "파티션마다 하나"면 묶지 않는다.
-      const bin = perPartition ? undefined : bins.find((candidate) => candidate.bytes + unit.table.bytes <= limit && !candidate.keys.has(key));
+      const bin = bins.find((candidate) => candidate.bytes + unit.table.bytes <= limit && !candidate.keys.has(key));
       if (bin) {
         bin.bytes += unit.table.bytes;
         bin.units.push(unit);
@@ -1021,6 +1020,17 @@ function assertSourceCovered(source: ExportSource, groups: ExportGroup[], missin
     if (notPlaced.length > 0) lost(notPlaced);
     return { lines: source.partitions.length, duplicates: 0, merged: 0 };
   }
+
+  // 테이블 목록: 한 테이블은 반드시 한 작업(parfile)에만
+  const tableJobs = new Map<string, number[]>();
+  for (const group of tableGroups) {
+    for (const table of group.tables) {
+      const key = `${table.owner}.${table.name}`;
+      tableJobs.set(key, [...(tableJobs.get(key) ?? []), group.no]);
+    }
+  }
+  const splitTables = [...tableJobs].filter(([, jobs]) => jobs.length > 1).map(([key, jobs]) => `${key}(작업 ${jobs.join(',')})`);
+  if (splitTables.length > 0) fail(`내부 오류: 한 테이블이 여러 작업으로 나뉘었습니다 (${splitTables.slice(0, 10).join(', ')}). 계획을 다시 만들어 주세요.`);
 
   const raw = source.tables.map(sourceLine);
   const lines = [...new Set(raw)];
