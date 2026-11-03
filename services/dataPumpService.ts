@@ -573,6 +573,7 @@ export interface ExportGroup {
   views: string[]; // VIEWS_AS_TABLES 작업이면 뷰 (OWNER.VIEW[:TEMPLATE]), 아니면 빈 배열 — 크기는 알 수 없어 0
   bytes: number;
   oversize: boolean; // 테이블 하나가 분할 크기보다 커서 기준을 넘는 그룹
+  splitTables: { table: string; jobs: number[] }[]; // 이 작업에 든 테이블 중 여러 작업으로 나뉜 것 (OWNER.TABLE, 그 테이블이 든 작업 번호들)
   filesize: string | null;
   expectedFiles: number;
   request: DataPumpRequest; // 그대로 /dataPump/start에 보내면 되는 요청
@@ -632,8 +633,7 @@ function planExportGroups(
   if (!FILE_PREFIX.test(prefix)) fail('파일 이름 접두어는 영문/숫자/_ - 만 쓸 수 있습니다.');
   const chunkText = String(options.chunkSize ?? '').trim().toUpperCase();
   const perPartition = chunkText === 'PARTITION';
-  // 테이블 목록은 한 테이블을 반드시 한 작업(parfile)에 담으므로 파티션 단위로 나누는 옵션이 없다.
-  if (perPartition && source.kind !== 'PARTITIONS') fail('"파티션마다 하나"는 Range 파티션 대상에서만 고를 수 있습니다.');
+  if (perPartition && source.kind === 'SCHEMAS') fail('"파티션마다 하나"는 Range 파티션 대상이나 테이블 목록에서만 고를 수 있습니다.');
   const chunkBytes = chunkText === 'NONE' || perPartition ? null : parseSize(chunkText, '분할 크기');
   const limit = chunkBytes ?? Number.POSITIVE_INFINITY;
   const parallel = Number(options.parallel ?? 1);
@@ -666,7 +666,7 @@ function planExportGroups(
     source = { ...source, partitionRanges: adjusted };
   }
 
-  type Draft = Omit<ExportGroup, 'no' | 'filesize' | 'expectedFiles' | 'request' | 'partitions' | 'views'> & {
+  type Draft = Omit<ExportGroup, 'no' | 'filesize' | 'expectedFiles' | 'request' | 'partitions' | 'views' | 'splitTables'> & {
     partitions?: TablePartition[];
     views?: ViewAsTable[];
   };
@@ -736,8 +736,9 @@ function planExportGroups(
   } else {
     // 올린 목록을 DB의 실제 테이블/파티션과 맞춰 보고, 없는 건 따로 알려줍니다. 스키마와 상관없이 분할 크기 안에서
     // 되도록 한 작업(= 한 parfile)에 모읍니다. 통째로 적은 테이블과 파티션을 적은 테이블이
-    // 섞여도 같은 작업에 담습니다(TABLES=O.T1,O.T2:P1,O.T2:P2). 한 테이블(의 파티션들)은 크기와 상관없이 항상 한 작업에만
-    // 들어갑니다 — 그 테이블 혼자 분할 크기를 넘으면 그 테이블만 담은 작업이 됩니다. 같은 테이블을 통째로도 적었으면 통째로 내보냅니다.
+    // 섞여도 같은 작업에 담습니다(TABLES=O.T1,O.T2:P1,O.T2:P2). 한 테이블은 되도록 한 작업에 넣고, 파티션 테이블이 혼자 분할 크기를
+    // 넘을 때만 기간 순서로 마지막 작업을 채운 뒤 바로 다음 작업(들)로 이어 담습니다 (나뉜 테이블의 작업 번호는 항상 연속).
+    // 같은 테이블을 통째로도 적었으면 통째로 내보냅니다.
     const byKey = new Map(sizes.map((table) => [`${table.owner}.${table.name}`, table]));
     const partitionsByTable = new Map<string, Set<string>>();
     const wholeKeys: string[] = [];
@@ -750,7 +751,7 @@ function planExportGroups(
       }
     }
 
-    // 묶음 단위: 통째 테이블 하나, 또는 한 테이블의 고른 파티션 전부 (나누지 않음).
+    // 묶음 단위: 통째 테이블 하나, 또는 한 테이블의 고른 파티션 전부 (기간 순).
     type Unit = { owner: string; table: TableSize; partitions: TablePartition[] };
     const units: Unit[] = [];
     for (const key of wholeKeys) {
@@ -775,20 +776,54 @@ function planExportGroups(
     }
 
     // 스키마와 상관없이 분할 크기까지 채워 묶는다 (큰 것부터 First-Fit Decreasing). 실행은 스키마별 작업으로 나뉘므로
-    // (executionPlans) 다른 스키마의 같은 이름 테이블이 딸려 들어가지 않는다. 테이블마다 묶음 단위가 하나뿐이라 한 테이블이
-    // 두 작업에 나뉘어 들어갈 수 없다 (assertSourceCovered에서도 다시 확인).
-    const bins: { bytes: number; units: Unit[]; owners: Set<string>; keys: Set<string> }[] = [];
+    // (executionPlans) 다른 스키마의 같은 이름 테이블이 딸려 들어가지 않는다.
+    type Bin = { bytes: number; units: Unit[]; owners: Set<string>; keys: Set<string> };
+    const bins: Bin[] = [];
+    const put = (bin: Bin | undefined, unit: Unit): void => {
+      const key = `${unit.owner}.${unit.table.name}`;
+      if (!bin) {
+        bins.push({ bytes: unit.table.bytes, units: [unit], owners: new Set([unit.owner]), keys: new Set([key]) });
+        return;
+      }
+      bin.bytes += unit.table.bytes;
+      bin.units.push(unit);
+      bin.owners.add(unit.owner);
+      bin.keys.add(key);
+    };
     for (const unit of [...units].sort((a, b) => b.table.bytes - a.table.bytes || a.owner.localeCompare(b.owner) || a.table.name.localeCompare(b.table.name))) {
       const key = `${unit.owner}.${unit.table.name}`;
-      const bin = bins.find((candidate) => candidate.bytes + unit.table.bytes <= limit && !candidate.keys.has(key));
-      if (bin) {
-        bin.bytes += unit.table.bytes;
-        bin.units.push(unit);
-        bin.owners.add(unit.owner);
-        bin.keys.add(key);
-      } else {
-        bins.push({ bytes: unit.table.bytes, units: [unit], owners: new Set([unit.owner]), keys: new Set([key]) });
+      if (perPartition && unit.partitions.length > 0) {
+        // "파티션마다 하나": 파티션 하나당 작업 하나 (연속 번호)
+        for (const partition of unit.partitions) put(undefined, { ...unit, table: { ...unit.table, bytes: partition.bytes }, partitions: [partition] });
+        continue;
       }
+      const fit = perPartition ? undefined : bins.find((candidate) => candidate.bytes + unit.table.bytes <= limit && !candidate.keys.has(key));
+      if (fit || unit.partitions.length === 0 || unit.table.bytes <= limit) {
+        put(fit, unit); // 되도록 한 작업에 (통째 테이블은 나눌 수 없어 넘으면 혼자 한 작업)
+        continue;
+      }
+      // 혼자 분할 크기를 넘는 파티션 테이블: 마지막 작업의 남은 자리부터 기간 순서로 채우고, 넘치면 바로 다음 작업으로 이어 간다.
+      let current: Bin | undefined = bins[bins.length - 1];
+      let piece: TablePartition[] = [];
+      let pieceBytes = 0;
+      const flush = (): void => {
+        if (piece.length === 0) return;
+        put(current, { owner: unit.owner, table: { ...unit.table, bytes: pieceBytes }, partitions: piece });
+        current = bins[bins.length - 1];
+        piece = [];
+        pieceBytes = 0;
+      };
+      for (const partition of unit.partitions) {
+        const used = (current?.bytes ?? 0) + pieceBytes;
+        const empty = !current && piece.length === 0;
+        if (!empty && used + partition.bytes > limit) {
+          flush();
+          current = undefined; // 다음 작업을 새로 연다
+        }
+        piece.push(partition);
+        pieceBytes += partition.bytes;
+      }
+      flush();
     }
     for (const bin of bins) {
       drafts.push({
@@ -886,8 +921,15 @@ function planExportGroups(
     };
     buildPlan(request, now, env); // 그룹마다 실제로 실행 가능한 요청인지 미리 확인 (목록이 너무 길면 여기서 걸림)
     const viewNames = draftViews.map(viewKey);
-    return { ...draft, partitions, views: viewNames, no, filesize, expectedFiles: expectedFileCount(draft.bytes, parallel, filesize), request };
+    return { ...draft, partitions, views: viewNames, no, filesize, expectedFiles: expectedFileCount(draft.bytes, parallel, filesize), request, splitTables: [] };
   });
+  const jobsByTable = tableJobNumbers(groups);
+  for (const group of groups) {
+    group.splitTables = group.tables
+      .map((table) => `${table.owner}.${table.name}`)
+      .filter((key) => (jobsByTable.get(key)?.length ?? 0) > 1)
+      .map((key) => ({ table: key, jobs: jobsByTable.get(key) ?? [] }));
+  }
 
   // 화면 실행은 여러 스키마 작업을 스키마별 덤프로 나누므로 그 이름까지 겹치지 않아야 한다.
   const dumpNames = groups.flatMap((group) => executionPlans(buildPlan(group.request, now, env)).map((run) => run.dumpfile));
@@ -917,6 +959,19 @@ function groupExpectedItems(group: ExportGroup, filteredOut: Set<string>): strin
     const parts = group.partitions.filter((p) => p.owner === table.owner && p.table === table.name);
     return parts.length === 0 ? [key] : parts.map((p) => `${key}:${p.name}`);
   });
+}
+
+// 테이블(OWNER.TABLE)마다 그 테이블이 든 작업 번호들 (뷰 작업 제외, 오름차순)
+function tableJobNumbers(groups: ExportGroup[]): Map<string, number[]> {
+  const jobs = new Map<string, number[]>();
+  for (const group of groups) {
+    if (group.views.length > 0) continue;
+    for (const table of group.tables) {
+      const key = `${table.owner}.${table.name}`;
+      jobs.set(key, [...(jobs.get(key) ?? []), group.no]);
+    }
+  }
+  return jobs;
 }
 
 function viewKey(view: ViewAsTable): string {
@@ -1021,16 +1076,11 @@ function assertSourceCovered(source: ExportSource, groups: ExportGroup[], missin
     return { lines: source.partitions.length, duplicates: 0, merged: 0 };
   }
 
-  // 테이블 목록: 한 테이블은 반드시 한 작업(parfile)에만
-  const tableJobs = new Map<string, number[]>();
-  for (const group of tableGroups) {
-    for (const table of group.tables) {
-      const key = `${table.owner}.${table.name}`;
-      tableJobs.set(key, [...(tableJobs.get(key) ?? []), group.no]);
-    }
-  }
-  const splitTables = [...tableJobs].filter(([, jobs]) => jobs.length > 1).map(([key, jobs]) => `${key}(작업 ${jobs.join(',')})`);
-  if (splitTables.length > 0) fail(`내부 오류: 한 테이블이 여러 작업으로 나뉘었습니다 (${splitTables.slice(0, 10).join(', ')}). 계획을 다시 만들어 주세요.`);
+  // 테이블 목록: 여러 작업으로 나뉜 테이블은 작업 번호가 연속이어야 한다 (끝난 작업 바로 다음 parfile로 이어짐)
+  const scattered = [...tableJobNumbers(groups)]
+    .filter(([, jobs]) => jobs.some((no, index) => index > 0 && no !== jobs[index - 1] + 1))
+    .map(([key, jobs]) => `${key}(작업 ${jobs.join(',')})`);
+  if (scattered.length > 0) fail(`내부 오류: 나뉜 테이블이 연속되지 않은 작업에 들어갔습니다 (${scattered.slice(0, 10).join(', ')}). 계획을 다시 만들어 주세요.`);
 
   const raw = source.tables.map(sourceLine);
   const lines = [...new Set(raw)];
@@ -1065,6 +1115,9 @@ export interface ExportPlanSummary {
   planned: number; // 계획에 들어간 줄(통째 테이블 + 파티션) 수 — 스키마 선택이면 테이블 수. listed = planned + missing + merged
   missing: number; // DB에 없어서 뺀 줄
   filteredOut: number; // 사용자 필터(이름 조건)로 빠지는 테이블
+  tables: number; // 계획에 든 서로 다른 테이블 수 (파티션 테이블 포함)
+  partitions: number; // 계획에 든 파티션 수 (파티션 단위로 내보내는 것만)
+  splitTables: number; // 여러 작업(parfile)으로 나뉜 테이블 수
   viewJobs: number;
   views: number;
   filters: string[]; // 적용 중인 오브젝트·데이터 필터 요약
@@ -1126,6 +1179,9 @@ function summarizePlan(
     planned,
     missing: missing.length,
     filteredOut: 0, // planExportGroups가 채움
+    tables: tableJobNumbers(groups).size,
+    partitions: tableGroups.reduce((sum, group) => sum + group.partitions.length, 0),
+    splitTables: [...tableJobNumbers(groups).values()].filter((jobs) => jobs.length > 1).length,
     viewJobs: groups.length - tableGroups.length,
     views: groups.reduce((sum, group) => sum + group.views.length, 0),
     filters,
@@ -1560,6 +1616,7 @@ function planSummaryText(
   return [
     `DB Cockpit Data Pump Export 계획 요약 — ${dbname}, ${now.toISOString()}`,
     `작업 ${jobs}개 / 계획 포함 ${summary.planned}개${summary.listed !== null ? ` / 목록 ${summary.listed}개` : ''}`,
+    `테이블 ${summary.tables}개 / 파티션 ${summary.partitions}개 / 여러 parfile로 나뉜 테이블 ${summary.splitTables}개`,
     `DB에 없어 빠진 항목 ${missing.length}개${missing.length > 0 ? ':' : ''}`,
     ...missing.map((line) => `  ${display(line)}`),
     `필터로 제외되는 테이블 ${filteredOut.length}개${filteredOut.length > 0 ? ':' : ''}`,

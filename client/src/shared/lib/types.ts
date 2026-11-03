@@ -680,6 +680,7 @@ export interface ExportGroup {
   bytes: number;
   oversize: boolean;
   filesize: string | null;
+  splitTables: { table: string; jobs: number[] }[]; // 여러 작업(parfile)으로 나뉜 테이블 OWNER.TABLE과 그 테이블이 든 작업 번호들
   expectedFiles: number;
   views: string[]; // VIEWS_AS_TABLES 작업이면 뷰 (크기 0)
   request: DataPumpRequest;
@@ -721,6 +722,9 @@ export interface ExportPlanSummary {
   missing: number; // DB에 없어서 뺀 줄
   filteredOut: number; // 사용자 필터로 빠지는 테이블
   viewJobs: number;
+  tables: number; // 계획에 든 서로 다른 테이블 수
+  partitions: number; // 계획에 든 파티션 수
+  splitTables: number; // 여러 parfile로 나뉜 테이블 수
   views: number;
   filters: string[]; // 적용 중인 오브젝트·데이터 필터
   warnings: string[]; // 대상과 안 맞는 남은 설정

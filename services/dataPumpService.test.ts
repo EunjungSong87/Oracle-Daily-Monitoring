@@ -539,28 +539,48 @@ describe('planExportGroups — 테이블 목록에 파티션', () => {
     expect(() => parseTableList('A.B:C:D')).toThrow(/소유자.테이블:파티션/);
   });
 
-  it('한 테이블의 파티션은 분할 크기를 넘어도 항상 한 작업(parfile)에, 다른 테이블은 분할 크기 안에서 모은다', () => {
+  it('파티션 테이블은 혼자 분할 크기를 넘을 때만 바로 다음 작업으로 이어지고, 나뉜 테이블·개수를 표시한다', () => {
     const list = parseTableList('SALES.ORDERS:P01\nSALES.ORDERS:P02\nSALES.ORDERS:P03\nSALES.ORDERS:P04\nSALES.LOGS:P02\nSALES.ORDERS:P99');
-    const { groups, missing } = planExportGroups(
+    const { groups, missing, summary } = planExportGroups(
       { kind: 'TABLES', tables: list, partitionRanges: { 'SALES.ORDERS': ORDERS, 'SALES.LOGS': LOGS } },
       [],
       splitOptions(),
       NOW
     );
     expect(missing).toEqual(['SALES.ORDERS:P99']);
-    // ORDERS 1.2T는 혼자 1T를 넘어도 나누지 않고 혼자 한 작업, LOGS는 따로.
+    // ORDERS 1.2T는 혼자 1T를 넘어 기간 순서로 P01~P03 / P04(바로 다음 작업)로 나뉘고, LOGS는 남는 자리에 같이 들어간다.
     const describe = (g: (typeof groups)[number]) => g.tables.map((t) => `${t.name}:${g.partitions.filter((p) => p.table === t.name).map((p) => p.name).join(',')}`).join(' ');
-    expect(groups.map((g) => [describe(g), g.bytes / G, g.oversize])).toEqual([
-      ['ORDERS:P01,P02,P03,P04', 1200, true],
-      ['LOGS:P02', 10, false],
+    expect(groups.map((g) => [describe(g), g.bytes / G])).toEqual([
+      ['ORDERS:P01,P02,P03 LOGS:P02', 910],
+      ['ORDERS:P04', 300],
     ]);
+    expect(groups.map((g) => g.splitTables)).toEqual([
+      [{ table: 'SALES.ORDERS', jobs: [1, 2] }],
+      [{ table: 'SALES.ORDERS', jobs: [1, 2] }],
+    ]);
+    expect([summary.tables, summary.partitions, summary.splitTables]).toEqual([2, 5, 1]);
     const plan = buildPlan(groups[0].request, NOW);
-    expect(plan.partitionFilters).toEqual([{ owner: 'SALES', table: 'ORDERS', partitions: ['P01', 'P02', 'P03', 'P04'] }]);
+    expect(plan.partitionFilters).toEqual([
+      { owner: 'SALES', table: 'ORDERS', partitions: ['P01', 'P02', 'P03'] },
+      { owner: 'SALES', table: 'LOGS', partitions: ['P02'] },
+    ]);
     expect(buildParfile(plan, groups[0].request, TARGET).parfile).toContain(
-      'TABLES=SALES.ORDERS:P01,SALES.ORDERS:P02,SALES.ORDERS:P03,SALES.ORDERS:P04\n'
+      'TABLES=SALES.ORDERS:P01,SALES.ORDERS:P02,SALES.ORDERS:P03,SALES.LOGS:P02\n'
     );
     // 테이블 하나 + 파티션 하나인 작업만 덤프 이름에 테이블/파티션 이름
-    expect(groups[1].request.dumpfile).toBe('exp_20261002_LOGS_P02_%U.dmp');
+    expect(groups[1].request.dumpfile).toBe('exp_20261002_ORDERS_P04_%U.dmp');
+  });
+
+  it('분할 크기 안에 들어가는 파티션 테이블은 나누지 않고, 넘치는 테이블은 마지막 작업의 남은 자리부터 연속으로 채운다', () => {
+    // 분할 1T: BIG 1.2T(300G x4)가 먼저 → 작업1 P01~P03(900G), 작업2 P04(300G). MID 800G(400G x2)는 어디에도 안 들어가
+    // 새 작업3에 통째로 (나누지 않음).
+    const MID = [range('M1', 1, 400 * G), range('M2', 2, 400 * G)];
+    const list = parseTableList('S.BIG:P01\nS.BIG:P02\nS.BIG:P03\nS.BIG:P04\nS.MID:M1\nS.MID:M2');
+    const { groups, summary } = planExportGroups({ kind: 'TABLES', tables: list, partitionRanges: { 'S.BIG': ORDERS, 'S.MID': MID } }, [], splitOptions(), NOW);
+    const describe = (g: (typeof groups)[number]) => g.tables.map((t) => `${t.name}:${g.partitions.filter((p) => p.table === t.name).map((p) => p.name).join(',')}`).join(' ');
+    expect(groups.map(describe)).toEqual(['BIG:P01,P02,P03', 'BIG:P04', 'MID:M1,M2']);
+    expect(groups[2].splitTables).toEqual([]);
+    expect([summary.tables, summary.partitions, summary.splitTables]).toEqual([2, 6, 1]);
   });
 
   it('통째 테이블과 파티션 테이블, 다른 스키마 테이블도 한 작업에 (TABLES=O.T1,O.T2:P..,O2.T3)', () => {
@@ -581,11 +601,10 @@ describe('planExportGroups — 테이블 목록에 파티션', () => {
     );
   });
 
-  it('테이블 목록에서는 "파티션마다 하나"를 고를 수 없다 (한 테이블은 한 parfile)', () => {
+  it('"파티션마다 하나"면 파티션/테이블마다 따로', () => {
     const list = parseTableList('SALES.LOGS:P01\nSALES.LOGS:P02');
-    expect(() =>
-      planExportGroups({ kind: 'TABLES', tables: list, partitionRanges: { 'SALES.LOGS': LOGS } }, [], splitOptions({ chunkSize: 'PARTITION' }), NOW)
-    ).toThrow(/Range 파티션 대상에서만/);
+    const { groups } = planExportGroups({ kind: 'TABLES', tables: list, partitionRanges: { 'SALES.LOGS': LOGS } }, [], splitOptions({ chunkSize: 'PARTITION' }), NOW);
+    expect(groups.map((g) => g.request.dumpfile)).toEqual(['exp_20261002_LOGS_P01_%U.dmp', 'exp_20261002_LOGS_P02_%U.dmp']);
   });
 
   it('같은 테이블이 통째로도 적혀 있으면 통째로, RANGE 파티션 정보가 없는 테이블의 파티션 줄은 missing', () => {
