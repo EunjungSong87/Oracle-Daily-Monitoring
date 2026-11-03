@@ -1,5 +1,5 @@
 import * as dataPumpModel from '../models/dataPumpModel';
-import type { DataPumpPlan, DbLinkInfo, DirectoryInfo, LogContent, TableSize, TargetInfo } from '../models/dataPumpModel';
+import type { DataPumpPlan, DbLinkInfo, DirectoryInfo, InstanceNode, LogContent, TableSize, TargetInfo } from '../models/dataPumpModel';
 import type { DbmsIdParam } from '../models/dbmsModel';
 import { DataPumpValidationError, fail } from './dataPumpErrors';
 import { compileFilters, tableFilterStatus, tableSizeFactor } from './dataPumpFilters';
@@ -1920,13 +1920,47 @@ async function saveFiles(
   }
 }
 
-async function readLog(dbmsid: DbmsIdParam, directory: string, logfile: string): Promise<LogContent> {
+// RAC에서 로그 파일이 안 보이는 이유 설명 (단일 인스턴스이거나 앱이 MASTER와 같은 노드면 null).
+// DIRECTORY 경로가 노드 로컬 디스크면 로그는 작업 MASTER가 도는 노드에만 써지므로, 앱이 붙은 노드에서는 BFILE로 안 보인다.
+function nodeMismatchHint(nodes: InstanceNode[]): string | null {
+  if (nodes.length <= 1) return null;
+  const label = (node: InstanceNode) => `노드 ${node.instId} (${node.instanceName}, ${node.hostName})`;
+  const connected = nodes.find((node) => node.connected);
+  const master = nodes.find((node) => node.master);
+  const here = connected ? label(connected) : '알 수 없는 노드';
+  if (master && master.connected) return null;
+  if (master) {
+    return (
+      `RAC: 이 작업은 ${label(master)}에서 돌고 있는데 앱은 ${here}에 접속해 있습니다. ` +
+      `DIRECTORY 경로가 노드마다 따로인 로컬 디스크면 로그 파일은 ${master.hostName} 서버에만 있어 앱에서 읽을 수 없습니다 — ` +
+      'DIRECTORY를 모든 노드가 보는 공유 경로(ACFS/NFS)로 두거나, DBMS 등록 접속 정보를 그 인스턴스로 맞추세요.'
+    );
+  }
+  return `RAC: 앱은 ${here}에 접속해 있습니다. 작업이 다른 노드에서 돌았고 DIRECTORY 경로가 노드 로컬 디스크면, 로그 파일은 그 노드 서버에만 있어 앱에서 읽을 수 없습니다.`;
+}
+
+async function readLog(
+  dbmsid: DbmsIdParam,
+  directory: string,
+  logfile: string,
+  job: { owner?: unknown; jobName?: unknown } | null = null
+): Promise<LogContent & { nodeHint?: string | null }> {
   const dir = identifier(directory, 'DIRECTORY');
   const file = filename(logfile, '로그 파일');
+  let log: LogContent;
   try {
-    return await dataPumpModel.readLog(dbmsid, dir, file);
+    log = await dataPumpModel.readLog(dbmsid, dir, file);
   } catch (error) {
     throw new Error('로그 파일 읽기 실패', { cause: error });
+  }
+  if (log.exists) return log;
+  // 못 찾았으면 RAC 노드 차이인지 본다 (참고용 — GV$ 권한이 없거나 실패해도 결과에는 영향 없음)
+  const text = (value: unknown) => (typeof value === 'string' && /^[A-Za-z0-9_$#]{1,128}$/.test(value) ? value : null);
+  try {
+    const nodes = await dataPumpModel.getInstanceNodes(dbmsid, text(job?.owner), text(job?.jobName));
+    return { ...log, nodeHint: nodeMismatchHint(nodes) };
+  } catch {
+    return log;
   }
 }
 
@@ -1962,4 +1996,5 @@ export {
   cancel,
   saveFiles,
   readLog,
+  nodeMismatchHint,
 };

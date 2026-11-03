@@ -9,6 +9,7 @@ import {
   DataPumpValidationError,
   expectedFileCount,
   isDestructive,
+  nodeMismatchHint,
   parseSize,
   parseTableList,
   planExportGroups,
@@ -638,5 +639,25 @@ describe('buildPlan / buildParfile — 분할 작업용 옵션', () => {
 
   it('SCN은 숫자만', () => {
     expect(() => buildPlan(exportRequest({ flashbackScn: '1; DROP' }), NOW)).toThrow(/FLASHBACK_SCN/);
+  });
+});
+
+describe('nodeMismatchHint — RAC에서 로그가 안 보일 때', () => {
+  const node = (instId: number, connected: boolean, master: boolean) => ({ instId, instanceName: `ORCL${instId}`, hostName: `db0${instId}`, connected, master });
+
+  it('단일 인스턴스이거나 앱이 MASTER와 같은 노드면 표시하지 않는다', () => {
+    expect(nodeMismatchHint([node(1, true, true)])).toBeNull();
+    expect(nodeMismatchHint([node(1, true, true), node(2, false, false)])).toBeNull();
+  });
+
+  it('작업 MASTER 노드와 앱 접속 노드가 다르면 두 노드를 알려 준다', () => {
+    const hint = nodeMismatchHint([node(1, true, false), node(2, false, true)]);
+    expect(hint).toContain('노드 2 (ORCL2, db02)에서 돌고');
+    expect(hint).toContain('앱은 노드 1 (ORCL1, db01)에 접속');
+    expect(hint).toContain('db02 서버에만');
+  });
+
+  it('작업이 이미 끝나 MASTER를 모르면 앱 접속 노드만 알려 준다', () => {
+    expect(nodeMismatchHint([node(1, false, false), node(2, true, false)])).toContain('앱은 노드 2 (ORCL2, db02)에 접속');
   });
 });

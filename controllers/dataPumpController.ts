@@ -191,7 +191,7 @@ async function readLog(req: Request, res: Response): Promise<void> {
   const dbmsid = requireDbmsid(req, res);
   if (dbmsid === null) return;
   try {
-    res.json(await dataPumpService.readLog({ dbmsid }, req.body.directory, req.body.logfile));
+    res.json(await dataPumpService.readLog({ dbmsid }, req.body.directory, req.body.logfile, { owner: req.body.owner, jobName: req.body.jobName }));
   } catch (error) {
     handleError(res, error, `로그 읽기 오류 (dbmsid=${dbmsid})`);
   }

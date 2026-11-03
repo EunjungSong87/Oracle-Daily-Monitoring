@@ -490,8 +490,14 @@ export function cancelDataPumpJob(dbmsid: string | number, owner: string, jobNam
   return postJson('/api/dataPump/cancel', { dbmsid, owner: sqlName(owner), jobName: sqlName(jobName), confirmDbname });
 }
 
-export function readDataPumpLog(dbmsid: string | number, directory: string, logfile: string): Promise<DataPumpLog> {
-  return postJson('/api/dataPump/log', { dbmsid, directory, logfile });
+// job을 넘기면 로그를 못 찾았을 때 서버가 RAC 노드 차이(작업 MASTER 노드 ≠ 앱 접속 노드)를 nodeHint로 알려 준다.
+export function readDataPumpLog(
+  dbmsid: string | number,
+  directory: string,
+  logfile: string,
+  job: { owner?: string | null; jobName?: string | null } | null = null
+): Promise<DataPumpLog> {
+  return postJson('/api/dataPump/log', { dbmsid, directory, logfile, owner: job?.owner ?? null, jobName: job?.jobName ?? null });
 }
 
 // 한 요청에 담는 파일 내용 합계 (서버 JSON 한도 10MB보다 넉넉히 작게). 파일 하나가 이보다 크면 그 파일만 따로 보낸다.

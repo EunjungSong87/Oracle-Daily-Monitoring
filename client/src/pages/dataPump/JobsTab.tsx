@@ -137,6 +137,7 @@ function combineJobs(key: string, jobs: DataPumpJob[]): DataPumpJob {
 
 interface LogTarget {
   jobName: string;
+  owner?: string | null; // 작업 소유자 (RAC 노드 확인용)
   directory: string;
   logfile: string;
 }
@@ -149,7 +150,7 @@ function LogModal({ dbmsId, target, running, onClose }: { dbmsId: string; target
   const load = useCallback(async () => {
     if (!target) return;
     try {
-      setLog(await readDataPumpLog(dbmsId, target.directory, target.logfile));
+      setLog(await readDataPumpLog(dbmsId, target.directory, target.logfile, { owner: target.owner ?? null, jobName: target.jobName }));
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : '로그를 읽지 못했습니다.');
@@ -179,7 +180,13 @@ function LogModal({ dbmsId, target, running, onClose }: { dbmsId: string; target
           </button>
         </div>
         {error && <p className="pc-warning">{error}</p>}
-        {log && !log.exists && <p className="oc-detail-note">로그 파일이 아직 없습니다 (작업이 막 시작했거나 파일 이름이 다름).</p>}
+        {log && !log.exists && !log.nodeHint && <p className="oc-detail-note">로그 파일이 아직 없습니다 (작업이 막 시작했거나 파일 이름이 다름).</p>}
+        {log && !log.exists && log.nodeHint && (
+          <>
+            <p className="pc-warning">로그 파일을 이 노드에서 찾을 수 없습니다.</p>
+            <p className="pc-warning">{log.nodeHint}</p>
+          </>
+        )}
         {log?.exists && <pre className="rt-sql-text dp-log">{log.text || '(비어 있음)'}</pre>}
         {!log && !error && <p className="oc-detail-note">읽는 중...</p>}
       </div>
@@ -230,7 +237,7 @@ const STATUS_BADGE: Record<DataPumpHistoryStatus, string> = {
 
 export function JobsTab({ dbmsId, dbname, directories, onMakeImport }: Props): ReactElement {
   // 로그 위치를 모르는 작업(NOLOGFILE, 마스터 테이블을 못 읽음)은 DIRECTORY와 파일 이름을 직접 입력해서 연다
-  const [manualLog, setManualLog] = useState<{ jobName: string; directory: string; logfile: string } | null>(null);
+  const [manualLog, setManualLog] = useState<{ jobName: string; owner: string | null; directory: string; logfile: string } | null>(null);
   const [historyFilter, setHistoryFilter] = useState<'ALL' | 'APP' | 'EXTERNAL'>('ALL');
   const [jobs, setJobs] = useState<DataPumpJob[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -295,14 +302,14 @@ export function JobsTab({ dbmsId, dbname, directories, onMakeImport }: Props): R
   function openLog(job: DataPumpJob): void {
     const known = history?.rows.find((row) => row.jobName === job.jobName && (row.jobOwner ?? '') === job.owner && row.logfile);
     if (known) {
-      setLogTarget({ jobName: job.jobName, directory: known.directory, logfile: known.logfile });
+      setLogTarget({ jobName: job.jobName, owner: job.owner, directory: known.directory, logfile: known.logfile });
       return;
     }
     if (job.logDirectory && job.logFile) {
-      setLogTarget({ jobName: job.jobName, directory: job.logDirectory, logfile: job.logFile });
+      setLogTarget({ jobName: job.jobName, owner: job.owner, directory: job.logDirectory, logfile: job.logFile });
       return;
     }
-    setManualLog({ jobName: job.jobName, directory: directories.includes('DATA_PUMP_DIR') ? 'DATA_PUMP_DIR' : (directories[0] ?? ''), logfile: '' });
+    setManualLog({ jobName: job.jobName, owner: job.owner, directory: directories.includes('DATA_PUMP_DIR') ? 'DATA_PUMP_DIR' : (directories[0] ?? ''), logfile: '' });
   }
 
   type RowKind = 'single' | 'group' | 'sub';
@@ -424,8 +431,8 @@ export function JobsTab({ dbmsId, dbname, directories, onMakeImport }: Props): R
               className="btn-secondary"
               onClick={() =>
                 row.logfile
-                  ? setLogTarget({ jobName: row.jobName, directory: row.directory, logfile: row.logfile })
-                  : setManualLog({ jobName: row.jobName, directory: row.directory || directories[0] || '', logfile: '' })
+                  ? setLogTarget({ jobName: row.jobName, owner: row.jobOwner ?? null, directory: row.directory, logfile: row.logfile })
+                  : setManualLog({ jobName: row.jobName, owner: row.jobOwner ?? null, directory: row.directory || directories[0] || '', logfile: '' })
               }
             >
               로그
@@ -554,7 +561,7 @@ export function JobsTab({ dbmsId, dbname, directories, onMakeImport }: Props): R
         confirmLabel="열기"
         onConfirm={() => {
           if (!manualLog?.logfile.trim()) return;
-          setLogTarget({ jobName: manualLog.jobName, directory: manualLog.directory, logfile: manualLog.logfile.trim() });
+          setLogTarget({ jobName: manualLog.jobName, owner: manualLog.owner, directory: manualLog.directory, logfile: manualLog.logfile.trim() });
           setManualLog(null);
         }}
         onClose={() => setManualLog(null)}

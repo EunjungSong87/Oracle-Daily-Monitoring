@@ -1031,6 +1031,40 @@ async function readLog(dbmsid: DbmsIdParam, directory: string, filename: string,
   });
 }
 
+export interface InstanceNode {
+  instId: number;
+  instanceName: string;
+  hostName: string;
+  connected: boolean; // 앱이 지금 붙은 인스턴스
+  master: boolean; // 이 작업의 MASTER 프로세스가 도는 인스턴스
+}
+
+// RAC에서 로그 파일이 안 보일 때 원인 확인용: 인스턴스 목록 + 앱이 붙은 인스턴스 + 작업 MASTER가 도는 인스턴스.
+// 로그를 못 찾았을 때만 부른다 (GV$ 조회). jobName이 없으면 master는 모두 false.
+async function getInstanceNodes(dbmsid: DbmsIdParam, owner: string | null, jobName: string | null): Promise<InstanceNode[]> {
+  return withConnection(dbmsid, async (connection) => {
+    const rows = await query(
+      connection,
+      `SELECT i.inst_id, i.instance_name, i.host_name,
+              CASE WHEN i.inst_id = TO_NUMBER(SYS_CONTEXT('USERENV', 'INSTANCE')) THEN 1 ELSE 0 END AS is_connected,
+              CASE WHEN :jobName IS NOT NULL AND EXISTS (
+                     SELECT 1 FROM dba_datapump_sessions d
+                      WHERE d.inst_id = i.inst_id AND d.job_name = :jobName AND d.session_type = 'MASTER'
+                        AND (:owner IS NULL OR d.owner_name = :owner)) THEN 1 ELSE 0 END AS is_master
+         FROM gv$instance i
+        ORDER BY i.inst_id`,
+      { owner, jobName }
+    );
+    return rows.map((row) => ({
+      instId: Number(row.INST_ID),
+      instanceName: String(row.INSTANCE_NAME),
+      hostName: String(row.HOST_NAME),
+      connected: Number(row.IS_CONNECTED) === 1,
+      master: Number(row.IS_MASTER) === 1,
+    }));
+  });
+}
+
 export {
   getTargetInfo,
   getEdition,
@@ -1053,6 +1087,7 @@ export {
   getFileSizes,
   writeFiles,
   readLog,
+  getInstanceNodes,
   getRangePartitionedTables,
   getTablePartitions,
   truncatePartitions,
