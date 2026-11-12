@@ -1,4 +1,8 @@
 import type {
+  MigrationRowCheck,
+  MigrationVerifyPlanRow,
+  MigrationVerifyResult,
+  MigrationVerifyScope,
   ImportDraft,
   ImportDraftExportRow,
   DumpFileCheckRow,
@@ -27,7 +31,7 @@ import type {
   SessionDetailResult,
   ParameterCompareResponse,
   DataPumpHistory,
-  DataPumpJob,
+  DataPumpJobs,
   DataPumpLog,
   DataPumpMeta,
   DataPumpRequest,
@@ -481,7 +485,7 @@ export function getDataPumpHistory(dbmsid: string | number, includeExternal = fa
   return postJson('/api/dataPump/history', { dbmsid, includeExternal });
 }
 
-export function getDataPumpJobs(dbmsid: string | number): Promise<DataPumpJob[]> {
+export function getDataPumpJobs(dbmsid: string | number): Promise<DataPumpJobs> {
   return postJson('/api/dataPump/jobs', { dbmsid });
 }
 
@@ -618,4 +622,45 @@ export function planPartitionImport(
   options: PartitionImportOptions
 ): Promise<PartitionImportPlan> {
   return postJson('/api/dataPump/partition/importPlan', { dbmsid, manifest, partitions, options });
+}
+
+// ── Maintenance > 이관 검증 ──
+export async function getMigrationVerifyPlans(): Promise<MigrationVerifyPlanRow[]> {
+  const { rows } = await postJson<{ rows: MigrationVerifyPlanRow[] }>('/api/migrationVerify/plans', {});
+  return rows;
+}
+
+export function runMigrationVerify(scope: MigrationVerifyScope): Promise<MigrationVerifyResult> {
+  return postJson('/api/migrationVerify/run', { scope });
+}
+
+export async function countMigrationVerify(scope: MigrationVerifyScope, targetKeys: string[]): Promise<MigrationRowCheck[]> {
+  const { rows } = await postJson<{ rows: MigrationRowCheck[] }>('/api/migrationVerify/count', { scope, targetKeys });
+  return rows;
+}
+
+export async function compileMigrationVerify(
+  scope: MigrationVerifyScope,
+  objects: { owner: string; name: string; type: string }[],
+  confirmDbname: string
+): Promise<{ owner: string; name: string; type: string; ok: boolean; status: string | null; error: string | null }[]> {
+  const { results } = await postJson<{ results: { owner: string; name: string; type: string; ok: boolean; status: string | null; error: string | null }[] }>('/api/migrationVerify/compile', { scope, objects, confirmDbname });
+  return results;
+}
+
+// 이관 결과 보고용 엑셀 (화면의 검증 결과를 그대로 보낸다)
+export async function downloadMigrationVerifyExcel(result: MigrationVerifyResult): Promise<void> {
+  const response = await fetch('/api/migrationVerify/excel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ result }) });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}) as { message?: string });
+    throw new ApiError(err.message || `엑셀 내보내기 실패: ${response.status}`);
+  }
+  const url = URL.createObjectURL(await response.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `migration_verify_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }

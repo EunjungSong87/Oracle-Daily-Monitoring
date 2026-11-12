@@ -17,6 +17,7 @@ export type ScreenKey =
   | 'statsJob'
   | 'ilmJob'
   | 'dataPump'
+  | 'migrationVerify'
   | 'objectCompare'
   | 'parameterCompare';
 
@@ -767,6 +768,20 @@ export interface DataPumpJob {
   totalMb: number | null;
 }
 
+// 작업 현황을 실제로 읽은 접속 (등록 정보가 다른 DB를 가리키는지 화면에서 확인용)
+export interface DataPumpConnectedTo {
+  user: string | null;
+  dbUniqueName: string | null;
+  container: string | null;
+  instance: string | null;
+  host: string | null;
+}
+
+export interface DataPumpJobs {
+  jobs: DataPumpJob[];
+  connectedTo: DataPumpConnectedTo | null;
+}
+
 export interface DataPumpLog {
   exists: boolean;
   text: string;
@@ -1150,4 +1165,78 @@ export interface ImportDraft {
   warnings: string[];
   unknownKeys: string[];
   items: string[]; // 폼에 채울 스키마/테이블 항목 (채운 뒤 다시 대조)
+}
+
+// ── Maintenance > 이관 검증 (services/migrationVerifyService.ts) ──
+export interface MigrationVerifyScope {
+  planId?: string;
+  list?: string;
+  sourceDbmsId?: string;
+  targetDbmsId?: string;
+  remapSetId?: string;
+}
+
+export interface MigrationVerifyPlanRow {
+  planId: string;
+  createdAt: string | null;
+  createdBy: string | null;
+  sourceDbmsId: number;
+  targetDbmsId: number;
+  jobs: number;
+}
+
+export interface MigrationRowCheck {
+  sourceKey: string;
+  targetKey: string;
+  exportRows: number | null;
+  importRows: number | null;
+  sourceCount: number | null;
+  targetCount: number | null;
+  status: 'MATCH' | 'MISMATCH' | 'UNKNOWN';
+  detail: string;
+}
+
+export interface MigrationTablespaceCheck {
+  kind: string;
+  table: string;
+  object: string;
+  partition: string | null;
+  subpartition: string | null;
+  sourceTablespace: string | null;
+  expected: string | null;
+  actual: string | null;
+  status: '일치' | '매핑 누락 의심' | '불일치' | '대상에 없음';
+}
+
+export interface MigrationFinding {
+  category: 'INVALID' | 'UNUSABLE' | 'CONSTRAINT' | 'TRIGGER' | 'NO_STATS' | 'PRIVILEGE';
+  owner: string;
+  name: string;
+  type: string;
+  table: string | null;
+  partition: string | null;
+  detail: string;
+  origin: '원래 그랬음' | '새로 생김';
+  sql: string | null;
+  compilable: boolean;
+}
+
+export interface MigrationVerifyResult {
+  label: string;
+  sourceDbmsId: string;
+  targetDbmsId: string;
+  sourceDbname: string;
+  targetDbname: string;
+  generatedAt: string;
+  rows: MigrationRowCheck[];
+  rowFilters: Record<string, { kind: 'NONE' | 'QUERY' | 'SAMPLE' | 'UNKNOWN'; where: string | null }>;
+  tablespaces: MigrationTablespaceCheck[];
+  findings: MigrationFinding[];
+  summary: {
+    total: number;
+    rows: { MATCH: number; MISMATCH: number; UNKNOWN: number };
+    tablespaces: { match: number; mismatch: number; suspect: number; missing: number };
+    cleanup: { total: number; new: number; byCategory: Record<MigrationFinding['category'], number> };
+  };
+  notes: string[];
 }

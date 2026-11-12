@@ -85,6 +85,9 @@ SESSION_SECRET은 나중에 바꾸면 그 순간 전원 로그아웃됩니다.
      * 이관 Import: 원본 DB 계정에 DBA_TABLES/DBA_PART_TABLES/DBA_TAB_PARTITIONS/DBA_TAB_SUBPARTITIONS/DBA_INDEXES/DBA_PART_INDEXES/DBA_IND_PARTITIONS/DBA_LOBS/DBA_PART_LOBS/DBA_LOB_PARTITIONS 조회,
        대상 DB 계정에 DBA_USERS/DBA_TABLESPACES/DBA_TABLESPACE_USAGE_METRICS/DBA_TS_QUOTAS/DBA_SYS_PRIVS 조회와 UTL_FILE(덤프 파일 확인) 권한 필요
      * Export 파티션 매니페스트 파일은 이제 "덤프와 함께 매니페스트 저장" 옵션(기본 꺼짐)일 때만 만듦 — 파티션 Import는 Export 이력에서 읽음
+ 14) scripts/add_migration_action_log.sql -> Maintenance > 이관 검증의 조치(재컴파일) 기록 (migration_action_log) — 2026-10-27 추가 (없으면 화면은 동작, 재컴파일만 거절)
+     * 이관 검증(화면 권한 키 migrationVerify, 기본 SUPER_ADMIN): 원본·대상 DB 계정에 DBA_DEPENDENCIES/DBA_OBJECTS/DBA_INDEXES/DBA_IND_PARTITIONS/DBA_CONSTRAINTS/DBA_TRIGGERS/DBA_TABLES/DBA_TAB_PARTITIONS/DBA_TAB_PRIVS 조회,
+       COUNT를 쓰려면 범위 테이블 SELECT 권한, 재컴파일은 대상 계정의 ALTER ANY … 권한 필요. COUNT 쿼리 시간 제한 MIGRATION_COUNT_TIMEOUT_MS(기본 10분)
  11) scripts/add_session_kill_log.sql   -> Real-Time Blocking 체인의 세션 Kill 기록 (monitoring_session_kill_log) — 2026-10-22 추가 (없으면 Blocking 트리는 보이지만 Kill은 거절)
      * Real-Time Blocking 체인: 대상 DB 계정에 GV$SESSION 조회 권한 필요(DBA_OBJECTS는 잠긴 오브젝트 이름용, 없으면 obj#만). Kill은 SUPER_ADMIN만, 대상 DB 계정에 ALTER SYSTEM 권한이 있어야 함(없으면 버튼에 "권한 없음")
      * GET /health: 로그인 없이 앱 상태(ok 200 / degraded·down 503). 외부 감시에 등록하려면 README의 예시 참고

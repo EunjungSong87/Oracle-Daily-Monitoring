@@ -25,9 +25,10 @@ export type ActivePage =
   | 'objectCompare'
   | 'parameterCompare'
   | 'dataPump'
+  | 'migrationVerify'
   | 'users';
 
-const MAINTENANCE_GROUP: ActivePage[] = ['tableSpec', 'statsJob', 'ilmJob', 'dataPump'];
+const MAINTENANCE_GROUP: ActivePage[] = ['tableSpec', 'statsJob', 'ilmJob', 'dataPump', 'migrationVerify'];
 const COMPARE_GROUP: ActivePage[] = ['objectCompare', 'parameterCompare'];
 const MONITORING_GROUP: ActivePage[] = ['dailyMonitoring', 'scripts', 'thresholds', 'history', 'issues', 'realtime', 'capacity'];
 const DAILY_MONITORING_CHILDREN: ActivePage[] = ['scripts', 'thresholds', 'history', 'issues'];
@@ -52,6 +53,7 @@ const MAINTENANCE_ITEMS: NavItem[] = [
   { key: 'statsJob', href: 'statsJob.html', label: 'Stats Job Status', icon: '#ic-stats', accent: 'nav-accent-7' },
   { key: 'ilmJob', href: 'ilmJob.html', label: 'ILM Partition Retention', icon: '#ic-archive', accent: 'nav-accent-7' },
   { key: 'dataPump', href: 'dataPump.html', label: 'Data Pump', icon: '#ic-transfer', accent: 'nav-accent-7' },
+  { key: 'migrationVerify', href: 'migrationVerify.html', label: '이관 검증', icon: '#ic-stats', accent: 'nav-accent-7' },
 ];
 
 const COMPARE_ITEMS: NavItem[] = [

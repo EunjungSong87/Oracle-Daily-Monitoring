@@ -1840,9 +1840,10 @@ async function truncateBeforeImport(dbmsid: DbmsIdParam, target: { owner: string
   }
 }
 
-async function getJobs(dbmsid: DbmsIdParam): Promise<historyService.JobView[]> {
+async function getJobs(dbmsid: DbmsIdParam): Promise<{ jobs: historyService.JobView[]; connectedTo: dataPumpModel.ConnectedTo | null }> {
   try {
-    return await historyService.describeJobs(dbmsid.dbmsid, await dataPumpModel.getJobs(dbmsid));
+    const { jobs, connectedTo } = await dataPumpModel.getJobs(dbmsid);
+    return { jobs: await historyService.describeJobs(dbmsid.dbmsid, jobs), connectedTo };
   } catch (error) {
     throw new Error('Data Pump 작업 목록 조회 실패', { cause: error });
   }
@@ -1852,7 +1853,7 @@ async function getJobs(dbmsid: DbmsIdParam): Promise<historyService.JobView[]> {
 async function cancel(dbmsid: DbmsIdParam, owner: string, jobName: string, confirmDbname: unknown = null, cancelledBy: string | null = null): Promise<void> {
   const ownerName = identifier(owner, '작업 소유자');
   const name = identifier(jobName, '작업');
-  const view = (await getJobs(dbmsid)).find((job) => job.owner === ownerName && job.jobName === name);
+  const view = (await getJobs(dbmsid)).jobs.find((job) => job.owner === ownerName && job.jobName === name);
   const target = await dataPumpModel.getTargetInfo(dbmsid);
   if (view?.source === 'EXTERNAL') {
     const typed = typeof confirmDbname === 'string' ? confirmDbname.trim().toUpperCase() : '';

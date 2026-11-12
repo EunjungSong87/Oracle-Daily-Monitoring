@@ -30,6 +30,15 @@ export interface DataPumpJob {
   totalMb: number | null;
 }
 
+// 작업 현황을 실제로 어디서 읽었는지 (등록 정보가 엉뚱한 DB를 가리키면 화면에서 바로 알아보게)
+export interface ConnectedTo {
+  user: string | null;
+  dbUniqueName: string | null;
+  container: string | null; // 11g 등 CON_NAME이 없는 버전이면 null
+  instance: string | null;
+  host: string | null;
+}
+
 // 화면이 조립해서 넘기는 "실행 계획" — 서비스 계층에서 검증/변환을 끝낸 값입니다.
 export interface DataPumpPlan {
   operation: 'EXPORT' | 'IMPORT';
@@ -738,8 +747,23 @@ async function truncatePartitions(dbmsid: DbmsIdParam, owner: string, table: str
 }
 
 // 지금 DB에 남아 있는 Data Pump 작업 (실행 중/정지됨). 끝난 작업은 마스터 테이블이 지워지므로 여기 안 나옵니다.
-async function getJobs(dbmsid: DbmsIdParam): Promise<DataPumpJob[]> {
+async function readConnectedTo(connection: oracledb.Connection): Promise<ConnectedTo | null> {
+  const base = `sys_context('USERENV','SESSION_USER') AS u, sys_context('USERENV','DB_UNIQUE_NAME') AS db,
+                sys_context('USERENV','INSTANCE_NAME') AS inst, sys_context('USERENV','SERVER_HOST') AS host`;
+  for (const sql of [`SELECT ${base}, sys_context('USERENV','CON_NAME') AS con FROM dual`, `SELECT ${base}, NULL AS con FROM dual`]) {
+    try {
+      const [row] = await query(connection, sql);
+      if (row) return { user: row.U ?? null, dbUniqueName: row.DB ?? null, container: row.CON ?? null, instance: row.INST ?? null, host: row.HOST ?? null };
+    } catch {
+      // CON_NAME이 없는 버전(11g)이면 ORA-02003 → CON 없이 다시
+    }
+  }
+  return null;
+}
+
+async function getJobs(dbmsid: DbmsIdParam): Promise<{ jobs: DataPumpJob[]; connectedTo: ConnectedTo | null }> {
   return withConnection(dbmsid, async (connection) => {
+    const connectedTo = await readConnectedTo(connection);
     const jobs = await query(
       connection,
       `SELECT owner_name, job_name, operation, job_mode, state, degree, attached_sessions
@@ -747,7 +771,7 @@ async function getJobs(dbmsid: DbmsIdParam): Promise<DataPumpJob[]> {
         WHERE job_name NOT LIKE 'BIN$%'
         ORDER BY job_name DESC`
     );
-    if (jobs.length === 0) return [];
+    if (jobs.length === 0) return { jobs: [], connectedTo };
 
     const binds: Record<string, string> = {};
     const names = jobs.map((job, index) => {
@@ -804,7 +828,7 @@ async function getJobs(dbmsid: DbmsIdParam): Promise<DataPumpJob[]> {
         totalMb,
       });
     }
-    return result;
+    return { jobs: result, connectedTo };
   });
 }
 

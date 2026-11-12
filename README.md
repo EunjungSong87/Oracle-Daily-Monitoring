@@ -25,11 +25,12 @@
 | ‣ Stats Job Status | 통계 수집 스케줄러 잡 현황/수동 실행 | 최고관리자 |
 | ‣ ILM Partition Retention | 파티션 보관주기 관리 (`PGDBA.DEL_JOB_TABLE_LIST`) | 최고관리자 |
 | ‣ Data Pump | EXPDP/IMPDP를 DB 서버에서 실행(`DBMS_DATAPUMP`)하거나 parfile 생성. 스키마/테이블 목록을 테이블 크기 기준으로 작업당 1TB(변경 가능) 이하로 자동 분할, FILESIZE 자동 계산, parfile을 DB 서버 DIRECTORY에 바로 저장, DB 링크(NETWORK_LINK) 옵션, Export 대상에 RANGE 파티션(날짜 기간으로 골라 크기·분할에 반영, 테이블 목록에 OWNER.TABLE:PARTITION 줄도 가능, 스키마가 달라도 분할 크기 안이면 parfile 하나로) + 파티션 Import(매니페스트로 범위 맞춤, 비우고 넣기), 작업 현황(남은 시간 어림)·로그·취소, 작업 이력(누가·결과·수행 시간)과 지난 속도 기준 예상 시간. 필터·옵션: INCLUDE/EXCLUDE(이름 조건), QUERY, SAMPLE, DATA_OPTIONS, VIEWS_AS_TABLES (DB 버전에 맞게 검증, 분할 크기에도 반영). Import는 REMAP 지원, 덮어쓰기는 DB명 확인 | 최고관리자 |
+| ‣ 이관 검증 | Data Pump로 이관한 범위(Export 계획 선택 또는 OWNER.TABLE[:PARTITION] 직접 붙여넣기)를 검증. Export/Import 로그 대조로 행 수 확인(QUERY/SAMPLE 조건 반영), 고른 테이블만 원본·대상 COUNT 비교(최대 20개, DB별 동시 1개, 시간 제한), 테이블스페이스 위치(매핑 기준 기대값 vs 실제), INVALID 오브젝트·누락 인덱스/파티션 등 정리 점검(원본도 같은 상태면 "원래 그랬음"으로 구분) — REBUILD/통계 SQL 제공, 고른 INVALID 재컴파일(최고관리자, 대상 DB명 확인 후 실행·기록). 결과는 엑셀로 내보내기 가능 | 최고관리자 |
 | **Compare › Object Compare** | 두 DB(또는 같은 DB의 다른 스키마) 오브젝트 비교 — 스키마를 여러 개 골라 한 번에(기준 스키마마다 대상 스키마를 짝지음, 기본은 같은 이름): 테이블스페이스, 테이블 컬럼(유무/타입/길이/NULL/기본값), 인덱스, 제약조건(PK/UK/FK/CHECK — 종류·컬럼·참조 대상·ON DELETE·조건·상태), 뷰, 시퀀스, 시노님, PL/SQL 소스(줄 단위 diff). "다름" 항목은 대상을 기준에 맞추는 DDL(컬럼 ADD/MODIFY, 인덱스 재생성, ALTER SEQUENCE, 시노님, 뷰·PL/SQL CREATE OR REPLACE — 위험한 것은 주석)을 항목별·모아서(.sql) 제공. **계정·권한 탭**: 계정(User)·Role·Profile을 골라 속성, 시스템 권한, 받은 Role(Role 안의 Role 포함), 오브젝트·컬럼 권한, 테이블스페이스 할당량, Profile 제한값 비교 | 최고관리자 |
 | **Compare › Parameter Compare** | 두 DB 초기화 파라미터 비교 (hidden `_` 파라미터 포함, 인스턴스 기준 값) | 최고관리자 |
 | 계정 › Users | 로그인 계정/권한 관리 | 최고관리자 |
 
-권한은 3단계입니다: **VIEWER**(조회·수동 점검·이슈 처리) < **DBA**(+ DB/스크립트/임계치/예약 관리, Table Spec) < **SUPER_ADMIN**(+ 계정 관리, Stats Job, ILM, Data Pump, Compare).
+권한은 3단계입니다: **VIEWER**(조회·수동 점검·이슈 처리) < **DBA**(+ DB/스크립트/임계치/예약 관리, Table Spec) < **SUPER_ADMIN**(+ 계정 관리, Stats Job, ILM, Data Pump, 이관 검증, Compare).
 역할은 기본값이고, 계정 관리의 **화면 권한**에서 사용자마다 화면을 숨기거나 더 열 수 있습니다 (메뉴·페이지·API 모두 적용).
 
 > Real-Time의 SQL 경과 시간 산점도와 세션 상세의 ASH/AWR 정보는 Oracle **Diagnostics Pack** 라이선스가 필요한 뷰를 읽습니다.

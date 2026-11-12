@@ -20,6 +20,7 @@ export type ScreenKey =
   | 'statsJob'
   | 'ilmJob'
   | 'dataPump'
+  | 'migrationVerify'
   | 'objectCompare'
   | 'parameterCompare';
 
@@ -46,6 +47,7 @@ const SCREENS: ScreenDef[] = [
   { key: 'statsJob', label: 'Stats Job Status', group: 'Maintenance', page: 'statsJob.html', defaultRole: 'SUPER_ADMIN' },
   { key: 'ilmJob', label: 'ILM Partition Retention', group: 'Maintenance', page: 'ilmJob.html', defaultRole: 'SUPER_ADMIN' },
   { key: 'dataPump', label: 'Data Pump', group: 'Maintenance', page: 'dataPump.html', defaultRole: 'SUPER_ADMIN' },
+  { key: 'migrationVerify', label: '이관 검증', group: 'Maintenance', page: 'migrationVerify.html', defaultRole: 'SUPER_ADMIN' },
   { key: 'objectCompare', label: 'Object Compare', group: 'Compare', page: 'objectCompare.html', defaultRole: 'SUPER_ADMIN' },
   { key: 'parameterCompare', label: 'Parameter Compare', group: 'Compare', page: 'parameterCompare.html', defaultRole: 'SUPER_ADMIN' },
 ];

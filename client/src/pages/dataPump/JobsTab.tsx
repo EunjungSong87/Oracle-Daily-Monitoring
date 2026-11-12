@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type ReactElement } from 'react';
 import { Modal } from '../../shared/components/Modal';
 import { cancelDataPumpJob, getDataPumpHistory, getDataPumpJobs, readDataPumpLog } from '../../shared/lib/api';
 import { showToast } from '../../shared/lib/toastStore';
-import type { DataPumpHistory, DataPumpHistoryRow, DataPumpHistoryStatus, DataPumpJob, DataPumpLog } from '../../shared/lib/types';
+import type { DataPumpConnectedTo, DataPumpHistory, DataPumpHistoryRow, DataPumpHistoryStatus, DataPumpJob, DataPumpLog } from '../../shared/lib/types';
 import { ConfirmModal } from './ConfirmModal';
 import { formatBytes, formatDuration } from './helpers';
 
@@ -240,6 +240,7 @@ export function JobsTab({ dbmsId, dbname, directories, onMakeImport }: Props): R
   const [manualLog, setManualLog] = useState<{ jobName: string; owner: string | null; directory: string; logfile: string } | null>(null);
   const [historyFilter, setHistoryFilter] = useState<'ALL' | 'APP' | 'EXTERNAL'>('ALL');
   const [jobs, setJobs] = useState<DataPumpJob[] | null>(null);
+  const [connectedTo, setConnectedTo] = useState<DataPumpConnectedTo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<DataPumpHistory | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -249,7 +250,9 @@ export function JobsTab({ dbmsId, dbname, directories, onMakeImport }: Props): R
 
   const load = useCallback(async () => {
     try {
-      setJobs(await getDataPumpJobs(dbmsId));
+      const result = await getDataPumpJobs(dbmsId);
+      setJobs(result.jobs);
+      setConnectedTo(result.connectedTo);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : '작업 목록을 읽지 못했습니다.');
@@ -269,6 +272,7 @@ export function JobsTab({ dbmsId, dbname, directories, onMakeImport }: Props): R
 
   useEffect(() => {
     setJobs(null);
+    setConnectedTo(null);
     load();
     const timer = window.setInterval(whenVisible(load), REFRESH_MS);
     return () => window.clearInterval(timer);
@@ -454,8 +458,15 @@ export function JobsTab({ dbmsId, dbname, directories, onMakeImport }: Props): R
             새로고침
           </button>
         </div>
+        {connectedTo && (
+          <p className="oc-hint" title="등록된 접속 정보로 실제 접속한 곳입니다. 직접 조회한 결과와 다르면 DB 등록 정보(IP/포트/SID)를 확인하세요.">
+            조회한 곳: {connectedTo.user ?? '?'}@{connectedTo.dbUniqueName ?? '?'}
+            {connectedTo.container ? ` / ${connectedTo.container}` : ''} / 인스턴스 {connectedTo.instance ?? '?'}
+            {connectedTo.host ? ` (${connectedTo.host})` : ''}
+          </p>
+        )}
         {error && <p className="pc-warning">{error}</p>}
-        {jobs && jobs.length === 0 && <p className="issues-empty">지금 실행 중이거나 멈춰 있는 Data Pump 작업이 없습니다.</p>}
+        {jobs && jobs.length === 0 &&<p className="issues-empty">지금 실행 중이거나 멈춰 있는 Data Pump 작업이 없습니다.</p>}
         {jobs && jobs.length > 0 && (
           <table className="table oc-items-table">
             <thead>

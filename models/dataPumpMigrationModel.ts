@@ -580,7 +580,96 @@ async function getImportResults(targetDbmsId: number, jobNames: string[]): Promi
   });
 }
 
+// ── 이관 검증 ──
+
+// 최근 이관 Import 계획 (이관 검증 화면의 범위 고르기)
+async function listRecentMigrationPlans(limit = 50): Promise<(MigrationPlanRecord & { jobs: number })[]> {
+  return withPool(async (connection) => {
+    const result = await connection.execute<Record<string, any>>(
+      `SELECT * FROM (
+         SELECT plan_id, source_dbms_id, bundle_key, target_dbms_id, total_sets, created_by, TO_CHAR(created_at, '${TS}') AS created_at,
+                (SELECT COUNT(*) FROM system.datapump_migration_job j WHERE j.plan_id = p.plan_id) AS jobs
+           FROM system.datapump_migration_plan p
+          ORDER BY created_at DESC
+       ) WHERE ROWNUM <= :limit`,
+      { limit },
+      OBJ
+    );
+    return (result.rows ?? []).map((row) => ({
+      planId: row.PLAN_ID,
+      sourceDbmsId: row.SOURCE_DBMS_ID,
+      bundleKey: row.BUNDLE_KEY,
+      targetDbmsId: row.TARGET_DBMS_ID,
+      totalSets: row.TOTAL_SETS,
+      jobs: Number(row.JOBS),
+      omitted: [],
+      filterExcluded: [],
+      mapping: null,
+      options: null,
+      createdBy: row.CREATED_BY ?? null,
+      createdAt: row.CREATED_AT,
+    }));
+  });
+}
+
+// 대상 DB의 Import 이력 로그 줄 (스키마별 하위 작업 _S1 … 포함) — 이관 검증의 로그 기준 행 수
+async function getImportLogItems(targetDbmsId: number, jobNames: string[]): Promise<{ jobName: string; status: string; logItems: unknown[] | null }[]> {
+  if (jobNames.length === 0) return [];
+  return withPool(async (connection) => {
+    const binds: Record<string, string | number> = { dbmsId: targetDbmsId };
+    const conditions = jobNames.map((name, i) => {
+      binds[`j${i}`] = name;
+      binds[`p${i}`] = `${name}\\_S%`;
+      return `job_name = :j${i} OR job_name LIKE :p${i} ESCAPE '\\'`;
+    });
+    const result = await connection.execute<Record<string, any>>(
+      `SELECT job_name, status, log_items FROM system.datapump_job_history
+        WHERE dbms_id = :dbmsId AND operation = 'IMPORT' AND (${conditions.join(' OR ')}) ORDER BY id`,
+      binds,
+      { ...OBJ, fetchInfo: { LOG_ITEMS: { type: oracledb.STRING } } }
+    );
+    return (result.rows ?? []).map((row) => ({ jobName: row.JOB_NAME, status: row.STATUS, logItems: parseJson<unknown[]>(row.LOG_ITEMS) }));
+  });
+}
+
+// 이관 검증 조치 기록 (scripts/add_migration_action_log.sql) — 테이블이 없으면 false
+async function actionLogAvailable(): Promise<boolean> {
+  try {
+    await withPool((connection) => connection.execute('SELECT 1 FROM system.migration_action_log WHERE 1 = 0'));
+    return true;
+  } catch (error) {
+    if (isMissingTable(error)) return false;
+    throw error;
+  }
+}
+
+async function insertActionLog(row: {
+  dbmsId: number;
+  dbname: string;
+  action: string;
+  owner: string;
+  name: string;
+  type: string;
+  sql: string;
+  result: 'OK' | 'FAILED';
+  message: string | null;
+  doneBy: string;
+}): Promise<void> {
+  await withPool((connection) =>
+    connection.execute(
+      `INSERT INTO system.migration_action_log (dbms_id, dbname, action, object_owner, object_name, object_type, sql_text, result, message, done_by, done_at)
+       VALUES (:dbmsId, :dbname, :action, :owner, :name, :type, SUBSTR(:sqlText, 1, 1000), :result, SUBSTR(:message, 1, 1000), :doneBy, SYSDATE)`,
+      { dbmsId: row.dbmsId, dbname: row.dbname, action: row.action, owner: row.owner, name: row.name, type: row.type, sqlText: row.sql, result: row.result, message: row.message, doneBy: row.doneBy },
+      { autoCommit: true }
+    )
+  );
+}
+
 export {
+  listRecentMigrationPlans,
+  getImportLogItems,
+  actionLogAvailable,
+  insertActionLog,
   saveBundle,
   getBundleJobs,
   findBundleJob,

@@ -1,0 +1,592 @@
+iRPM_SPT_V1.8.20101x
+----------------------------------------------
+
+  > 부하발생기 성능개선 
+    --> ThinkTime 상세 조정
+    --> in_RUN_NODE_LIST로 RAC Node실행시 Scheduler Job분배가 잘 안되는 문제 --> 5초 지연 Start로 조정
+    
+  > 10g SQL수집 문제 조정
+    PROGRAM_ID,PROGRAM_LINE# 컬럼은 10g에 없으므로 Version Check후 10g는 NULL로 수집
+    
+  > COMPARE Script에  CHILD_NUMBER Join조건 추가
+    
+    0020.COMPARE_SPT_Result_for_STS(STS.vs.EXEC).sql
+    0021.COMPARE_SPT_Result_for_STS(EXEC.vs.EXEC).sql
+    
+  > 집중 INSERT, UPDATE TEST의 Script깅이가 길면 Scheduler JOb실행 안되는 문제 개선
+    PROCEDURE 생성 후 Scheduler Job에서는 PROCEDURE 실행
+    
+    0102.LOAD_TEST_INSERT.sql  
+    0103.LOAD_TEST_UPDATE.sql
+      
+   
+
+
+iRPM_SPT_V1.8.201010
+----------------------------------------------
+
+  > 부하발생기 성능개선 
+    --> 실행대상 매번 SELECT대신 MEMORY(ARRAY처리)로 성능 개선
+    
+  > SPT, 부하발생기의 실행노드의 단일 NODE지정 방식에서 Multi Node지정 (in_RUN_NODE --> in_RUN_NODE_LIST)로 변경
+    
+    [지정방식 예]
+    in_RUN_NODE_LIST='1,2' : 1번, 2번 Node에서 동시 실행 (Round Robin방식)
+    in_RUN_NODE_LIST='1,3' : 1번, 3번 Node에서 동시 실행 (Round Robin방식)
+    in_RUN_NODE_LIST='1'   : 1번 Node에서만 실행  
+    in_RUN_NODE_LIST=NULL  : 현재의 실행NODE에서 JOB실행, Instance에 비 종속적으로 여러 Node에서 실행될 수 있음
+
+
+  > 수집된 상태의 SQL PLAN으로 PLAN Fix기능 iRPM_SPT 수집시 적용 가능하도록 설정
+    0301.SQL_PLAN_FIX_StagingSQL_by_SPM_or_SQLPROFILE.sql
+    SPT Staging Table --> SQL Baseline PLAN Fix (iRPM_SPT.SET_ORIGINAL_PLAN_STS) 
+    설정 안되는 문제 --> iRPM으로 SQL 수집시 V$SQL_PLAN.OTHER_XML컬럼을 수집하지 않아서 Plan Baseline을 설정하지 못하는 문제
+    (참고. Oracle DBMS_SQLTUNE으로 수집한 것은 iRPM_SPT.SET_ORIGINAL_PLAN_STS로 설정할 수 있음
+    
+    --> SQL 수집 Procedure에 OTHER_XML컬럼 수집 (Table컬럼 변경은 없음) 
+    --> Remote 수집을 위한 V_SQL_PLAN_VIEW Temporary Table에 OTHER_XML 컬럼 추가
+
+  > 컬럼 추가     
+	 ALTER TABLE V_SQL_PLAN_VIEW ADD
+	 (   
+	     PROJECTION                VARCHAR2(4000)
+	    ,OTHER_XML                 CLOB
+	 );
+  
+   
+   
+iRPM_SPT_V1.8.200908
+----------------------------------------------
+
+  > SQL Query 결과 검증 (DIGITAL Signature)의 기능 개선
+    --> 성능을 위한 Result ROW가 아주 많은 대상 (예 10만 ROW이상)의 경우 HASH값 가져오기 위한 시간이 오래 걸림
+        USE_QUERY_RESULT_ROWLIMIT 을 지정할 수 있도록 추가 - Query결과의 지정된 ROW Fetch까지만으로 HASH값 취함
+        약 10만 ROW수 - 1분 ~ 2분 소요
+        0 - 모든 ROW수에 대해서 HASH값 취함
+  > SQL Query 결과 검증 (DIGITAL Signature)을 BIND변수 사용 방식으로 변경
+    --> dbms_sqlhash.gethash 대신 차체적인 기법 사용
+        dbms_sqlhash.gethash는 BIND변수 적용 못함        
+  > 관련된 Script 변경됨
+  > SQL수집 - PROGRAM_ID, PROGRAM_LINE# 추가 수집 
+  > PLAN_STRING 비교 기능 개선
+    --> PLAN String비교를 위한 HASH값 기반 비교 기능 추가
+        PLAN_RUNTIME_COMP_HASH 컬럼 추가로 String(CLOB)비교의 비효율 개선
+    --> PLAN STRING의 EXATADA 및 New Version String Remap으로 String비교 기능 개선
+
+  > 컬럼 추가     
+   ALTER TABLE ILM_IRPMSPT_RUNINFO ADD
+   ( 
+      USE_QUERY_RESULT_ROWLIMIT          NUMBER  DEFAULT 0   
+   );
+   
+   ALTER TABLE ILM_IRPMSPT_DIGITALSLOG ADD
+   ( 
+      RUN_NAME                           VARCHAR2(256)
+     ,ERR_LOG                            VARCHAR2(2048)
+   );
+
+   ALTER TABLE ILM_IRPMSPT_RUN ADD 
+   ( 
+      PLAN_RUNTIME_COMP_HASH         VARCHAR2(1000)     
+   );            
+        
+   ALTER TABLE V_SQL_VIEW ADD
+   (
+     PROGRAM_ID                NUMBER
+    ,PROGRAM_LINE#             NUMBER
+   );
+  
+  
+iRPM_SPT_V1.7.200815
+----------------------------------------------
+
+  > iRPM_SPT Package - CHILD_NUMBER여러 대상 여러 PLAN으로 나오는 부분 수정
+  > ILM_IRPMSPT_RUN Table - CHILD_NUMBER 컬럼 추가
+  > JOB등록 화면 - SQL_COMMENT=Y/N 처리 반대 적용 부분 수정  
+  > JOB등록 화면 - 실행 NODE List 수정 (AWR --> V$INSTANCE)
+  > grant execute on SYS.DBMS_SHARED_POOL to XXXXX; 권한 추가    
+  
+  
+
+iRPM_SPT_V1.7.200718
+----------------------------------------------
+
+  > iRPM_SPT Package - REMOTE SQL수집오류 수정 
+  
+  
+iRPM_SPT_V1.7.200517
+----------------------------------------------
+
+  > Compare Script에 컬럼 일치 (모든 비교 일치)
+  > iRPM SPT 화면과 연결 
+  > SPT 실행 기간동안의 DB Performance Data 수집 저장
+  > PLAN Compare Script 통합으로 불필요 하여 제거 
+
+
+
+iRPM_SPT_V1.7.200412
+----------------------------------------------
+
+  > BIND변수 Search로직 개선
+  > SQL수집시 - ACCESS_PREDICATES, FILTER_PREDICATES 추가 
+  > 실행시 SQL_PROFILE,SQL_PATCH,SQL_PLAN_BASELINE 사용여부 컬럼 추가
+  > Compare Script에 SQL_PROFILE,SQL_PATCH,SQL_PLAN_BASELINE항목 검색 추가
+  > AWR 에서 범위검색으로 지정하여 실행 기능 추가 - SPT_INIT_FROM_AWR2
+  > AWR 에서 실행 Script 수정 
+
+
+
+iRPM_SPT_V1.6.200212
+----------------------------------------------
+
+  > 0101,0102,0103 Script 수정
+  > 0102,0103 Thinktime 0.01이하로 설정할 경우 오류 수정
+  
+  
+
+iRPM_SPT_V1.6.200131
+----------------------------------------------
+
+  > 0012,0014,0015 성능비교 Script 수정 (실제 일량의 SQL 실행 결과로 비교)
+   
+    
+    
+iRPM_SPT_V1.6.200126
+----------------------------------------------
+
+  > SPA(SQL Performance Analyzer) to SPT(SQL Performance Tester)로 변경
+  
+  > FETCH COUNT 설정기능
+    FETCH_COUNT의 설정으로 Language Type별 설정기능 
+    FETCH_COUNT조정에 의한 성능정보(Bugger Get)의 정확도 향상
+    
+    - JDBC  : 10  (PREFETCH_COUNT Default)
+    - PRO*C : 1+1 (Pre Compiler의 Default PREFETCH Default)  
+    
+  > 성능정보 정확도 조정 (순수 SQL실행정보 제공) 
+    HARD Parsing발생시 Buffer Get증가 부분제거하여 실제 SQL문장 실행에 대한 Buffer Get으로 계산 
+  
+  > PLAN COMPARE시 WITH절을 사용할 경우 Temporary Table명이 종적으로 바뀌는 형태에 의해 PLAN STring으로 비교시 다른 PLAN으로 인식하는 부분 조정
+    SYS_TEMP_0FD9D69B5_93E78A7A --> SYS_TEMP$$
+  
+    - 변경전 
+      SELECT STATEMENT
+      TEMP TABLE TRANSFORMATION
+      LOAD AS SELECT OF 'SYS_TEMP_0FD9D69B5_93E78A7A'
+      TABLE ACCESS (FULL) OF 'SYS_TEMP_0FD9D69B7_93E78A7A'
+      FILTER
+      SORT (JOIN)
+      TABLE ACCESS (BY INDEX ROWID BATCHED) OF 'ORDERS'
+      INDEX (RANGE SCAN) OF 'ORD_WAREHOUSE_IX'
+      
+      -------------------------------------------------------------------------
+    - 변경후  
+      SELECT STATEMENT
+      TEMP TABLE TRANSFORMATION
+      LOAD AS SELECT OF 'SYS_TEMP$$'
+      TABLE ACCESS (FULL) OF 'SYS_TEMP$$'
+      FILTER
+      SORT (JOIN)
+      TABLE ACCESS (BY INDEX ROWID BATCHED) OF 'ORDERS'
+      INDEX (RANGE SCAN) OF 'ORD_WAREHOUSE_IX'
+      
+   > SQL_ID Generation하는 기능 12c이상 Version에는 DBMS_SQL_TRANSLATOR.SQL_ID 이용으로 변경
+      
+
+
+
+iRPM_SPA_V1.5.200115
+----------------------------------------------
+
+  > IRPM SPA의 Comment부여 여부 조정 기능
+     
+    iRPM SPA는 기존 Origin SQL에 다음의 Comment를 앞쪽에 붙여서 실행 (DEFAULT)
+      "/* <Origin SQL_ID> iRPM_<SQL_SET Name>_<RUN_NAME> */" 
+    
+    Origin SQL에 변경이 발생하므로 IRPM_SPA.SET_ORIGINAL_PLAN_STS , IRPM_SPA.SET_ORIGINAL_PLAN_STS_PROFILE 을 사용하여 
+    Origin SQL을 기존 PLAN으로 FIX하였을 경우 변경해서 실행하므로 SPM 또는 SQL Profile이 적용되었는지 판단이 어려움.
+    이에 Comment 없이 Origin SQL 그대로 실행하도록 설정하는 기능 제공
+    
+     IRPM_SPA.SET_CONFIG(<RUN_NAME>,'STS','USE_SQL_COMMENT' ,'N');
+     
+    주의) 이 경우 SQL이 여러번 실행될 경우 V$SQL에서 누적된 값을 가져오므로 사전에 반드시 
+       ALTER SYSTEM FLUSH SHARED_POOL;  을 사용하여 Cache Clear 후 실행 권장
+         
+     
+
+iRPM_SPA_V1.5.200110
+----------------------------------------------
+
+  > Stageing Table의 PLAN으로 고정(SQL Plan Baseline - SPM방식),(SQL Profile - Outline Fix방식) 기능 Bug 수정 및 조정
+    PLAN FIX를 SQL Baseline으로 할 것인지, SQL Profile의 OUTLINE Fix로 할 것인지 판단 후 선택하여 적용 
+
+  > SPM(SQL Plan Management - SQL Plan Baseline방식), SQL PROFILE의 설정을 위한 권한설정
+    GRANT ADMINISTER SQL MANAGEMENT OBJECT TO @@IRPMSPA_USER@@;
+      
+  > METHOD #1) SPM방식 #################################################  
+    Staging Table(ILM_IRPMSPA_SQLSET_STAGE) --> SQL_TUNE을 이용한 DBA_SQLSET (STS)으로 Loading --> STS로 부터 SQL PLAN Baseline으로 고정
+     
+    FUNCTION SET_ORIGINAL_PLAN_STS(in_STAGING_OWNER in VARCHAR2, in_STAGING_TABLE in VARCHAR2, in_SQL_ID in VARCHAR2, 
+       in_CHILD_NUMBER in NUMBER DEFAULT NULL, in_TEMP_TABLE in VARCHAR2 DEFAULT 'ILM_IRPMSPA_SQLSET_STAGE_TEMP') return VARCHAR2
+          
+    ILM_IRPMSPA_SQLSET_STAGE_TEMP 과 같은 Temporary Table이 필요함
+
+  > METHOD #2) SQLPROFILE OULINE SET방식 #################################################    
+    Staging Table(ILM_IRPMSPA_SQLSET_STAGE) --> SQL_TUNE을 이용한 SQL Profile Outline 고정
+
+    FUNCTION SET_ORIGINAL_PLAN_STS_PROFILE(in_STAGING_OWNER in VARCHAR2, in_STAGING_TABLE in VARCHAR2, in_SQL_ID in VARCHAR2, 
+       in_CHILD_NUMBER in NUMBER DEFAULT NULL)  return VARCHAR2  
+  
+  > Staging Table로 SQL Plan고정을 위한 Script제공
+    0301.SQL_PLAN_FIX_StagingSQL_by_SPM_or_SQLPROFILE.sql
+  
+
+iRPM_SPA_V1.5.200108
+----------------------------------------------
+
+ > PLAN COMPARE기능 중 PLAN STRING비교기능 개선
+   기존에 PLAN이 바뀐 대상들만 PLAN STRING비교할 수 있었음
+    아래의 경우만 PLAN STRING이 보였음
+    in_PRE_PLAN_COMPARE_YN   := 'Y';    -- Repository의 수집 SQL과 PLAN (EXPLAIN PLAN)비교 후 같은 PLAN여부 확인 Y/N, Y일 경우 PLAN비교 
+    in_PLAN_COMP_CHK_RUN_YN  := 'Y';    -- Repository의 수집 SQL과 PLAN (EXPLAIN PLAN)비교 후 다를 경우 SPA로 SQL실행 여부 Y/N, N일 경우 PLAN만 비교   
+   
+   실제 PLAY(실행)하지 않아도 PLAN STRING은 나오게 지원. 즉 아래의 경우도 PLAN String으로 비교
+    in_PRE_PLAN_COMPARE_YN   := 'Y';    -- Repository의 수집 SQL과 PLAN (EXPLAIN PLAN)비교 후 같은 PLAN여부 확인 Y/N, Y일 경우 PLAN비교 
+    in_PLAN_COMP_CHK_RUN_YN  := 'N';    -- Repository의 수집 SQL과 PLAN (EXPLAIN PLAN)비교 후 다를 경우 SPA로 SQL실행 여부 Y/N, N일 경우 PLAN만 비교   
+    
+   실행은 하지 않고 PLAN COMPARE기능만으로 PLAN이 같거나, 다른 것을 판단할 수 있는 기능
+ 
+ > PLAN을 STRING으로 비교하는 Script 수정
+   0014.COMPARE_SPA_Result_for_STS(STS.vs.PLAN_COMP).sql
+     
+    
+    
+   
+iRPM_SPA_V1.5.191230
+----------------------------------------------
+
+ > Load Tester 성능개선    
+   - 반복실행 부분의 최소화로 Load Tester의 성능 개선
+ > Load Tester INSERT/UPDATE 부하 TEST Script추가
+   - 다중 Process Insert/Update 부하 TEST Script추가
+ > PLAN COMPARE (STRING비교기능 개선)
+   - STS(SQL Tuning Set)의 String비교기능 개선 
+     
+   
+   
+iRPM_SPA_V1.5.191212
+----------------------------------------------
+
+ > SQL Query Result결과 비교기능 (Query Digital Signature이용)   
+   - Wrong Result 확인 
+   - Result 결과 순서 확인
+   - 비교 분석 기능은 같은 Data의 환경에서 비교해야 함
+   - Digital Signature Check SQL Logging 및 HASH Value 확인 기능 
+      
+ 
+ 
+ 
+iRPM_SPA_V1.4.191205
+----------------------------------------------
+
+ > SQL수집시 SQL_FULLTEXT가 아닌 SQL_TEXT로 수집되어 1000 Byte만 수집된 문제
+   관련 Script로 아래의 Script사용시 발생, 17번 Script는 문제 없음 
+   0004.SQL_Gather_from_CACHE(ALL_NODES).sql
+   0005.SQL_Gather_from_CACHE(ANY_NODES).sql
+   0007.SQL_Gather_for_NO_IRPMSPA.sql
+   0003.iRPM_SPA_02_BODY.plb
+ 
+ 
+
+iRPM_SPA_V1.4.191108
+----------------------------------------------
+
+ > 실행은 정상적으로 되었지만 성능 결과를 못 가져오는 문제
+   - 모든 DBMS Version에 Parsing후 해당 SQL문장의 SQL_ID를 V$OPEN_CURSOR의 SQL_TEXT로 부터 찾음   
+      v_FIND_11G_SQL_PREFIX := '/*' || SQL_ID
+      select sql_id INTO out_SPA_SQL_ID from v$open_cursor  
+              where SID = USERENV('SID') and sql_text like v_FIND_11G_SQL_PREFIX || '%' and rownum <= 1; 
+   - 단점) V$OPEN_CURSOR의 Select Overhead
+              
+ > Load Tester의 Thinktime범위 0.01초 ~ 에서 0.001초 ~ 범위로 Micro Second지원 기능 추가 
+   - 0101.External_Java.sql Script를 이용한 IRPM_SPA_UTIL Package 추가 설치 필요
+   - 설치가 없는 경우 기존의 Thinktime범위 0.01초 ~ 만 가능
+   
+ > 주의사항) 0003.iRPM_SPA_01_MAIN.plb , 0003.iRPM_SPA_02_BODY.plb는 Orange Tool등에서 실행하지 말 것
+          Orange가 특수 문제로 인식해서 변경시키는 문제 있음
+          
+           
+ 
+ 
+ 
+iRPM_SPA_V1.4.191016
+----------------------------------------------
+
+ > 11g환경의 SQLTEXT_TO_SQLID Function이 SQL_ID반환 값이 달라서 실행 결과가 안나오는 문제  
+   11g는 SQL_ID의 생성 체계가 12c이후와는 다름, 이에 11g의 경우는 SQL을 Parsing후 취득
+    - Version Check ('11'일 경우) 11g환경으로 처리
+      select substr(version,1,instr(version,'.')-1) INTO v_VERSION from v$instance; 
+    - 11g일 경우 Parsing후 해당 SQL문장의 SQL_ID를 V$OPEN_CURSOR의 SQL_TEXT로 부터 찾음   
+      v_FIND_11G_SQL_PREFIX := '/*' || SQL_ID
+      select sql_id INTO out_SPA_SQL_ID from v$open_cursor  
+              where SID = USERENV('SID') and sql_text like v_FIND_11G_SQL_PREFIX || '%' and rownum <= 1; 
+              
+ > SQL실행 결과를 해당 SQL의 가장 나중에 실행한 성능정보로 가져오도록 수정
+   (select * from v$SQL where SQL_ID = :SPA_SQL_ID and LAST_ACTIVE_TIME IS NOT NULL and (COMMAND_TYPE = 2 OR (COMMAND_TYPE != 2 AND PLAN_HASH_VALUE > 0))  order by LAST_ACTIVE_TIME desc ) 
+   where rownum <= 1
+ 
+ > 005 Script 오류 수정
+ 
+ 
+
+
+iRPM_SPA_V1.4.190903
+----------------------------------------------
+
+ > :00 형태의 날짜 입력 부분의 ORA-01006 오류 해결
+ > DATE Bind Type에 대해 ORA-01861 오류 --> 미해결
+
+
+
+
+iRPM_SPA_V1.4.190825
+----------------------------------------------
+
+ > iRPM Load Tester(부하발생기) 기능개선 
+   - Load Tester의 COMMIT여부 지정. (Default - 'N')
+     DML에 대한 Load Tester는 DEfault로 Rollback처리임. Commit 지정시 Commit으로 처리 (Insert/Update실제 반영 TEST시 필요)
+     SPA_LOAD_START (... , in_LOAD_PROC_COMMIT_YN IN CHAR DEFAULT 'N' );
+   - SPA기능은 무조건 ROLLBACK처리 
+ > iRPM Load Tester(부하발생기)오류 수정
+   - Think Time설정 기능 (Sleep between SQLs)무시 Bug Fixed
+   - 부하발생시 예약 및 Duration 설정 기능 (START_DATE) 처리가 안도고 즉시 실행되는 Bug Fixed
+ > JOB Running또는 Run대기 중 동적 환경변경 기능     
+   - in_PARAMNAME 
+     'RUN_SQL_TIMEOUT'     : SQL Timeout설정 범위) > 0 (단위 초) 
+     'LOAD_PROC_THINKTIME' : Load Tester Only. THINKTIME설정 (Default : 0) 범위) 0.01 ~ nnn (초) 
+     'LOAD_PROC_ENDTIME'   : Load Tester Only. Load Job의 실행시간을 늘리고자 할 경우 설정 (Format:YYYY-MM-DD HH24:MI:SS)
+     'LOAD_PROC_COMMIT_YN' : Load Tester Only. Commit처리 여부 지정 N/Y
+         SQL> iRPM_SPA.MODIFY_CONFIG(:in_RUN_NAME,:in_RUN_SOURCE,:in_PARAMNAME ,:in_PARAM_VALUE); 
+ > iRPM 실행 중 오류 발생 부분 분석 기능 추가
+   - ORA-xxxxx 별 발생 분석  
+   - ERROR Summary 와 ERROR 상세 SQL List 확인         
+ > SPA 또는 부하발생기 실행동안 DB성능정보 Monitoring Script제공
+   - "Host CPU Utilization (%)", "Logical Reads Per Sec"     ,"Physical Reads Per Sec"
+   - "Executions Per Sec"      , "User Transaction Per Sec"  ,"Session Count"      
+     
+
+
+
+
+
+iRPM_SPA_V1.4.190823
+----------------------------------------------
+
+ > SPA 11g실행시 처리 못하는 문제 Fixed 
+   - UPDATE ILM_IRPMSPA_INFO ORA-00904 오류 문제 Fix
+ > iRPM Load Tester(부하발생기) 기능 개선
+ 
+   - Think Time설정 기능 (Sleep between SQLs)
+   - 부하발생시 예약 및 Duration 설정 기능 (START_DATE, END_DATE)
+ > SPA결과 분석용 Report SQL 기능   
+     
+
+
+
+
+iRPM_SPA_V1.4.190818
+----------------------------------------------
+
+ > SPA 부하발생기(LOAD TEST) 기능 추가
+   - 선정된 SQL들을 무한 종료시점까지 무한반복
+ > SQL Replace 기능 추가
+   - SQL을 튜닝 및 조정된 SQL로 변경 실행하는 기능
+   - ILM_IRPMSPA_SQL_REPLACE에 Replace 대상 SQL 관리   
+ > Bind값 Replace 기능 추가
+   - INSERT VALUES, UPDATE SET절, SELECT List의 Bind벼수는 수집이 안되며, 이들 부분을 특정 사용자 정의 값으로 지정해서 실행기능
+   - 부하TEST (LOAD TEST)시 여러 Bind변수를 바꿔가며 실행할 수 있는 기능
+   - ILM_IRPMSPA_BIND_INFO에 Replace 대상 SQL 관리  
+   - ILM_IRPMSPA_BIND_LIST에 LOAD TEST시 사용할 Bind변수 값 관리 
+ > Bug. ORA-01000 Max Open Cursor문제 해결  
+   - SQL실행 후 ORA-01000발생 문제 해결    
+ > Sequence로 INSERT하는 경우 권한 문제를 위한 권한 추가  
+   GRANT SELECT ANY SEQUENCE , ALTER ANY SEQUENCE TO @@IRPMSPA_USER@@;
+ > Scheduler Job Drop 처리 Script 오류 수정 
+ > Log Table (ILM_IRPMSPA_LOG_WORK) LogTime컬럼 추가 
+ 
+ 
+ 
+iRPM_SPA_V1.3.190805
+----------------------------------------------
+
+ > SELECT ... INTO 절 처리 오류 수정
+ > SPA실행 오류를 ORA-xxxxx 형태가 먼저 나오도록 수정
+ > 처리대상 찾기 속도 개선을 위한 Index 조정 
+ > GRANT 추가 
+   GRANT INSERT ANY TABLE             TO @@IRPMSPA_USER@@;
+   GRANT UPDATE ANY TABLE             TO @@IRPMSPA_USER@@;
+   GRANT DELETE ANY TABLE             TO @@IRPMSPA_USER@@;
+   GRANT EXECUTE ANY PROCEDURE        TO @@IRPMSPA_USER@@;
+ > 결과 비교의 IO_IMPROVE_RATIO -대상 너무 큰 값 나오는 계산 오류 수정
+   
+   
+iRPM_SPA_V1.3.190725
+----------------------------------------------
+
+ > iRPM_SPA_V1.3.190721 Packing오류 수정
+ > SPA 실행시 실행대상 SQL을 잡는 처리 (N--> P)의 Lock발생 개선 
+   (순차처리 --> DBMS_RANDOM.RANDOM()이용)
+ > Script 수정 (for 10g 호환)
+   0007.SQL_Gather_for_NO_IRPMSPA.sql, 0017.REMOTE_SQL_Gather.sql의 SQL수집 Procedure의
+   10g 환경의 SQL변수 CLOB미지원 --> VARCHAR2(32767)로 변경 
+ 
+ 
+ 
+iRPM_SPA_V1.3.190721
+----------------------------------------------
+
+ > REMOTE SQL수집 기능 추가 
+       -> 용도 
+         1) 운영의 DML발생을 할 수 없는 경우 REMOTE 수집 사용
+         2) ADG(Active Data Guard)의 View DB의 경우 SQL을 Local에서 수집할 수 없는 경우
+         3) TEST DB (SPA실행 Site)에서 직접 수집하여 Table의 이전이 필요 없도록 하기 위해서
+         4) 하나의 DB에서 여러 시스템의 SQL을 수집하고자 하는 경우 (계정계, 정보계, 감사, ...) --> 이 경우 각각 
+   
+      -> 사전 Check항목
+         1) 접속 시스템의 NODE마다 DB Link생성 (가능한 Target의 INSTANCE명과 같은 DB Link먕 생성) 및 접속하여 V$INSTANCE select Test
+         2) DB*Link접속 계정은 SYSTEM 또는 V$SQL, V$SQL_PLAN을 검색 가능한 계정 필요
+         3) Local 수집 DB의 job_queue_processes는 Scheduler Job 및 기타 다른 Job을 실행을 위한 충분한 값으로 설정
+         4) Local DB에 V_SQL_VIEW, V_SQL_PLAN_VIEW 및 Staging Table ILM_IRPMSPA_SQLSET_STAGE 미리 생성 
+            
+  
+      -> DB*Link생성 및 Test
+  
+         CREATE DATABASE LINK EORCL12C1 connect to rpmmgr identified by rpmmgr USING 
+           '(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=192.168.0.72)(PORT=1521))(CONNECT_DATA=(SERVER=DEDICATED)(SERVICE_NAME=ORCL12C)(INSTANCE_NAME=ORCL12C1)))';
+         
+         CREATE DATABASE LINK EORCL12C2 connect to rpmmgr identified by rpmmgr USING 
+           '(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=192.168.0.73)(PORT=1521))(CONNECT_DATA=(SERVER=DEDICATED)(SERVICE_NAME=ORCL12C)(INSTANCE_NAME=ORCL12C2)))';
+         
+         select * from v$instance@EORCL12C1 ;
+         select * from v$instance@EORCL12C2 ;
+  
+      -> 수집 Map ----------------------------------------------------------------------------------------------------------- 
+   
+           DB Link로 V$SQL, V$SQL_PLAN을 Join해서 CLOB를 가져올 수 없으므로 DB Link를 위한 REMOTE 수집은
+           V$SQL수집을 위한 V_SQL_VIEW, V$SQL_PLAN 수집을 위한 V_SQL_PLAN_VIEW 2개의 Temporary Table을 만들어서 사용
+  
+  
+             [REMOTE]       |    [LOCAL]     
+                            |
+                            | DB*Link
+             V$SQL ---------+------------>  V_SQL_VIEW       -----+
+                            |                                     |  Join & Merge
+                            |                                     +-------------------> ILM_IRPMSPA_SQLSET_STAGE
+                            | DB*Link                             |
+             V$SQL_PLAN ----+------------>  V_SQL_PLAN_VIEW  -----+    
+                            |
+                            |
+   
+   
+   
+
+iRPM_SPA_V1.3.190611
+----------------------------------------------
+
+ > PLAN COMPARE 기능 추가 
+   - PLAN COMPARE만 실행, PLAN COMPARE후 PLAN이 변경된 대상만 SPA 실행
+   
+ > SQL Remap기능                                                       
+   - SQL을 특정 String을 변경하여 실행 기능 
+   - TABLE구조변경 TEST를 위한  ORDERS의 구조변경 대상 ORDERS_$T로 신규 Table생성 후 SQL의 검증 
+   - ORDERS:ORDERS_$T,DEPT:DEPT_$T,...와 같이 Data Pump Remap과 같은 설정 기능
+   
+ > SQL Run Timeout 기능
+   - 0: 끝날떄 까지 실행
+   - > 0 : 지정된 Sec 이상 실행시 강제 종료 처리(Timeout)
+   
+ > 날짜기능의 FIXED_DATE기능
+   - SYSDATE, SYSTIMESTAMP를 지정된 FIXED DATA로 실행기능
+   
+ > COPY & RUN 기능
+   - SQL의 Reposiroty(STS:ILM_IRPMSPA_SQLSET_STAGE, AWR:(DBA_HIST_*)에서 SPA실행 대상의 추출시간을 최소화 하기 위해
+     기존에 실행했던 RUN_NAME을 복제하여 실행하는 기능
+     
+ > 운영DB의 SQL수집시 IRPM SPA의 계정 및 Package가 없는 환경에서 SQL 수집을 위한 최소한의 고객환경 수집 Script
+ 
+ > SPA의 병렬도 동적 추가 기능 (SPA_ADD_JOB)
+   - 처리 Process를 동적으로 더 추가하여 신속한 처리를 위한 ADD_JOB기능
+   
+ > SPA의 실행 JOB 전체 정리 기능 (SPA_DROP_JOB)
+   - 징행중인 JOB의 전체를 종료처리 하는 기능
+   
+ > SPA의 실행 JOB중 Timeout설정과는 별개로 진행중인 SQL을 KILL하는 기능 (SPA_KILL_SQL)
+   - 징행중인 JOB의 특정 SQL을 KILL하여 정리하는 기능
+   
+ > SPA실행전 PRE_SQL 및 완료 후 POST_SQL 기능
+   - 환경 변화를 해당 SPA Session에 할당하여 SQL실행 결과를 비교 하는 기능 
+     
+     'ALTER SESSION SET optimizer_use_pending_statistics=true; '  ||
+     'ALTER SESSION SET optimizer_use_invisible_indexes =true; '  || 
+     'ALTER SESSION SET optimizer_use_sql_plan_baselines=false; ' ||
+     'ALTER SESSION SET optimizer_dynamic_sampling=0; ' ;         ||
+     'ALTER SESSION SET optimizer_dynamic_sampling=0; ' ;
+   
+ > SPA실행 Node 지정 기능
+   - RAC의 특정 Node에서 실행하도록 설정 기능. 
+     
+ > WORK Table의 사용자 지정 기능   
+   - STS Staging or AWR --> <WORK Table> Default: ILM_IRPMSPA_RUN
+ 
+ > SPA Job의 실행 환경 정보
+   - 위의 설정들을 확인하는 기능. Master Table ILM_IRPMSPA_RUNINFO 에서 관리
+     SELECT RUN_NAME,RUN_SOURCE,DESCRIPTION,DECODE(RUN_END_DATE,NULL,DECODE(PROC_REST,0,'N/A','Running...'),'Finished') RUN_STATUS,
+			       RUN_START_DATE,RUN_END_DATE,
+			       DECODE(RUN_END_DATE,NULL,NULL,TRUNC((RUN_END_DATE - RUN_START_DATE)*(24*60))) RUN_MINUTE,
+			       RUN_PROCESS,RUN_SQL_TIMEOUT,RUN_REMAP_STRING,
+			       RUN_REPLACE_SYSDATE,RUN_NLS_DATE_FORMAT,RUN_PRE_SQL,RUN_POST_SQL,PLAN_COMPARE_YN,PLAN_COMPARE_CHK_RUN_YN
+			FROM ILM_IRPMSPA_RUNINFO
+			WHERE 1=1
+			ORDER BY RUN_START_DATE DESC; 			
+     
+   
+ > 진행상태 모니터링 기능
+   - ILM_IRPMSPA_RUNINFO 의 처리상채를 실시간으로 Summary하여 진행 중신 대상을 확인하는 기능 
+   
+     > TOT_CNT      -- Total SQL Cnt for JOB_NAME 
+     > PROC_FINISH  -- Finished (T,E,Y,S) 
+     > PROC_REST    -- P + N (Processing + Not run yet) 
+     > PROC_PCT     -- Process Percent (Y+T+E+S)/(Y+T+E+P+N+S) 
+     > PROC_P       -- Processing
+     > PROC_N       -- Not Yet     
+     > PROC_T       -- Finished, But Timeout    
+     > PROC_E       -- Finished, But Error 
+     > PROC_S       -- Finished, PLAN COMPARE, and Not Runned (RUN Skipped)
+     > PROC_Y       -- Finisied, OK
+   
+			SELECT RUN_NAME,DECODE(RUN_END_DATE,NULL,DECODE(PROC_REST,0,'N/A','Running...'),'Finished') RUN_STATUS,
+			       RUN_SQL_TIMEOUT,TOT_CNT,PROC_FINISH,PROC_REST,PROC_PCT,PROC_P,PROC_N,PROC_T,PROC_E,PROC_S,PROC_Y 
+			FROM ILM_IRPMSPA_RUNINFO
+			WHERE 1=1
+			-- AND RUN_NAME like 'ORDERS%'
+			ORDER BY RUN_START_DATE DESC; 
+   
+ > SQL BASELINE, SQL PROFILE설정 대상 분석 SQL애서 확인 기능
+   - 운영 환경의 SQL Baseline설정 여무, SQL Profile 설정 여부를 관련 SQL이 설정 상태를 확인하여 사전 조치 
+   
+ > SQL BASELINE설정 기능
+   - STS Staging Table(ILM_IRPMSPA_SQLSET_STAGE)의 실행 PLAN으로 SQL Baseline Fix 기능      
+   
+   
+   
+   
+iRPM_SPA_V1.1.190508
+----------------------------------------------
+
+ > 0005.RUN_iRPM_SPA_EXECUTE.sql
+   12c 이하Version의 PL/SQL변수 길이 문제 : in_AWR_SQLTARGET_DAYS_FROM_CURR --> in_AWR_SQLTARGET_DAYS_FROM_CUR
+ > 0000.iRPM_SPA_V1.1.xxxxxx_UGENSSNC_배포.sqd
+   "05.iRPMSPA_실행(STS,AWR)" 도 in_AWR_SQLTARGET_DAYS_FROM_CURR --> in_AWR_SQLTARGET_DAYS_FROM_CUR  수정
+   
+   
+   
