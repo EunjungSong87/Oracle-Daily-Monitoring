@@ -10,6 +10,7 @@ export type ScreenKey =
   | 'dashboard'
   | 'databases'
   | 'capacity'
+  | 'alertLog'
   | 'dailyMonitoring'
   | 'scripts'
   | 'thresholds'
@@ -21,6 +22,7 @@ export type ScreenKey =
   | 'ilmJob'
   | 'dataPump'
   | 'migrationVerify'
+  | 'logReview'
   | 'objectCompare'
   | 'parameterCompare';
 
@@ -42,12 +44,14 @@ const SCREENS: ScreenDef[] = [
   { key: 'history', label: 'Run History', group: 'Monitoring', page: 'history.html', defaultRole: 'VIEWER' },
   { key: 'issues', label: 'Issues', group: 'Monitoring', page: 'issues.html', defaultRole: 'VIEWER' },
   { key: 'capacity', label: 'Capacity', group: 'Monitoring', page: 'capacity.html', defaultRole: 'VIEWER' },
+  { key: 'alertLog', label: 'Alert Log', group: 'Monitoring', page: 'alertLog.html', defaultRole: 'VIEWER' },
   { key: 'realtime', label: 'Real-Time', group: 'Monitoring', page: 'realtimeMonitoring.html', defaultRole: 'VIEWER' },
   { key: 'tableSpec', label: 'Table Spec', group: 'Maintenance', page: 'tableSpec.html', defaultRole: 'DBA' },
   { key: 'statsJob', label: 'Stats Job Status', group: 'Maintenance', page: 'statsJob.html', defaultRole: 'SUPER_ADMIN' },
   { key: 'ilmJob', label: 'ILM Partition Retention', group: 'Maintenance', page: 'ilmJob.html', defaultRole: 'SUPER_ADMIN' },
   { key: 'dataPump', label: 'Data Pump', group: 'Maintenance', page: 'dataPump.html', defaultRole: 'SUPER_ADMIN' },
   { key: 'migrationVerify', label: '이관 검증', group: 'Maintenance', page: 'migrationVerify.html', defaultRole: 'SUPER_ADMIN' },
+  { key: 'logReview', label: '로그 업로드 검토', group: 'Maintenance', page: 'logReview.html', defaultRole: 'VIEWER' },
   { key: 'objectCompare', label: 'Object Compare', group: 'Compare', page: 'objectCompare.html', defaultRole: 'SUPER_ADMIN' },
   { key: 'parameterCompare', label: 'Parameter Compare', group: 'Compare', page: 'parameterCompare.html', defaultRole: 'SUPER_ADMIN' },
 ];

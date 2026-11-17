@@ -36,6 +36,7 @@ export default defineConfig({
         dashboard: fileURLToPath(new URL('./index.html', import.meta.url)),
         databases: fileURLToPath(new URL('./databases.html', import.meta.url)),
         capacity: fileURLToPath(new URL('./capacity.html', import.meta.url)),
+        alertLog: fileURLToPath(new URL('./alertLog.html', import.meta.url)),
         scripts: fileURLToPath(new URL('./monitoringScript.html', import.meta.url)),
         thresholds: fileURLToPath(new URL('./monitoringThresholds.html', import.meta.url)),
         users: fileURLToPath(new URL('./users.html', import.meta.url)),
@@ -49,6 +50,7 @@ export default defineConfig({
         parameterCompare: fileURLToPath(new URL('./parameterCompare.html', import.meta.url)),
         dataPump: fileURLToPath(new URL('./dataPump.html', import.meta.url)),
         migrationVerify: fileURLToPath(new URL('./migrationVerify.html', import.meta.url)),
+        logReview: fileURLToPath(new URL('./logReview.html', import.meta.url)),
       },
       output: {
         manualChunks(id) {

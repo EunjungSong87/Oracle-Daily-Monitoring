@@ -2429,6 +2429,10 @@ textarea.dp-table-list {
 .cap-row-selected td { background: rgba(59,130,246,0.12); }
 .cap-chart { position: relative; height: 320px; }
 
+/* Alert Log */
+.al-nowrap { white-space: nowrap; }
+.al-msg { white-space: pre-wrap; word-break: break-all; font-family: var(--font-mono, monospace); font-size: 12px; }
+
 /* Real-Time: Blocking 체인 */
 .rt-blocker-row td { font-weight: 600; }
 .rt-blocker-alert td { background: rgba(239, 68, 68, 0.14); }
@@ -2455,3 +2459,10 @@ button.rt-kill-btn { padding: 2px 10px; font-size: 12px; }
 .history-tab button { background: none; border: none; color: inherit; font: inherit; cursor: pointer; padding: 8px 6px 8px 12px; }
 .history-tab button.history-tab-close { padding: 8px 10px 8px 2px; opacity: 0.6; }
 .history-tab button.history-tab-close:hover { opacity: 1; }
+
+/* 로그 업로드 검토 */
+.lr-tabs { display: inline-flex; margin-bottom: 8px; }
+.lr-paste { width: 100%; box-sizing: border-box; font-family: var(--font-mono, monospace); font-size: 12px; margin-top: 8px; }
+.lr-badge-info { background-color: var(--info-soft); color: var(--info); }
+.lr-context { margin: 4px 0; padding: 8px; max-height: 360px; overflow: auto; font-size: 12px; white-space: pre-wrap; word-break: break-all; background: var(--surface-alt); border-radius: 6px; }
+.lr-context-hit { font-weight: 700; color: var(--danger); }

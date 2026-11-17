@@ -12,6 +12,7 @@ import { NavIconSprite } from './NavIconSprite';
 export type ActivePage =
   | 'dashboard'
   | 'capacity'
+  | 'alertLog'
   | 'databases'
   | 'dailyMonitoring'
   | 'scripts'
@@ -26,11 +27,12 @@ export type ActivePage =
   | 'parameterCompare'
   | 'dataPump'
   | 'migrationVerify'
+  | 'logReview'
   | 'users';
 
-const MAINTENANCE_GROUP: ActivePage[] = ['tableSpec', 'statsJob', 'ilmJob', 'dataPump', 'migrationVerify'];
+const MAINTENANCE_GROUP: ActivePage[] = ['tableSpec', 'statsJob', 'ilmJob', 'dataPump', 'migrationVerify', 'logReview'];
 const COMPARE_GROUP: ActivePage[] = ['objectCompare', 'parameterCompare'];
-const MONITORING_GROUP: ActivePage[] = ['dailyMonitoring', 'scripts', 'thresholds', 'history', 'issues', 'realtime', 'capacity'];
+const MONITORING_GROUP: ActivePage[] = ['dailyMonitoring', 'scripts', 'thresholds', 'history', 'issues', 'realtime', 'capacity', 'alertLog'];
 const DAILY_MONITORING_CHILDREN: ActivePage[] = ['scripts', 'thresholds', 'history', 'issues'];
 
 interface NavItem {
@@ -54,6 +56,7 @@ const MAINTENANCE_ITEMS: NavItem[] = [
   { key: 'ilmJob', href: 'ilmJob.html', label: 'ILM Partition Retention', icon: '#ic-archive', accent: 'nav-accent-7' },
   { key: 'dataPump', href: 'dataPump.html', label: 'Data Pump', icon: '#ic-transfer', accent: 'nav-accent-7' },
   { key: 'migrationVerify', href: 'migrationVerify.html', label: '이관 검증', icon: '#ic-stats', accent: 'nav-accent-7' },
+  { key: 'logReview', href: 'logReview.html', label: '로그 업로드 검토', icon: '#ic-issue', accent: 'nav-accent-7' },
 ];
 
 const COMPARE_ITEMS: NavItem[] = [
@@ -80,7 +83,7 @@ export function AppHeader({ active }: Props): ReactElement {
   const maintenanceItems = visibleItems(MAINTENANCE_ITEMS);
   const compareItems = visibleItems(COMPARE_ITEMS);
   const dailyHref = show('dailyMonitoring') ? 'dailyMonitoring.html' : dailyChildren[0]?.href;
-  const monitoringHref = dailyHref ?? (show('realtime') ? 'realtimeMonitoring.html' : show('capacity') ? 'capacity.html' : undefined);
+  const monitoringHref = dailyHref ?? (show('realtime') ? 'realtimeMonitoring.html' : show('capacity') ? 'capacity.html' : show('alertLog') ? 'alertLog.html' : undefined);
 
   const monitoringGroupActive = MONITORING_GROUP.includes(active);
   const dailyMonitoringExtra =
@@ -189,6 +192,16 @@ export function AppHeader({ active }: Props): ReactElement {
                           <use href="#ic-db" />
                         </svg>
                         Capacity
+                      </a>
+                    </li>
+                  )}
+                  {show('alertLog') && (
+                    <li>
+                      <a href="alertLog.html" className={`nav-accent-9${active === 'alertLog' ? ' current' : ''}`}>
+                        <svg className="nav-icon" viewBox="0 0 16 16">
+                          <use href="#ic-issue" />
+                        </svg>
+                        Alert Log
                       </a>
                     </li>
                   )}

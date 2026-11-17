@@ -12,6 +12,7 @@ import type oracledb from 'oracledb';
 import { CALL_TIMEOUT_MS, classifyTargetError } from '../models/targetDbTimeouts';
 import * as historyModel from '../models/historyModel';
 import * as capacityService from './capacityService';
+import * as alertLogService from './alertLogService';
 import * as issuesModel from '../models/issuesModel';
 import { logger } from '../utils/logger';
 
@@ -243,6 +244,7 @@ async function getMonResult(
     if (triggerType === 'SCHEDULED' && targetConnection) {
       const capacityTask = await capacityService.collectForScheduled(targetConnection, dbmsid.dbmsid, dbconfig[6]);
       if (capacityTask) results.push(capacityTask);
+      await alertLogService.collectForScheduled(targetConnection, dbmsid.dbmsid, dbconfig[6]).catch(() => undefined);
     }
   } finally {
     if (targetConnection) await targetConnection.close();

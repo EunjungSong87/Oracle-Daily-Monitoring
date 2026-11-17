@@ -7,6 +7,7 @@ export type ScreenKey =
   | 'dashboard'
   | 'databases'
   | 'capacity'
+  | 'alertLog'
   | 'dailyMonitoring'
   | 'scripts'
   | 'thresholds'
@@ -18,6 +19,7 @@ export type ScreenKey =
   | 'ilmJob'
   | 'dataPump'
   | 'migrationVerify'
+  | 'logReview'
   | 'objectCompare'
   | 'parameterCompare';
 
@@ -997,6 +999,49 @@ export interface CapacityPoint {
   max: number;
 }
 
+// ── Monitoring > Alert Log (services/alertLogService.ts) ──
+export interface AlertLogSearchParams {
+  dbmsId: string | number | null; // null/'' = 전체 DB
+  fromDate: string; // YYYY-MM-DD
+  toDate: string; // YYYY-MM-DD
+  oraCode?: string; // 예: ORA-00600 또는 600
+  keyword?: string;
+  limit?: number; // 최대 5000
+  offset?: number;
+}
+
+export interface AlertLogRow {
+  id: number;
+  dbmsId: number;
+  dbname: string | null;
+  logTime: string;
+  oraCode: string | null;
+  messageType: string | null;
+  messageLevel: number | null;
+  messageText: string;
+  filename: string | null;
+}
+
+export interface AlertLogSearchResult {
+  rows: AlertLogRow[];
+  total: number;
+}
+
+export interface AlertLogTrendPoint {
+  day: string;
+  oraCode: string | null;
+  count: number;
+}
+
+export interface AlertLogConfig {
+  retentionDays: number;
+}
+
+export interface AlertLogConfigView {
+  available: boolean;
+  config: AlertLogConfig;
+}
+
 // ── 이관 Import (services/dataPumpMigrationService.ts) ──
 export interface MigrationBundleRow {
   bundleKey: string; // Export 묶음 id, 묶음 없는 작업은 H<이력 id>
@@ -1239,4 +1284,39 @@ export interface MigrationVerifyResult {
     cleanup: { total: number; new: number; byCategory: Record<MigrationFinding['category'], number> };
   };
   notes: string[];
+}
+
+// ── Maintenance > 로그 업로드 검토 (services/logReviewService.ts — DB 접속 없음) ──
+export type LogReviewType = 'ALERT' | 'LISTENER' | 'CRS';
+export type LogReviewSeverity = 'CRITICAL' | 'WARN' | 'INFO';
+
+export interface LogReviewFinding {
+  line: number;
+  time: string | null;
+  severity: LogReviewSeverity;
+  category: string; // 'SECURITY' = 보안/접속 이상징후
+  label: string;
+  text: string;
+  context: string[];
+  contextFrom: number | null; // null = 합성 finding (띄엄띄엄한 줄 묶음)
+  synthetic?: boolean;
+}
+
+export interface LogReviewSummary {
+  critical: number;
+  warn: number;
+  info: number;
+  security: number;
+  total: number;
+  byCategory: Record<string, number>;
+}
+
+export interface LogReviewResult {
+  fileName: string;
+  logType: LogReviewType;
+  truncated: boolean;
+  notes: string[];
+  lineCount: number;
+  summary: LogReviewSummary;
+  findings: LogReviewFinding[];
 }

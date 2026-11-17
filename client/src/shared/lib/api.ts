@@ -14,6 +14,13 @@ import type {
   PartitionHistoryRow,
   RemapMapping,
   RemapSet,
+  AlertLogConfig,
+  AlertLogConfigView,
+  AlertLogSearchParams,
+  AlertLogSearchResult,
+  AlertLogTrendPoint,
+  LogReviewResult,
+  LogReviewType,
   CapacityConfig,
   CapacityPoint,
   CapacityView,
@@ -418,6 +425,24 @@ export function saveCapacityConfig(config: CapacityConfig): Promise<unknown> {
   return postJson('/api/capacity/config', config);
 }
 
+// ── Alert Log (메타데이터 DB만) ──────────────────────────────────────────────
+export function searchAlertLog(params: AlertLogSearchParams): Promise<AlertLogSearchResult> {
+  return postJson('/api/alertLog/search', params);
+}
+
+export async function getAlertLogTrend(params: AlertLogSearchParams): Promise<AlertLogTrendPoint[]> {
+  const { points } = await postJson<{ points: AlertLogTrendPoint[] }>('/api/alertLog/trend', params);
+  return points;
+}
+
+export function getAlertLogConfig(): Promise<AlertLogConfigView> {
+  return getJson('/api/alertLog/config');
+}
+
+export function saveAlertLogConfig(config: AlertLogConfig): Promise<unknown> {
+  return postJson('/api/alertLog/config', config);
+}
+
 // ── Data Pump ────────────────────────────────────────────────────────────────
 // 화면 목록의 이름은 DB의 정확한 이름(예: QTest)이라, 서버에 보낼 때는 SQL 표기로 바꾼다 — 서버는 따옴표 없는 이름을 대문자로 읽는다.
 const PLAIN_IDENTIFIER = /^[A-Z][A-Z0-9_$#]{0,127}$/;
@@ -659,6 +684,37 @@ export async function downloadMigrationVerifyExcel(result: MigrationVerifyResult
   const a = document.createElement('a');
   a.href = url;
   a.download = `migration_verify_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ── Maintenance > 로그 업로드 검토 (DB 접속 없음, 저장 없음) ──
+export interface AnalyzeLogReviewRequest {
+  logType: LogReviewType;
+  fileName: string;
+  content: string;
+  clientTruncated?: boolean; // 브라우저가 앞(오래된) 부분을 버리고 보냄
+  // 대용량 리스너 로그: 브라우저가 골라낸 줄마다의 원본 줄 번호와 원본 전체 줄 수
+  lineNumbers?: number[];
+  sourceLines?: number;
+}
+
+export function analyzeLogReview(request: AnalyzeLogReviewRequest): Promise<LogReviewResult> {
+  return postJson('/api/logReview/analyze', request);
+}
+
+export async function downloadLogReviewExcel(result: LogReviewResult): Promise<void> {
+  const response = await fetch('/api/logReview/excel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ result }) });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}) as { message?: string });
+    throw new ApiError(err.message || `엑셀 내보내기 실패: ${response.status}`);
+  }
+  const url = URL.createObjectURL(await response.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `log_review_${new Date().toISOString().slice(0, 10)}.xlsx`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

@@ -20,12 +20,14 @@
 | ‣ Scripts / Thresholds | 점검 SQL(태스크)과 임계치 규칙 관리 | DBA 이상 |
 | ‣ Run History | 지난 점검 결과 이력 | 전체 |
 | ‣ Issues | 임계치 위반 티켓 (자동 생성/자동 해결/재오픈, 확인·해결·담당자·댓글) | 전체 |
+| **Monitoring › Alert Log** | 예약 일일점검 때 대상 DB의 `V$DIAG_ALERT_EXT`에서 최근 2일분 ORA-/FAIL 메시지를 모아 적재(중복 제외), DB/기간/ORA 코드/키워드로 검색 + 일자별·ORA 코드별 발생 추이 | 조회: 전체 · 보관 기간 설정: DBA 이상 |
 | **Monitoring › Real-Time** | 2초 간격 실시간 세션 모니터링: Active Session 구성/추이, **SQL 경과 시간 산점도**(MaxGauge 방식, ASH 기준 — 점 클릭/드래그로 상세), 세션 더블클릭 시 **세션 상세**(V$SESSION + ASH 요약 + SQL 전문/통계, V$SQL에 없으면 AWR) | 전체 |
 | **Maintenance › Table Spec** | 스키마/테이블 명세서 엑셀 추출 | DBA 이상 |
 | ‣ Stats Job Status | 통계 수집 스케줄러 잡 현황/수동 실행 | 최고관리자 |
 | ‣ ILM Partition Retention | 파티션 보관주기 관리 (`PGDBA.DEL_JOB_TABLE_LIST`) | 최고관리자 |
 | ‣ Data Pump | EXPDP/IMPDP를 DB 서버에서 실행(`DBMS_DATAPUMP`)하거나 parfile 생성. 스키마/테이블 목록을 테이블 크기 기준으로 작업당 1TB(변경 가능) 이하로 자동 분할, FILESIZE 자동 계산, parfile을 DB 서버 DIRECTORY에 바로 저장, DB 링크(NETWORK_LINK) 옵션, Export 대상에 RANGE 파티션(날짜 기간으로 골라 크기·분할에 반영, 테이블 목록에 OWNER.TABLE:PARTITION 줄도 가능, 스키마가 달라도 분할 크기 안이면 parfile 하나로) + 파티션 Import(매니페스트로 범위 맞춤, 비우고 넣기), 작업 현황(남은 시간 어림)·로그·취소, 작업 이력(누가·결과·수행 시간)과 지난 속도 기준 예상 시간. 필터·옵션: INCLUDE/EXCLUDE(이름 조건), QUERY, SAMPLE, DATA_OPTIONS, VIEWS_AS_TABLES (DB 버전에 맞게 검증, 분할 크기에도 반영). Import는 REMAP 지원, 덮어쓰기는 DB명 확인 | 최고관리자 |
 | ‣ 이관 검증 | Data Pump로 이관한 범위(Export 계획 선택 또는 OWNER.TABLE[:PARTITION] 직접 붙여넣기)를 검증. Export/Import 로그 대조로 행 수 확인(QUERY/SAMPLE 조건 반영), 고른 테이블만 원본·대상 COUNT 비교(최대 20개, DB별 동시 1개, 시간 제한), 테이블스페이스 위치(매핑 기준 기대값 vs 실제), INVALID 오브젝트·누락 인덱스/파티션 등 정리 점검(원본도 같은 상태면 "원래 그랬음"으로 구분) — REBUILD/통계 SQL 제공, 고른 INVALID 재컴파일(최고관리자, 대상 DB명 확인 후 실행·기록). 결과는 엑셀로 내보내기 가능 | 최고관리자 |
+| ‣ 로그 업로드 검토 | **DB 접속 없음** — alert / 리스너 / CRS 로그 파일을 올리거나 일부를 붙여넣으면(종류는 직접 선택) 패턴 규칙으로 특이사항을 찾아 심각도(CRITICAL/WARN/INFO)·카테고리별로 보여줌. 행을 누르면 전후 줄, "문제만 보기"/"보안만 보기" 필터, 엑셀 내보내기. 보안/접속 이상징후: ORA-28000/01017/01031·로그온 거부, 리스너 로그에서 같은 IP가 10분 안에 5번 이상 접속 실패하면 따로 표시. 올린 내용은 저장하지 않음 (최대 20MB·50만 줄, 넘으면 최근 기록인 끝부분만) | 전체 (VIEWER) |
 | **Compare › Object Compare** | 두 DB(또는 같은 DB의 다른 스키마) 오브젝트 비교 — 스키마를 여러 개 골라 한 번에(기준 스키마마다 대상 스키마를 짝지음, 기본은 같은 이름): 테이블스페이스, 테이블 컬럼(유무/타입/길이/NULL/기본값), 인덱스, 제약조건(PK/UK/FK/CHECK — 종류·컬럼·참조 대상·ON DELETE·조건·상태), 뷰, 시퀀스, 시노님, PL/SQL 소스(줄 단위 diff). "다름" 항목은 대상을 기준에 맞추는 DDL(컬럼 ADD/MODIFY, 인덱스 재생성, ALTER SEQUENCE, 시노님, 뷰·PL/SQL CREATE OR REPLACE — 위험한 것은 주석)을 항목별·모아서(.sql) 제공. **계정·권한 탭**: 계정(User)·Role·Profile을 골라 속성, 시스템 권한, 받은 Role(Role 안의 Role 포함), 오브젝트·컬럼 권한, 테이블스페이스 할당량, Profile 제한값 비교 | 최고관리자 |
 | **Compare › Parameter Compare** | 두 DB 초기화 파라미터 비교 (hidden `_` 파라미터 포함, 인스턴스 기준 값) | 최고관리자 |
 | 계정 › Users | 로그인 계정/권한 관리 | 최고관리자 |

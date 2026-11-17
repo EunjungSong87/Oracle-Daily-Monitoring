@@ -25,6 +25,8 @@ import parameterCompareRouters from './routers/parameterCompareRouters';
 import dataPumpRouters from './routers/dataPumpRouters';
 import dashboardRouters from './routers/dashboardRouters';
 import migrationVerifyRouters from './routers/migrationVerifyRouters';
+import alertLogRouters from './routers/alertLogRouters';
+import logReviewRouters from './routers/logReviewRouters';
 import { requireAuth, requireScreenPage } from './middleware/auth';
 import { getHealth } from './services/healthService';
 import { startScheduler } from './services/scheduler';
@@ -56,6 +58,8 @@ const urlencodedParser = bodyParser.urlencoded({ extended: true });
 // JSON 요청 본문 처리. Data Pump는 긴 테이블 목록/parfile/파티션 매니페스트를 보내므로 기본 100KB보다 크게 받는다
 // (파일 저장은 화면이 3MB 안팎으로 나눠 보내고, 서비스가 파일 수·파일 크기를 따로 제한한다). 나머지 경로는 기본값.
 app.use('/api/dataPump', bodyParser.json({ limit: '10mb' }));
+// 로그 업로드 검토는 alert/리스너/CRS 로그 원문을 JSON으로 받으므로 더 크게 (분석은 서비스가 20MB·50만 줄에서 자른다).
+app.use('/api/logReview', bodyParser.json({ limit: '20mb' }));
 app.use(jsonParser);
 
 // URL-encoded 요청 본문 처리
@@ -131,3 +135,5 @@ app.use('/api', parameterCompareRouters);
 app.use('/api', dataPumpRouters);
 app.use('/api', dashboardRouters);
 app.use('/api', migrationVerifyRouters);
+app.use('/api', alertLogRouters);
+app.use('/api', logReviewRouters);
