@@ -1320,3 +1320,32 @@ export interface LogReviewResult {
   summary: LogReviewSummary;
   findings: LogReviewFinding[];
 }
+
+// ── 계정 > 알림 설정 (services/notifyConfigService.ts) ─────────────────────────
+// 비밀값(봇 토큰/웹훅 URL)은 내려오지 않고 저장 여부(tokenSet/webhookSet)만.
+export interface NotifyConfigView {
+  available: boolean; // false = system.notify_config 테이블 없음 (.env 값으로 동작, 저장 불가)
+  source: 'db' | 'env';
+  telegram: { enabled: boolean; tokenSet: boolean; chatId: string | null };
+  slack: { enabled: boolean; webhookSet: boolean };
+  updatetime: string | null;
+  updatedBy: string | null;
+}
+
+// 저장/테스트 요청. token·webhookUrl을 비우면 저장된 값 유지.
+export interface NotifyConfigInput {
+  telegram: { enabled: boolean; token: string; chatId: string };
+  slack: { enabled: boolean; webhookUrl: string };
+}
+
+export interface NotifyChannelResult {
+  channel: 'telegram' | 'slack';
+  ok: boolean;
+  message: string;
+}
+
+export interface TelegramChat {
+  id: string;
+  type: string;
+  name: string;
+}

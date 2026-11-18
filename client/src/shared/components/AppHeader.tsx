@@ -28,7 +28,8 @@ export type ActivePage =
   | 'dataPump'
   | 'migrationVerify'
   | 'logReview'
-  | 'users';
+  | 'users'
+  | 'notify';
 
 const MAINTENANCE_GROUP: ActivePage[] = ['tableSpec', 'statsJob', 'ilmJob', 'dataPump', 'migrationVerify', 'logReview'];
 const COMPARE_GROUP: ActivePage[] = ['objectCompare', 'parameterCompare'];
@@ -288,6 +289,16 @@ export function AppHeader({ active }: Props): ReactElement {
                           <use href="#ic-user" />
                         </svg>
                         Users
+                      </a>
+                    </li>
+                  )}
+                  {user.role === 'SUPER_ADMIN' && (
+                    <li>
+                      <a className="nav-accent-8" href="notify.html">
+                        <svg className="nav-icon" viewBox="0 0 16 16">
+                          <use href="#ic-issue" />
+                        </svg>
+                        알림 설정
                       </a>
                     </li>
                   )}

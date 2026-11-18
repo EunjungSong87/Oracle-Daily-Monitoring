@@ -51,6 +51,7 @@ export default defineConfig({
         dataPump: fileURLToPath(new URL('./dataPump.html', import.meta.url)),
         migrationVerify: fileURLToPath(new URL('./migrationVerify.html', import.meta.url)),
         logReview: fileURLToPath(new URL('./logReview.html', import.meta.url)),
+        notify: fileURLToPath(new URL('./notify.html', import.meta.url)),
       },
       output: {
         manualChunks(id) {

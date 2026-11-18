@@ -1,4 +1,8 @@
 import type {
+  NotifyChannelResult,
+  NotifyConfigInput,
+  NotifyConfigView,
+  TelegramChat,
   MigrationRowCheck,
   MigrationVerifyPlanRow,
   MigrationVerifyResult,
@@ -719,4 +723,21 @@ export async function downloadLogReviewExcel(result: LogReviewResult): Promise<v
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+// ── 계정 > 알림 설정 ─────────────────────────────────────────────────────────
+export function getNotifyConfig(): Promise<NotifyConfigView> {
+  return getJson('/api/notify/config');
+}
+
+export function saveNotifyConfig(input: NotifyConfigInput): Promise<unknown> {
+  return postJson('/api/notify/config/save', input);
+}
+
+export function testNotify(input: NotifyConfigInput): Promise<NotifyChannelResult[]> {
+  return postJson('/api/notify/test', input);
+}
+
+export function findTelegramChats(token: string): Promise<TelegramChat[]> {
+  return postJson('/api/notify/telegram/chats', { token });
 }

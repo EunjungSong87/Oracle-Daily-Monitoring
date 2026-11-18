@@ -90,6 +90,8 @@ SESSION_SECRET은 나중에 바꾸면 그 순간 전원 로그아웃됩니다.
        COUNT를 쓰려면 범위 테이블 SELECT 권한, 재컴파일은 대상 계정의 ALTER ANY … 권한 필요. COUNT 쿼리 시간 제한 MIGRATION_COUNT_TIMEOUT_MS(기본 10분)
  15) scripts/add_alert_log_history.sql    -> Monitoring > Alert Log 수집 이력/설정 (alert_log_history, alert_log_config) — 2026-11-12 추가 (없으면 화면은 "설치 필요", 예약 점검의 수집만 건너뜀)
      * Alert Log(화면 권한 키 alertLog, 기본 VIEWER): 기존 'alertLog' 모니터링 태스크와 같은 V$DIAG_ALERT_EXT 조회 권한만 있으면 됨 — 새 권한 없음. DB별 최근 2일분 ORA-/FAIL 메시지를 예약 점검 때 같이 적재, 해시로 중복 적재 방지
+ 16) scripts/add_notify_config.sql        -> 계정 > 알림 설정 (notify_config) — 2026-11-18 추가 (없으면 화면은 저장 불가 안내, 알림은 .env의 TELEGRAM_*/SLACK_WEBHOOK_URL로 동작)
+     * 알림 설정(최고관리자 전용, 화면 권한 레지스트리 밖): 저장하면 .env 값보다 우선. 봇 토큰/웹훅 URL은 DBMS_ENCRYPTION_KEY로 암호화 저장 — 키가 바뀌면 화면에서 다시 입력
  11) scripts/add_session_kill_log.sql   -> Real-Time Blocking 체인의 세션 Kill 기록 (monitoring_session_kill_log) — 2026-10-22 추가 (없으면 Blocking 트리는 보이지만 Kill은 거절)
      * Real-Time Blocking 체인: 대상 DB 계정에 GV$SESSION 조회 권한 필요(DBA_OBJECTS는 잠긴 오브젝트 이름용, 없으면 obj#만). Kill은 SUPER_ADMIN만, 대상 DB 계정에 ALTER SYSTEM 권한이 있어야 함(없으면 버튼에 "권한 없음")
      * GET /health: 로그인 없이 앱 상태(ok 200 / degraded·down 503). 외부 감시에 등록하려면 README의 예시 참고
