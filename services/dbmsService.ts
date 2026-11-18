@@ -14,6 +14,7 @@ import * as historyModel from '../models/historyModel';
 import * as capacityService from './capacityService';
 import * as alertLogService from './alertLogService';
 import * as issuesModel from '../models/issuesModel';
+import * as notifyService from './notifyService';
 import { logger } from '../utils/logger';
 
 function errMsg(error: unknown): string {
@@ -255,7 +256,10 @@ async function getMonResult(
     const dbname = dbconfig[6];
     const runHistoryId = await historyModel.saveRunHistory(dbmsid.dbmsid, dbname, triggerType, results);
     try {
-      await issuesModel.syncIssues(dbmsid.dbmsid, dbname, runHistoryId, results);
+      const notifications = await issuesModel.syncIssues(dbmsid.dbmsid, dbname, runHistoryId, results);
+      if (notifications.length > 0) {
+        await notifyService.sendAlert(notifyService.formatIssueAlerts(dbname, notifications));
+      }
     } catch (error) {
       logger.warn('Monitor', `[${dbname}] 이슈 동기화 실패 (점검 결과는 정상 반환)`, error);
     }

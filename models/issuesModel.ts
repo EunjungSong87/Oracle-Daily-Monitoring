@@ -3,6 +3,17 @@ import * as db from '../db';
 
 export type IssueStatus = 'OPEN' | 'ACKNOWLEDGED' | 'RESOLVED';
 
+// syncIssues가 새로 OPEN되거나 재오픈한 티켓만 모아 반환 — 알림 발송용 (이미 OPEN인 건 스팸 방지로 제외).
+export interface IssueNotification {
+  dbname: string;
+  taskName: string;
+  columnName: string;
+  clevel: string;
+  message: string | null;
+  value: string | null;
+  kind: 'NEW' | 'REOPENED';
+}
+
 export interface IssueRow {
   id: number;
   dbmsId: number;
@@ -174,8 +185,9 @@ async function syncIssues(
   dbname: string,
   runHistoryId: number | null,
   results: Record<string, any>[]
-): Promise<void> {
+): Promise<IssueNotification[]> {
   let connection: oracledb.Connection | undefined;
+  const notifications: IssueNotification[] = [];
   try {
     const pool = await db.initializeDB();
     connection = await pool.getConnection();
@@ -228,6 +240,7 @@ async function syncIssues(
           },
           { autoCommit: true }
         );
+        notifications.push({ dbname, taskName: group.taskName, columnName: group.column, clevel: group.level, message: group.message, value, kind: 'NEW' });
         continue;
       }
 
@@ -254,6 +267,7 @@ async function syncIssues(
           { autoCommit: true }
         );
         await insertComment(connection, existing.id, 'STATUS_CHANGE', 'system', '자동 재오픈: 조건이 다시 감지되었습니다.');
+        notifications.push({ dbname, taskName: group.taskName, columnName: group.column, clevel: group.level, message: group.message, value, kind: 'REOPENED' });
         continue;
       }
 
@@ -293,6 +307,8 @@ async function syncIssues(
       );
       await insertComment(connection, existing.id, 'STATUS_CHANGE', 'system', '자동 해제: 조건이 더 이상 감지되지 않습니다.');
     }
+
+    return notifications;
   } finally {
     if (connection) {
       await connection.close();
