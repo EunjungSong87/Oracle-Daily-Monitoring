@@ -21,6 +21,7 @@
 --   - threshold의 PATTERN 조건유형은 연산자를 무시하고 포함(includes) 여부만 본다는 실제
 --     평가 로직(services/dbmsService.ts)에 맞춰 안내 문구 수정 (이전 "IS NOT NULL"은 실제로
 --     존재하지 않는 옵션이었음).
+-- v3: 3) 과다 파싱 탐지를 v$sqlarea VERSION_COUNT → alert log의 "too many parse errors"로 교체.
 
 -- ============================================================
 -- 1) 계정 잠김 탐지 (accountLockCheck)
@@ -112,24 +113,60 @@ SELECT sql_id, parsing_schema_name AS schema_name,
 
 
 -- ============================================================
--- 3) 과다 파싱(SQL 공유 안 됨) 탐지 (excessiveParseCheck)
+-- 3) 과다 파싱 오류 탐지 (tooManyParseErrorCheck)
 -- ============================================================
--- bind variable 없이 리터럴을 이어붙인 SQL(흔히 injection 시도에서도 나타남)은
--- child cursor(version_count)가 비정상적으로 늘어나는 경향이 있어 보조 신호로 씁니다.
--- 단, VPD/세션별 NLS 설정/cursor_sharing 차이 등 보안과 무관한 이유로도 높아질 수 있는
--- "일반 파싱 효율" 지표라서, 이것만으로 공격 단정은 금물 — 급증 추세를 보는 용도입니다.
+-- v3: 이전 버전(v$sqlarea VERSION_COUNT)은 VPD/NLS/cursor_sharing 등 보안과 무관한 이유로도
+-- 높아지는 일반 파싱 효율 지표라 오탐이 많아 alert log 기반으로 교체.
+-- 12.2부터 같은 SQL이 파싱 오류를 반복하면(기본 100회마다) alert log에
+--   "WARNING: too many parse errors, count=100 SQL hash=0x1a2b3c4d"
+--   "PARSE ERROR: ospid=12345, error=942 for statement: ..."
+-- 가 남습니다. 없는 테이블/컬럼 추측, 문법 깨진 injection 시도 등이 여기에 걸립니다.
+-- 1) 계정 잠김과 같은 V$DIAG_ALERT_EXT라 추가 권한 불필요. 12.1 이하는 메시지 자체가 없어 0건.
+--
+-- 경고 뒤에 같은 프로세스가 이어서 남기는 레코드(19c 기준 형식):
+--   PARSE ERROR: ospid=12345, error=942 for statement:
+--   SELECT * FROM no_such_table                                  ← SQL 구문
+--   Additional information: hd=0x... phd=0x... ... sqlid=fq2cmmv4hv5nm   ← SQL_ID
+--   ...Current username=SCOTT
+-- 그래서 WARNING 레코드부터 같은 PROCESS_ID의 다음 레코드 5개를 이어붙인 뒤(WIN) 정규식으로 뽑습니다.
+-- 버전/형식 차이로 해당 줄이 없으면 그 컬럼만 NULL (에러는 안 남). 각 조각을 잘라 붙이는 건
+-- VARCHAR2 4000 한도(ORA-01489) 때문이고, 그래서 긴 SQL은 앞부분만 나옵니다 (SQL_ID로 V$SQL 등에서 확인).
 
-SELECT sql_id, parsing_schema_name AS schema_name,
-       SUBSTR(sql_text, 1, 200) AS sql_preview,
-       version_count, loaded_versions, executions
-  FROM v$sqlarea
- WHERE parsing_schema_name NOT IN ('SYS', 'SYSTEM')
- ORDER BY version_count DESC;
+SELECT SQL_HASH, SQL_ID, USERNAME, ERROR_CODE,
+       COUNT(*) AS WARN_COUNT,
+       MAX(PARSE_ERRORS) AS MAX_PARSE_ERRORS,
+       MAX(SQL_TEXT) AS SQL_TEXT,
+       MAX(LOG_TIME) AS LAST_SEEN
+  FROM (
+        SELECT REGEXP_SUBSTR(MSG, 'SQL hash=(0x[0-9a-fA-F]+)', 1, 1, NULL, 1) AS SQL_HASH,
+               TO_NUMBER(REGEXP_SUBSTR(MSG, 'count=([0-9]+)', 1, 1, NULL, 1)) AS PARSE_ERRORS,
+               REGEXP_SUBSTR(WIN, 'error=([0-9]+)', 1, 1, NULL, 1) AS ERROR_CODE,
+               REGEXP_SUBSTR(WIN, 'sqlid=([0-9a-z]+)', 1, 1, NULL, 1) AS SQL_ID,
+               REGEXP_SUBSTR(WIN, 'Current username=([^[:space:]]+)', 1, 1, NULL, 1) AS USERNAME,
+               SUBSTR(TRIM(NVL(REGEXP_SUBSTR(WIN, 'for statement:(.*?)Additional information', 1, 1, 'n', 1),
+                               REGEXP_SUBSTR(WIN, 'for statement:(.*)', 1, 1, 'n', 1))), 1, 1000) AS SQL_TEXT,
+               LOG_TIME
+          FROM (
+                SELECT MESSAGE_TEXT AS MSG,
+                       ORIGINATING_TIMESTAMP + INTERVAL '9' HOUR AS LOG_TIME,
+                       SUBSTR(MESSAGE_TEXT, 1, 400)
+                       || CHR(10) || SUBSTR(LEAD(MESSAGE_TEXT, 1) OVER (PARTITION BY PROCESS_ID ORDER BY ORIGINATING_TIMESTAMP, RECORD_ID), 1, 1200)
+                       || CHR(10) || SUBSTR(LEAD(MESSAGE_TEXT, 2) OVER (PARTITION BY PROCESS_ID ORDER BY ORIGINATING_TIMESTAMP, RECORD_ID), 1, 1200)
+                       || CHR(10) || SUBSTR(LEAD(MESSAGE_TEXT, 3) OVER (PARTITION BY PROCESS_ID ORDER BY ORIGINATING_TIMESTAMP, RECORD_ID), 1, 600)
+                       || CHR(10) || SUBSTR(LEAD(MESSAGE_TEXT, 4) OVER (PARTITION BY PROCESS_ID ORDER BY ORIGINATING_TIMESTAMP, RECORD_ID), 1, 300)
+                       || CHR(10) || SUBSTR(LEAD(MESSAGE_TEXT, 5) OVER (PARTITION BY PROCESS_ID ORDER BY ORIGINATING_TIMESTAMP, RECORD_ID), 1, 200) AS WIN
+                  FROM V$DIAG_ALERT_EXT
+                 WHERE ORIGINATING_TIMESTAMP > SYSDATE - 1
+               )
+         WHERE MSG LIKE '%too many parse errors%'
+       )
+ GROUP BY SQL_HASH, SQL_ID, USERNAME, ERROR_CODE
+ ORDER BY WARN_COUNT DESC;
 
 -- Thresholds 화면에 등록할 값:
---   컬럼명 : VERSION_COUNT
+--   컬럼명 : WARN_COUNT
 --   조건유형 : NUMERIC
 --   연산자 : >
---   값 : 50 (환경별 평상시 수치 보고 조정)
+--   값 : 0
 --   레벨 : WARN
---   메시지 : 동일 SQL의 child cursor(버전)가 과도하게 많음 — bind variable 미사용/리터럴 SQL 의심 (hard parse 증가)
+--   메시지 : 최근 1일 내 too many parse errors 발생 — 동일 SQL 파싱 오류 반복 (잘못된 앱 SQL 또는 injection 시도 의심)
