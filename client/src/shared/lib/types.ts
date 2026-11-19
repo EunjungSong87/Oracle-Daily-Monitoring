@@ -1322,24 +1322,47 @@ export interface LogReviewResult {
 }
 
 // ── 계정 > 알림 설정 (services/notifyConfigService.ts) ─────────────────────────
-// 비밀값(봇 토큰/웹훅 URL)은 내려오지 않고 저장 여부(tokenSet/webhookSet)만.
+// 비밀값(봇 토큰/웹훅 URL/SMTP 비밀번호)은 내려오지 않고 저장 여부(tokenSet/webhookSet/passwordSet)만.
 export interface NotifyConfigView {
-  available: boolean; // false = system.notify_config 테이블 없음 (.env 값으로 동작, 저장 불가)
+  available: boolean; // false = 테이블/메일 컬럼 없음 (.env 값으로 동작, 저장 불가) — 사유는 unavailableReason
+  unavailableReason: string | null;
   source: 'db' | 'env';
   telegram: { enabled: boolean; tokenSet: boolean; chatId: string | null };
   slack: { enabled: boolean; webhookSet: boolean };
+  mail: {
+    enabled: boolean;
+    host: string | null;
+    port: number;
+    secure: boolean;
+    tlsInsecure: boolean;
+    user: string | null;
+    passwordSet: boolean;
+    from: string | null;
+    to: string[];
+  };
   updatetime: string | null;
   updatedBy: string | null;
 }
 
-// 저장/테스트 요청. token·webhookUrl을 비우면 저장된 값 유지.
+// 저장/테스트 요청. token·webhookUrl·password를 비우면 저장된 값 유지 (SMTP 계정을 비우면 인증 없이).
 export interface NotifyConfigInput {
   telegram: { enabled: boolean; token: string; chatId: string };
   slack: { enabled: boolean; webhookUrl: string };
+  mail: {
+    enabled: boolean;
+    host: string;
+    port: string;
+    secure: boolean;
+    tlsInsecure: boolean;
+    user: string;
+    password: string;
+    from: string;
+    to: string;
+  };
 }
 
 export interface NotifyChannelResult {
-  channel: 'telegram' | 'slack';
+  channel: 'telegram' | 'slack' | 'mail';
   ok: boolean;
   message: string;
 }

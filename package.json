@@ -32,6 +32,7 @@
     "exceljs": "^4.4.0",
     "express": "^4.21.1",
     "express-session": "^1.19.0",
+    "nodemailer": "^6.10.1",
     "oracledb": "^6.7.0"
   },
   "devDependencies": {
@@ -40,6 +41,7 @@
     "@types/express": "^5.0.6",
     "@types/express-session": "^1.19.0",
     "@types/node": "^26.1.1",
+    "@types/nodemailer": "^6.4.17",
     "@types/oracledb": "^7.0.1",
     "eslint": "^10.7.0",
     "tsx": "^4.23.1",

@@ -6,7 +6,14 @@ import { findTelegramChats, getNotifyConfig, saveNotifyConfig, testNotify } from
 import { showToast } from '../../shared/lib/toastStore';
 import type { NotifyChannelResult, NotifyConfigInput, NotifyConfigView, TelegramChat } from '../../shared/lib/types';
 
-const CHANNEL_LABELS: Record<NotifyChannelResult['channel'], string> = { telegram: 'Telegram', slack: 'Slack' };
+const CHANNEL_LABELS: Record<NotifyChannelResult['channel'], string> = { telegram: 'Telegram', slack: 'Slack', mail: '메일' };
+
+type MailForm = NotifyConfigInput['mail'];
+
+function mailFormOf(view: NotifyConfigView): MailForm {
+  const m = view.mail;
+  return { enabled: m.enabled, host: m.host ?? '', port: String(m.port), secure: m.secure, tlsInsecure: m.tlsInsecure, user: m.user ?? '', password: '', from: m.from ?? '', to: m.to.join(', ') };
+}
 
 function formatDate(s: string | null): string {
   if (!s || s.length < 14) return s || '-';
@@ -17,8 +24,8 @@ function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
-// 계정 > 알림 설정 (최고관리자 전용). 신규/재오픈 Issues 티켓 알림을 보낼 Telegram/Slack 채널.
-// 서버는 비밀값(봇 토큰/웹훅 URL)을 내려주지 않는다 — 칸을 비워 두면 저장된 값 유지, 새로 넣으면 교체.
+// 계정 > 알림 설정 (최고관리자 전용). 신규/재오픈 Issues 티켓 알림을 보낼 Telegram/Slack/사내 메일 채널.
+// 서버는 비밀값(봇 토큰/웹훅 URL/SMTP 비밀번호)을 내려주지 않는다 — 칸을 비워 두면 저장된 값 유지, 새로 넣으면 교체.
 export function App(): ReactElement {
   const { user, loading } = useCurrentUser();
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
@@ -29,6 +36,7 @@ export function App(): ReactElement {
   const [tgChatId, setTgChatId] = useState('');
   const [slEnabled, setSlEnabled] = useState(false);
   const [slWebhook, setSlWebhook] = useState('');
+  const [mail, setMail] = useState<MailForm | null>(null);
   const [busy, setBusy] = useState(false);
   const [testResults, setTestResults] = useState<NotifyChannelResult[] | null>(null);
   const [chats, setChats] = useState<TelegramChat[] | null>(null);
@@ -42,6 +50,7 @@ export function App(): ReactElement {
         setTgToken('');
         setSlEnabled(next.slack.enabled);
         setSlWebhook('');
+        setMail(mailFormOf(next));
       })
       .catch((error) => showToast(errorMessage(error, '알림 설정 조회 실패'), 'error'));
   }, []);
@@ -54,6 +63,7 @@ export function App(): ReactElement {
     return {
       telegram: { enabled: tgEnabled, token: tgToken.trim(), chatId: tgChatId.trim() },
       slack: { enabled: slEnabled, webhookUrl: slWebhook.trim() },
+      mail: mail ?? mailFormOf(view!),
     };
   }
 
@@ -98,7 +108,9 @@ export function App(): ReactElement {
       }
     });
 
-  const canTelegramLookup = !!tgToken.trim() || !!view?.telegram.tokenSet;
+  const setMailField = (patch: Partial<MailForm>): void => setMail((current) => (current ? { ...current, ...patch } : current));
+
+  const canTelegramLookup =!!tgToken.trim() || !!view?.telegram.tokenSet;
 
   return (
     <>
@@ -115,14 +127,70 @@ export function App(): ReactElement {
               Daily Monitoring 점검에서 Issues 티켓이 새로 생기거나 다시 열리면 켜 둔 채널로 알림을 보냅니다.{' '}
               {view.source === 'db'
                 ? `현재 이 화면에서 저장한 값으로 동작합니다 (마지막 저장: ${formatDate(view.updatetime)}${view.updatedBy ? `, ${view.updatedBy}` : ''}).`
-                : '아직 저장한 적이 없어 .env 값(TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID / SLACK_WEBHOOK_URL)으로 동작합니다. 저장하면 이후로는 이 화면 값이 우선합니다.'}
+                : '아직 저장한 적이 없어 .env 값(TELEGRAM_* / SLACK_WEBHOOK_URL / SMTP_* / MAIL_*)으로 동작합니다. 저장하면 이후로는 이 화면 값이 우선합니다.'}
             </p>
             {!view.available && (
               <p className="pc-warning">
-                알림 설정 테이블이 없어 저장할 수 없습니다. 메타데이터 DB에 scripts/add_notify_config.sql을 실행하세요 (그 전까지는 .env 값으로 동작).
+                저장할 수 없습니다 — {view.unavailableReason}. 실행 후 앱 서버를 재시작해야 반영됩니다 (그 전까지는 .env 값으로 동작, 테스트 발송은 가능).
               </p>
             )}
           </div>
+
+          {mail && (
+            <div className="rt-panel">
+              <h3>
+                <label style={{ display: 'inline', fontWeight: 'inherit' }}>
+                  <input type="checkbox" checked={mail.enabled} onChange={(e) => setMailField({ enabled: e.target.checked })} /> 사내 메일 (SMTP)
+                </label>
+              </h3>
+              <div className="dp-grid">
+                <div>
+                  <label htmlFor="nt-ml-host">SMTP 서버</label>
+                  <input id="nt-ml-host" type="text" placeholder="mail.company.local 또는 IP" value={mail.host} onChange={(e) => setMailField({ host: e.target.value })} />
+                </div>
+                <div>
+                  <label htmlFor="nt-ml-port">포트</label>
+                  <input id="nt-ml-port" type="number" min={1} max={65535} placeholder="25" value={mail.port} onChange={(e) => setMailField({ port: e.target.value })} />
+                </div>
+                <div>
+                  <label htmlFor="nt-ml-user">계정 (인증 없는 릴레이면 비움)</label>
+                  <input id="nt-ml-user" type="text" autoComplete="off" value={mail.user} onChange={(e) => setMailField({ user: e.target.value })} />
+                </div>
+                <div>
+                  <label htmlFor="nt-ml-password">비밀번호</label>
+                  <input
+                    id="nt-ml-password"
+                    type="password"
+                    autoComplete="new-password"
+                    disabled={!mail.user.trim()}
+                    placeholder={view.mail.passwordSet && mail.user.trim() === (view.mail.user ?? '') ? '저장됨 — 바꿀 때만 입력' : ''}
+                    value={mail.password}
+                    onChange={(e) => setMailField({ password: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="nt-ml-from">보내는 사람</label>
+                  <input id="nt-ml-from" type="text" placeholder="dbcockpit@company.local" value={mail.from} onChange={(e) => setMailField({ from: e.target.value })} />
+                </div>
+                <div>
+                  <label htmlFor="nt-ml-to">받는 사람 (쉼표로 여러 명, 최대 20)</label>
+                  <input id="nt-ml-to" type="text" placeholder="dba1@company.local, dba2@company.local" value={mail.to} onChange={(e) => setMailField({ to: e.target.value })} />
+                </div>
+              </div>
+              <div style={{ marginTop: 8 }}>
+                <label style={{ display: 'inline', fontWeight: 'normal' }}>
+                  <input type="checkbox" checked={mail.secure} onChange={(e) => setMailField({ secure: e.target.checked })} /> 접속부터 TLS (보통 465 포트)
+                </label>{' '}
+                <label style={{ display: 'inline', fontWeight: 'normal', marginLeft: 16 }}>
+                  <input type="checkbox" checked={mail.tlsInsecure} onChange={(e) => setMailField({ tlsInsecure: e.target.checked })} /> 인증서 검증 생략 (사설 인증서)
+                </label>
+              </div>
+              <p className="oc-hint">
+                사내 메일 서버 담당자에게 SMTP 릴레이 주소/포트와, 앱 서버 IP에서 인증 없이 보낼 수 있는지(아니면 발송용 계정)를 확인하세요. 25/587 포트는 TLS 체크를
+                끈 채로 두면 서버가 지원할 때만 STARTTLS로 암호화합니다.
+              </p>
+            </div>
+          )}
 
           <div className="rt-panel">
             <h3>
@@ -214,7 +282,7 @@ export function App(): ReactElement {
               <button type="button" onClick={handleSave} disabled={busy || !view.available}>
                 저장
               </button>{' '}
-              <button type="button" className="btn-secondary" onClick={handleTest} disabled={busy || (!tgEnabled && !slEnabled)}>
+              <button type="button" className="btn-secondary" onClick={handleTest} disabled={busy || (!tgEnabled && !slEnabled && !mail?.enabled)}>
                 테스트 발송
               </button>
             </div>
