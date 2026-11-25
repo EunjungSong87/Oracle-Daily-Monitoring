@@ -1,5 +1,6 @@
 import oracledb from 'oracledb';
 import * as db from '../db';
+import { isMoreSevere } from '../utils/alertLevel';
 
 export type IssueStatus = 'OPEN' | 'ACKNOWLEDGED' | 'RESOLVED';
 
@@ -153,8 +154,10 @@ function collectAlertGroups(results: Record<string, any>[]): Map<string, AlertGr
         }
         const { _alerts, ...rest } = dataRow;
         group.rows.push(rest);
-        group.level = alert.level;
-        group.message = alert.message;
+        if (isMoreSevere(alert.level, group.level)) {
+          group.level = alert.level;
+          group.message = alert.message;
+        }
       }
     }
   }
@@ -335,7 +338,7 @@ async function listIssues(statuses?: IssueStatus[]): Promise<IssueRow[]> {
     const query = `select ${ISSUE_COLUMNS}
                      from system.monitoring_issues
                     ${where}
-                    order by case clevel when 'ERROR' then 0 else 1 end, last_seen_at desc`;
+                    order by case clevel when 'CRITICAL' then 0 when 'ERROR' then 1 else 2 end, last_seen_at desc`;
     const result = await connection.execute<Record<string, any>>(query, binds, {
       outFormat: oracledb.OUT_FORMAT_OBJECT,
       fetchInfo: { DETAILS: { type: oracledb.STRING } },

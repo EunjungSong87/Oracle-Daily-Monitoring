@@ -12,8 +12,8 @@ export interface DbCard {
   autoSchedule: boolean;
   signal: Signal;
   signalReason: string;
-  lastRun: { id: number; at: string; trigger: string; errors: number; warns: number; failedTasks: number } | null;
-  issues: { ERROR: number; WARN: number; other: number; acknowledged: number };
+  lastRun: { id: number; at: string; trigger: string; criticals: number; errors: number; warns: number; failedTasks: number } | null;
+  issues: { CRITICAL: number; ERROR: number; WARN: number; other: number; acknowledged: number };
   dataPump: { running: { jobName: string; operation: string; startedAt: string | null }[]; latest: { jobName: string; operation: string; status: string; finishedAt: string | null } | null };
   lastScheduled: { at: string; ok: boolean } | null;
 }
@@ -39,13 +39,14 @@ function formatRunAt(value: string): string {
 }
 
 // 점검 결과 JSON의 위반(_alerts level)과 실패한 태스크 수
-function summarizeResults(json: string | null): { errors: number; warns: number; failedTasks: number } {
+function summarizeResults(json: string | null): { criticals: number; errors: number; warns: number; failedTasks: number } {
   let tasks: { success?: boolean; rows?: { _alerts?: Record<string, { level?: string }> }[] }[];
   try {
     tasks = json ? JSON.parse(json) : [];
   } catch {
     tasks = [];
   }
+  let criticals = 0;
   let errors = 0;
   let warns = 0;
   let failedTasks = 0;
@@ -53,19 +54,22 @@ function summarizeResults(json: string | null): { errors: number; warns: number;
     if (task.success === false) failedTasks++;
     for (const row of task.rows ?? []) {
       for (const alert of Object.values(row._alerts ?? {})) {
-        if (alert.level === 'ERROR') errors++;
+        if (alert.level === 'CRITICAL') criticals++;
+        else if (alert.level === 'ERROR') errors++;
         else if (alert.level === 'WARN') warns++;
       }
     }
   }
-  return { errors, warns, failedTasks };
+  return { criticals, errors, warns, failedTasks };
 }
 
-// 신호등: 최근 점검이 24시간 넘게 없으면 회색, ERROR 위반이면 빨강, WARN 위반이나 실패한 태스크가 있으면 노랑, 아니면 초록
-function signalOf(lastRunAt: Date | null, summary: { errors: number; warns: number; failedTasks: number } | null, now: Date): { signal: Signal; reason: string } {
+// 신호등: 최근 점검이 24시간 넘게 없으면 회색, CRITICAL/ERROR 위반이면 빨강, WARN 위반이나 실패한 태스크가 있으면 노랑, 아니면 초록
+function signalOf(lastRunAt: Date | null, summary: { criticals: number; errors: number; warns: number; failedTasks: number } | null, now: Date): { signal: Signal; reason: string } {
   if (!lastRunAt || !summary) return { signal: 'GRAY', reason: '점검 기록 없음' };
   if (now.getTime() - lastRunAt.getTime() > STALE_MS) return { signal: 'GRAY', reason: '24시간 넘게 점검 없음' };
-  if (summary.errors > 0) return { signal: 'RED', reason: `ERROR 위반 ${summary.errors}건` };
+  if (summary.criticals > 0 || summary.errors > 0) {
+    return { signal: 'RED', reason: [summary.criticals > 0 ? `CRITICAL 위반 ${summary.criticals}건` : '', summary.errors > 0 ? `ERROR 위반 ${summary.errors}건` : ''].filter(Boolean).join(', ') };
+  }
   if (summary.warns > 0 || summary.failedTasks > 0) {
     return { signal: 'YELLOW', reason: [summary.warns > 0 ? `WARN 위반 ${summary.warns}건` : '', summary.failedTasks > 0 ? `실패한 점검 ${summary.failedTasks}개` : ''].filter(Boolean).join(', ') };
   }
@@ -93,9 +97,10 @@ function buildDashboard(raw: DashboardRaw, now: Date = new Date()): Dashboard {
       signalReason: reason,
       lastRun: run && summary ? { id: Number(run.ID), at: formatRunAt(run.RUN_AT), trigger: run.TRIGGER_TYPE, ...summary } : null,
       issues: {
+        CRITICAL: count((row) => row.STATUS === 'OPEN' && row.CLEVEL === 'CRITICAL'),
         ERROR: count((row) => row.STATUS === 'OPEN' && row.CLEVEL === 'ERROR'),
         WARN: count((row) => row.STATUS === 'OPEN' && row.CLEVEL === 'WARN'),
-        other: count((row) => row.STATUS === 'OPEN' && row.CLEVEL !== 'ERROR' && row.CLEVEL !== 'WARN'),
+        other: count((row) => row.STATUS === 'OPEN' && !['CRITICAL', 'ERROR', 'WARN'].includes(row.CLEVEL)),
         acknowledged: count((row) => row.STATUS === 'ACKNOWLEDGED'),
       },
       dataPump: {
@@ -123,7 +128,7 @@ function buildDashboard(raw: DashboardRaw, now: Date = new Date()): Dashboard {
         runTime: raw.schedule?.RUN_TIME ?? null,
         enabled: raw.schedule?.ENABLED === 'Y',
       },
-      openIssues: cards.reduce((sum, card) => sum + card.issues.ERROR + card.issues.WARN + card.issues.other, 0),
+      openIssues: cards.reduce((sum, card) => sum + card.issues.CRITICAL + card.issues.ERROR + card.issues.WARN + card.issues.other, 0),
     },
     dataPumpAvailable: raw.dataPump !== null,
   };

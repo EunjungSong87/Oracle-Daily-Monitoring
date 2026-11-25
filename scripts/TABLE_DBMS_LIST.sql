@@ -108,7 +108,7 @@ COMMENT ON COLUMN monitoring_thresholds.column_name IS '평가 대상 컬럼 이
 COMMENT ON COLUMN monitoring_thresholds.condition_type IS '조건 유형 (NUMERIC, STRING, PATTERN)';
 COMMENT ON COLUMN monitoring_thresholds.operator IS '비교 연산자 (>, <, =, !=, LIKE, INCLUDES 등)';
 COMMENT ON COLUMN monitoring_thresholds.threshold IS '비교 기준값';
-COMMENT ON COLUMN monitoring_thresholds.clevel IS '알림 레벨 (INFO, WARN, ERROR)';
+COMMENT ON COLUMN monitoring_thresholds.clevel IS '알림 레벨 (INFO, WARN, ERROR, CRITICAL)';
 COMMENT ON COLUMN monitoring_thresholds.message IS '조건 충족 시 사용자에게 보여줄 메시지';
 COMMENT ON COLUMN monitoring_thresholds.is_active IS '활성화 여부 (Y/N)';
 COMMENT ON COLUMN monitoring_thresholds.created_at IS '생성일시';

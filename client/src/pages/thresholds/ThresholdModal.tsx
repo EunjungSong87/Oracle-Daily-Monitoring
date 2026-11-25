@@ -126,6 +126,7 @@ export function ThresholdModal({ open, editing, onClose, onSaved }: Props): Reac
         <select id="CLEVEL" required value={form.clevel} onChange={(e) => set('clevel', e.target.value)}>
           <option value="WARN">WARN</option>
           <option value="ERROR">ERROR</option>
+          <option value="CRITICAL">CRITICAL</option>
           <option value="INFO">INFO</option>
         </select>
 

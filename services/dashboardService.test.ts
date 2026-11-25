@@ -9,8 +9,9 @@ const results = (levels: string[], failed = 0) =>
   ]);
 
 describe('summarizeResults / signalOf', () => {
-  it('ERROR → 빨강, WARN·실패 → 노랑, 없으면 초록', () => {
+  it('CRITICAL·ERROR → 빨강, WARN·실패 → 노랑, 없으면 초록', () => {
     const recent = new Date(2026, 9, 22, 7, 0, 0);
+    expect(signalOf(recent, summarizeResults(results(['CRITICAL'])), NOW)).toEqual({ signal: 'RED', reason: 'CRITICAL 위반 1건' });
     expect(signalOf(recent, summarizeResults(results(['ERROR', 'WARN'])), NOW).signal).toBe('RED');
     expect(signalOf(recent, summarizeResults(results(['WARN'])), NOW).signal).toBe('YELLOW');
     expect(signalOf(recent, summarizeResults(results([], 1)), NOW).signal).toBe('YELLOW');
@@ -23,7 +24,7 @@ describe('summarizeResults / signalOf', () => {
   });
 
   it('깨진 JSON은 위반 0', () => {
-    expect(summarizeResults('{oops')).toEqual({ errors: 0, warns: 0, failedTasks: 0 });
+    expect(summarizeResults('{oops')).toEqual({ criticals: 0, errors: 0, warns: 0, failedTasks: 0 });
   });
 });
 
@@ -43,6 +44,7 @@ describe('buildDashboard', () => {
       { DBMS_ID: 2, RUN_AT: '20261021070100', FAIL_COUNT: 0 },
     ],
     issues: [
+      { DBMS_ID: 1, CLEVEL: 'CRITICAL', STATUS: 'OPEN', N: 1 },
       { DBMS_ID: 1, CLEVEL: 'ERROR', STATUS: 'OPEN', N: 2 },
       { DBMS_ID: 1, CLEVEL: 'WARN', STATUS: 'ACKNOWLEDGED', N: 1 },
     ],
@@ -57,8 +59,8 @@ describe('buildDashboard', () => {
       ['C', 'GRAY'],
       ['B', 'GREEN'],
     ]);
-    expect(dash.summary).toMatchObject({ total: 3, problem: 1, openIssues: 2, scheduledToday: { ok: 1, expected: 2, runTime: '07:00', enabled: true } });
-    expect(dash.cards[0].issues).toEqual({ ERROR: 2, WARN: 0, other: 0, acknowledged: 1 });
+    expect(dash.summary).toMatchObject({ total: 3, problem: 1, openIssues: 3, scheduledToday: { ok: 1, expected: 2, runTime: '07:00', enabled: true } });
+    expect(dash.cards[0].issues).toEqual({ CRITICAL: 1, ERROR: 2, WARN: 0, other: 0, acknowledged: 1 });
     expect(dash.cards.find((card) => card.dbname === 'B')?.dataPump.running).toEqual([{ jobName: 'J1', operation: 'EXPORT', startedAt: '2026-10-22 11:00:00' }]);
   });
 

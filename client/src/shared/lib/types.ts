@@ -948,8 +948,8 @@ export interface DashboardCard {
   autoSchedule: boolean;
   signal: DashboardSignal;
   signalReason: string;
-  lastRun: { id: number; at: string; trigger: string; errors: number; warns: number; failedTasks: number } | null;
-  issues: { ERROR: number; WARN: number; other: number; acknowledged: number };
+  lastRun: { id: number; at: string; trigger: string; criticals: number; errors: number; warns: number; failedTasks: number } | null;
+  issues: { CRITICAL: number; ERROR: number; WARN: number; other: number; acknowledged: number };
   dataPump: {
     running: { jobName: string; operation: string; startedAt: string | null }[];
     latest: { jobName: string; operation: string; status: string; finishedAt: string | null } | null;

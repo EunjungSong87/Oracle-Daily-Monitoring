@@ -9,7 +9,7 @@ CREATE TABLE system.monitoring_issues
     task_id                NUMBER          NOT NULL,
     task_name              VARCHAR2(100),
     column_name            VARCHAR2(100)   NOT NULL,
-    clevel                 VARCHAR2(10),            -- WARN | ERROR (INFO는 티켓화하지 않음)
+    clevel                 VARCHAR2(10),            -- WARN | ERROR | CRITICAL (INFO는 티켓화하지 않음)
     message                VARCHAR2(255),
     value                  VARCHAR2(255),           -- 대표 값(카드 표시용, 마지막 감지 값)
     occurrence_count       NUMBER          DEFAULT 1 NOT NULL,

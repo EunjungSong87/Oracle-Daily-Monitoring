@@ -65,6 +65,18 @@ describe('applyThresholds', () => {
     expect(result[1]._alerts).toBeUndefined();
   });
 
+  it('같은 컬럼에 여러 임계치가 걸리면 가장 심각한 레벨을 남긴다 (순서 무관)', () => {
+    const thresholds = [
+      { COLUMN_NAME: 'USED(%)', CONDITION_TYPE: 'NUMERIC', OPERATOR: '>', THRESHOLD: '80', CLEVEL: 'WARN', MESSAGE: '80% 초과' },
+      { COLUMN_NAME: 'USED(%)', CONDITION_TYPE: 'NUMERIC', OPERATOR: '>', THRESHOLD: '90', CLEVEL: 'CRITICAL', MESSAGE: '90% 초과' },
+      { COLUMN_NAME: 'USED(%)', CONDITION_TYPE: 'NUMERIC', OPERATOR: '>', THRESHOLD: '85', CLEVEL: 'ERROR', MESSAGE: '85% 초과' },
+    ];
+
+    expect(applyThresholds(rows, thresholds)[0]._alerts).toEqual({
+      'USED(%)': { level: 'CRITICAL', message: '90% 초과' },
+    });
+  });
+
   it('원본 row 객체를 변형하지 않는다(불변)', () => {
     const thresholds = [
       { COLUMN_NAME: 'USED(%)', CONDITION_TYPE: 'NUMERIC', OPERATOR: '>', THRESHOLD: '90', CLEVEL: 'WARN' },

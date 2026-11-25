@@ -16,6 +16,7 @@ import * as alertLogService from './alertLogService';
 import * as issuesModel from '../models/issuesModel';
 import * as notifyService from './notifyService';
 import { logger } from '../utils/logger';
+import { isMoreSevere } from '../utils/alertLevel';
 
 function errMsg(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -127,7 +128,8 @@ function applyThresholds(
     const alerts: Record<string, ThresholdAlert> = {};
     for (const th of thresholdsForTask) {
       const column = th.COLUMN_NAME;
-      if (evaluateThreshold(row[column], th.CONDITION_TYPE, th.OPERATOR, th.THRESHOLD)) {
+      // 같은 컬럼에 여러 임계치가 걸리면 가장 심각한 레벨(CRITICAL > ERROR > WARN > INFO)을 남긴다
+      if (evaluateThreshold(row[column], th.CONDITION_TYPE, th.OPERATOR, th.THRESHOLD) && (!alerts[column] || isMoreSevere(th.CLEVEL, alerts[column].level))) {
         alerts[column] = { level: th.CLEVEL, message: th.MESSAGE };
       }
     }

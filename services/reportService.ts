@@ -72,6 +72,7 @@ function renderReportHtml(dbname: string, results: TaskResult[], generatedAt: Da
   table.table th { background-color: #f3f4f6; }
   .cell-warn { background-color: #fef3c7; }
   .cell-error { background-color: #fecaca; }
+  .cell-critical { background-color: #dc2626; color: #ffffff; font-weight: 700; }
   .error { color: #dc2626; }
 </style>
 </head>
