@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import { AppHeader } from '../../shared/components/AppHeader';
+import { PageHeader } from '../../shared/components/PageHeader';
 import { ToastHost } from '../../shared/components/ToastHost';
 import { canSee, useCurrentUser } from '../../shared/hooks/useCurrentUser';
 import { getDbmsList, runParameterCompare } from '../../shared/lib/api';
@@ -124,7 +125,7 @@ export function App(): ReactElement {
       <AppHeader active="parameterCompare" />
       <ToastHost />
 
-      <h2 className="page-title">Parameter Compare (파라미터 비교)</h2>
+      <PageHeader section="Compare" title="파라미터 비교" description="두 DB의 초기화 파라미터 값 차이를 비교합니다." />
 
       {!userLoading && !canUse && <p className="issues-empty">이 화면을 사용할 권한이 없습니다. 최고관리자에게 화면 권한을 요청하세요.</p>}
 

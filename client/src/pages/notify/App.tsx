@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactElement } from 'react';
 import { AppHeader } from '../../shared/components/AppHeader';
+import { PageHeader } from '../../shared/components/PageHeader';
 import { ToastHost } from '../../shared/components/ToastHost';
 import { useCurrentUser } from '../../shared/hooks/useCurrentUser';
 import { findTelegramChats, getNotifyConfig, saveNotifyConfig, testNotify } from '../../shared/lib/api';
@@ -116,7 +117,7 @@ export function App(): ReactElement {
     <>
       <AppHeader active="notify" />
       <ToastHost />
-      <h2 className="page-title">알림 설정</h2>
+      <PageHeader section="Account" title="알림 설정" description="이슈 티켓이 새로 생기거나 다시 열릴 때 알림을 보낼 Telegram · Slack · 메일 채널을 설정합니다." />
 
       {!loading && !isSuperAdmin && <p className="issues-empty">최고관리자만 볼 수 있는 화면입니다.</p>}
 

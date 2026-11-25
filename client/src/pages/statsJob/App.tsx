@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import { AppHeader } from '../../shared/components/AppHeader';
+import { PageHeader } from '../../shared/components/PageHeader';
 import { ToastHost } from '../../shared/components/ToastHost';
 import { canSee, useCurrentUser } from '../../shared/hooks/useCurrentUser';
 import { getDbmsList, getStatsJobStatus, runStatsJob } from '../../shared/lib/api';
@@ -129,7 +130,7 @@ export function App(): ReactElement {
       <AppHeader active="statsJob" />
       <ToastHost />
 
-      <h2 className="page-title">Stats Job Status (통계 잡 현황)</h2>
+      <PageHeader section="Maintenance" title="통계 수집 현황" description="옵티마이저 통계 수집 잡의 실행 이력과 결과를 확인합니다." />
 
       {!userLoading && !canUse && <p className="issues-empty">이 화면을 사용할 권한이 없습니다. 최고관리자에게 화면 권한을 요청하세요.</p>}
 

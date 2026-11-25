@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactElement } from 'react';
 import { AppHeader } from '../../shared/components/AppHeader';
+import { PageHeader } from '../../shared/components/PageHeader';
 import { ToastHost } from '../../shared/components/ToastHost';
 import { isDbaOrAbove, useCurrentUser } from '../../shared/hooks/useCurrentUser';
 import { deleteThreshold, getThresholdList } from '../../shared/lib/api';
@@ -61,14 +62,12 @@ export function App(): ReactElement {
       <AppHeader active="thresholds" />
       <ToastHost />
 
-      <div className="page-header-row">
-        <h2 className="page-title">Thresholds</h2>
-        {canManage && (
-          <button type="button" className="btn-secondary" onClick={openAdd}>
-            Add Threshold
-          </button>
-        )}
-      </div>
+      <PageHeader
+        section="Monitoring · Daily Monitoring"
+        title="임계치 규칙"
+        description="점검 결과 컬럼별 경고 조건과 알림 레벨(INFO · WARN · ERROR · CRITICAL)을 정의합니다."
+        actions={canManage ? (<button type="button" className="btn-secondary" onClick={openAdd}>+ 규칙 추가</button>) : undefined}
+      />
 
       <table id="threshold-list" className="table">
         <thead>
@@ -81,7 +80,13 @@ export function App(): ReactElement {
           {data?.rows.map((row) => (
             <tr key={String(row.ID)}>
               {data.columns.map((column) => (
-                <td key={column}>{String(row[column] ?? '')}</td>
+                <td key={column}>
+                  {column === 'CLEVEL' && row.CLEVEL ? (
+                    <span className={`issue-badge issue-badge-${String(row.CLEVEL).toLowerCase()}`}>{String(row.CLEVEL)}</span>
+                  ) : (
+                    String(row[column] ?? '')
+                  )}
+                </td>
               ))}
               {canManage && (
                 <td>

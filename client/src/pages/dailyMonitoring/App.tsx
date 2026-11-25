@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import { flushSync } from 'react-dom';
 import { AppHeader } from '../../shared/components/AppHeader';
+import { PageHeader } from '../../shared/components/PageHeader';
 import { MonitoringResultTable } from '../../shared/components/MonitoringResultTable';
 import { ToastHost } from '../../shared/components/ToastHost';
 import { isDbaOrAbove, useCurrentUser } from '../../shared/hooks/useCurrentUser';
@@ -182,7 +183,7 @@ export function App(): ReactElement {
       <AppHeader active="dailyMonitoring" />
       <ToastHost />
 
-      <h2 className="page-title">Daily Monitoring</h2>
+      <PageHeader section="Monitoring" title="일일 점검" description="DB를 선택해 점검 스크립트를 실행하고, 임계치를 넘은 항목을 바로 확인합니다." />
 
       <div id="tab-list" className="tab">
         <button

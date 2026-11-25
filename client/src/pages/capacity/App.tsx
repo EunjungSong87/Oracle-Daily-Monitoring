@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import Chart from 'chart.js/auto';
 import { AppHeader } from '../../shared/components/AppHeader';
+import { PageHeader } from '../../shared/components/PageHeader';
 import { ToastHost } from '../../shared/components/ToastHost';
 import { canSee, useCurrentUser } from '../../shared/hooks/useCurrentUser';
 import { getCapacity, getCapacityTrend, getDbmsList, saveCapacityConfig } from '../../shared/lib/api';
@@ -114,7 +115,7 @@ export function App(): ReactElement {
     <>
       <AppHeader active="capacity" />
       <ToastHost />
-      <h2 className="page-title">Capacity (테이블스페이스 / ASM 사용량 추이)</h2>
+      <PageHeader section="Monitoring" title="용량 추이" description="테이블스페이스와 ASM 디스크그룹 사용량의 변화를 추적합니다." />
       {!loading && !canUse && <p className="issues-empty">이 화면을 볼 권한이 없습니다.</p>}
       {canUse && (
         <div className="rt-panel">

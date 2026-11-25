@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactElement } from 'react';
 import { AppHeader } from '../../shared/components/AppHeader';
+import { PageHeader } from '../../shared/components/PageHeader';
 import { ToastHost } from '../../shared/components/ToastHost';
 import { isDbaOrAbove, useCurrentUser } from '../../shared/hooks/useCurrentUser';
 import { getDbmsList, getIlmRetentionList } from '../../shared/lib/api';
@@ -79,14 +80,12 @@ export function App(): ReactElement {
       <AppHeader active="ilmJob" />
       <ToastHost />
 
-      <div className="page-header-row">
-        <h2 className="page-title">ILM Partition Retention (파티션 보관주기 관리)</h2>
-        {canManage && (
-          <button type="button" className="btn-secondary" onClick={openAdd}>
-            테이블 추가
-          </button>
-        )}
-      </div>
+      <PageHeader
+        section="Maintenance"
+        title="파티션 보관주기"
+        description="파티션 테이블별 보관 기간(Retention) 정책을 관리합니다."
+        actions={canManage ? (<button type="button" className="btn-secondary" onClick={openAdd}>+ 테이블 추가</button>) : undefined}
+      />
 
       {!userLoading && !canManage && <p className="issues-empty">이 기능은 DBA 이상만 사용할 수 있습니다.</p>}
 

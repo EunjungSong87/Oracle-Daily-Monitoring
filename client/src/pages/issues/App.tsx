@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import { AppHeader } from '../../shared/components/AppHeader';
+import { PageHeader } from '../../shared/components/PageHeader';
 import { ToastHost } from '../../shared/components/ToastHost';
 import { listIssues } from '../../shared/lib/api';
 import { urlParam } from '../../shared/lib/urlParams';
@@ -64,11 +65,7 @@ export function App(): ReactElement {
       <AppHeader active="issues" />
       <ToastHost />
 
-      <h2 className="page-title">Issues</h2>
-      <p className="issues-subtitle">
-        임계치를 위반한 항목을 티켓으로 추적합니다. 상태를 확인/해결 처리하고, 담당자를 지정하고, 댓글을 남길 수
-        있습니다.
-      </p>
+      <PageHeader section="Monitoring · Daily Monitoring" title="이슈 티켓" description="임계치 위반 항목을 티켓으로 추적합니다. 확인·해결 처리, 담당자 지정, 댓글을 남길 수 있습니다." />
 
       <div className="issues-toolbar">
         <div className="status-tabs">

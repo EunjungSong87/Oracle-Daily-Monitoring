@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactElement } from 'react';
 import Chart from 'chart.js/auto';
 import { AppHeader } from '../../shared/components/AppHeader';
+import { PageHeader } from '../../shared/components/PageHeader';
 import { ToastHost } from '../../shared/components/ToastHost';
 import { canSee, useCurrentUser } from '../../shared/hooks/useCurrentUser';
 import { getAlertLogConfig, getAlertLogTrend, getDbmsList, saveAlertLogConfig, searchAlertLog } from '../../shared/lib/api';
@@ -150,7 +151,7 @@ export function App(): ReactElement {
     <>
       <AppHeader active="alertLog" />
       <ToastHost />
-      <h2 className="page-title">Alert Log (ORA- / FAIL 발생 내역)</h2>
+      <PageHeader section="Monitoring" title="Alert Log 오류" description="Alert Log에 기록된 ORA- 오류와 FAIL 메시지를 기간별로 조회합니다." />
       {!loading && !canUse && <p className="issues-empty">이 화면을 볼 권한이 없습니다.</p>}
       {canUse && (
         <div className="rt-panel">

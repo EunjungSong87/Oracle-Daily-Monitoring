@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactElement } from 'react';
 import { AppHeader } from '../../shared/components/AppHeader';
+import { PageHeader } from '../../shared/components/PageHeader';
 import { ToastHost } from '../../shared/components/ToastHost';
 import { listUsers } from '../../shared/lib/api';
 import { showToast } from '../../shared/lib/toastStore';
@@ -42,12 +43,12 @@ export function App(): ReactElement {
       <AppHeader active="users" />
       <ToastHost />
 
-      <div className="page-header-row">
-        <h2 className="page-title">Users</h2>
-        <button type="button" className="btn-secondary" onClick={() => setAddOpen(true)}>
-          Add User
-        </button>
-      </div>
+      <PageHeader
+        section="Account"
+        title="사용자 관리"
+        description="로그인 계정과 역할, 화면별 접근 권한을 관리합니다."
+        actions={<button type="button" className="btn-secondary" onClick={() => setAddOpen(true)}>+ 사용자 추가</button>}
+      />
 
       <table id="users-list" className="table">
         <thead>

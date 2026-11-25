@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactElement } from 'react';
 import { AppHeader } from '../../shared/components/AppHeader';
+import { PageHeader } from '../../shared/components/PageHeader';
 import { ToastHost } from '../../shared/components/ToastHost';
 import { canSee, useCurrentUser } from '../../shared/hooks/useCurrentUser';
 import { getDashboard } from '../../shared/lib/api';
@@ -30,7 +31,7 @@ function Links({ card, user }: { card: DashboardCard; user: CurrentUser | null }
 
 // 카드 클릭: 위반·이슈가 있으면 이슈(그 DB로 필터), 아니면 최근 점검 결과
 function cardHref(card: DashboardCard, user: CurrentUser | null): string | null {
-  const openIssues = card.issues.ERROR + card.issues.WARN + card.issues.other;
+  const openIssues = card.issues.CRITICAL + card.issues.ERROR + card.issues.WARN + card.issues.other;
   if (openIssues > 0 && canSee(user, 'issues')) return `issues.html?dbms=${card.dbmsId}`;
   if (card.lastRun && canSee(user, 'history')) return `history.html?dbms=${card.dbmsId}&run=${card.lastRun.id}`;
   if (canSee(user, 'dailyMonitoring')) return `dailyMonitoring.html?dbms=${card.dbmsId}`;
@@ -59,10 +60,11 @@ function Card({ card, user, showDataPump }: { card: DashboardCard; user: Current
         <dd>{card.lastRun ? `${card.lastRun.at} (${card.lastRun.trigger === 'SCHEDULED' ? '예약' : '수동'})` : '없음'}</dd>
         <dt>OPEN 이슈</dt>
         <dd>
-          {card.issues.ERROR + card.issues.WARN + card.issues.other === 0 ? (
+          {card.issues.CRITICAL + card.issues.ERROR + card.issues.WARN + card.issues.other === 0 ? (
             '없음'
           ) : (
             <>
+              {card.issues.CRITICAL > 0 && <span className="dash-pill dash-pill-CRITICAL">CRITICAL {card.issues.CRITICAL}</span>}
               {card.issues.ERROR > 0 && <span className="dash-pill dash-pill-ERROR">ERROR {card.issues.ERROR}</span>}
               {card.issues.WARN > 0 && <span className="dash-pill dash-pill-WARN">WARN {card.issues.WARN}</span>}
               {card.issues.other > 0 && <span className="dash-pill">기타 {card.issues.other}</span>}
@@ -129,7 +131,7 @@ export function App(): ReactElement {
     <>
       <AppHeader active="dashboard" />
       <ToastHost />
-      <h2 className="page-title">전체 DB 현황</h2>
+      <PageHeader section="Dashboard" title="전체 DB 현황" description="등록된 모든 DB의 최근 점검 결과, 미해결 이슈, 예약 점검 상태를 한눈에 확인합니다." />
       {!loading && !canUse && <p className="issues-empty">이 화면을 볼 권한이 없습니다.</p>}
       {error && <p className="pc-warning">{error}</p>}
       {s && (

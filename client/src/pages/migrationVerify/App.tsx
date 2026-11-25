@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import { AppHeader } from '../../shared/components/AppHeader';
+import { PageHeader } from '../../shared/components/PageHeader';
 import { ToastHost } from '../../shared/components/ToastHost';
 import { canSee, useCurrentUser } from '../../shared/hooks/useCurrentUser';
 import {
@@ -142,7 +143,7 @@ export function App(): ReactElement {
     <>
       <AppHeader active="migrationVerify" />
       <ToastHost />
-      <h2 className="page-title">이관 검증</h2>
+      <PageHeader section="Maintenance" title="이관 검증" description="이관 후 원본과 대상 DB의 오브젝트, 행 수, 테이블스페이스 배치를 대조합니다." />
       {!loading && !canUse && <p className="issues-empty">이 화면을 볼 권한이 없습니다.</p>}
       {canUse && (
         <div className="rt-panel">

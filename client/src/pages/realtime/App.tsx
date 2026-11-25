@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactElement } from 'react';
 import Chart from 'chart.js/auto';
 import type { TooltipItem } from 'chart.js';
 import { AppHeader } from '../../shared/components/AppHeader';
+import { PageHeader } from '../../shared/components/PageHeader';
 import { ToastHost } from '../../shared/components/ToastHost';
 import { useTheme } from '../../shared/hooks/useTheme';
 import { getDbmsList, pollSessions } from '../../shared/lib/api';
@@ -12,6 +13,7 @@ import { ElapsedScatter, type ElapsedPoint } from './ElapsedScatter';
 import { SessionDetailModal } from './SessionDetailModal';
 import { AshSelectionModal, type DetailTarget } from './AshSelectionModal';
 import { BlockingPanel } from './BlockingPanel';
+import { SummarySidebar } from './SummarySidebar';
 
 // Chart.js는 번들에 포함한다 (vite.config.ts에서 별도 'chart' 청크로 분리).
 // 예전처럼 CDN에서 받으면 인터넷이 안 되는 내부망에서 window.Chart가 없어 페이지 전체가 죽는다.
@@ -135,6 +137,7 @@ export function App(): ReactElement {
   const [detailTarget, setDetailTarget] = useState<DetailTarget | null>(null);
   const [selection, setSelection] = useState<AshExecution[] | null>(null);
   const [blocking, setBlocking] = useState<BlockingSnapshot | Unavailable | null>(null);
+  const [recentTotals, setRecentTotals] = useState<number[]>([]);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chartRef = useRef<ChartInstance | null>(null);
@@ -221,6 +224,7 @@ export function App(): ReactElement {
   // DBMS를 바꾸면 누적 추이 히스토리를 비운다.
   useEffect(() => {
     historyRef.current = [];
+    setRecentTotals([]);
     updateChart();
     executionsRef.current = new Map();
     ashSinceRef.current = null;
@@ -272,6 +276,7 @@ export function App(): ReactElement {
       });
 
       historyRef.current = [...historyRef.current, { time: new Date(), counts, total }].slice(-MAX_SAMPLES);
+      setRecentTotals(historyRef.current.map((h) => h.total));
 
       setNowCounts(counts);
       setActiveTotal(total);
@@ -340,184 +345,195 @@ export function App(): ReactElement {
       <AppHeader active="realtime" />
       <ToastHost />
 
-      <h2 className="page-title">Real-Time Monitoring</h2>
+      <PageHeader section="Monitoring" title="실시간 모니터링" description="선택한 DB의 Active Session, 대기 이벤트, 블로킹 상황을 자동 갱신으로 지켜봅니다." />
 
-      <div className="rt-toolbar">
-        <label htmlFor="rt-dbms-select" style={{ margin: 0 }}>
-          DBMS:
-        </label>
-        <select id="rt-dbms-select" value={dbmsId} onChange={(e) => setDbmsId(e.target.value)}>
-          {dbmsRows.length === 0 && <option value="">등록된 DBMS가 없습니다</option>}
-          {dbmsRows.map((row) => (
-            <option key={String(row.ID)} value={String(row.ID)}>
-              {row.DBNAME} ({row.IP}:{String(row.PORT)}/{row.SID})
-            </option>
-          ))}
-        </select>
-        <button type="button" className="btn-secondary" id="rt-toggle-btn" onClick={togglePolling}>
-          {polling ? '일시정지' : '재개'}
-        </button>
-        <span>
-          <span className={`rt-status-dot${statusLive ? ' live' : ''}`} />
-          <span>{statusText}</span>
-        </span>
-        <span className="rt-total">Active Sessions: {activeTotal ?? '-'}</span>
-      </div>
-
-      <div className="rt-panel">
-        <h3>현재 Active Session 구성 (Wait Class)</h3>
-        {hasActiveSegments && (
-          <div className="aas-now">
-            {WAIT_CLASS_ORDER.filter((cls) => nowCounts[cls]).map((cls) => (
-              <div
-                key={cls}
-                style={{ flex: `${nowCounts[cls]} 0 0`, backgroundColor: colorFor(cls) }}
-                title={`${cls}: ${nowCounts[cls]}`}
-              />
+      <div className="rt-layout">
+        <div className="rt-toolbar">
+          <label htmlFor="rt-dbms-select" style={{ margin: 0 }}>
+            DBMS:
+          </label>
+          <select id="rt-dbms-select" value={dbmsId} onChange={(e) => setDbmsId(e.target.value)}>
+            {dbmsRows.length === 0 && <option value="">등록된 DBMS가 없습니다</option>}
+            {dbmsRows.map((row) => (
+              <option key={String(row.ID)} value={String(row.ID)}>
+                {row.DBNAME} ({row.IP}:{String(row.PORT)}/{row.SID})
+              </option>
             ))}
-          </div>
-        )}
-        {activeTotal === 0 && <p className="aas-now-empty">활성 세션이 없습니다.</p>}
-        <div className="aas-legend">
-          {WAIT_CLASS_ORDER.map((cls) => (
-            <span key={cls}>
-              <span className="legend-swatch" style={{ backgroundColor: colorFor(cls) }} />
-              {cls}
-            </span>
-          ))}
+          </select>
+          <button type="button" className="btn-secondary" id="rt-toggle-btn" onClick={togglePolling}>
+            {polling ? '일시정지' : '재개'}
+          </button>
+          <span>
+            <span className={`rt-status-dot${statusLive ? ' live' : ''}`} />
+            <span>{statusText}</span>
+          </span>
+          <span className="rt-total">Active Sessions: {activeTotal ?? '-'}</span>
         </div>
-      </div>
 
-      <div className="rt-panel">
-        <h3>최근 추이 (2초 간격, 최근 {MAX_SAMPLES}개 샘플)</h3>
-        <div className="aas-chart">
-          <canvas ref={canvasRef} />
-        </div>
-      </div>
+        <SummarySidebar
+          sessions={sessions}
+          blocking={blocking}
+          recentTotals={recentTotals}
+          onOpenSession={(sid, serial) => setDetailTarget({ sid, serial, sqlId: null, range: null })}
+        />
 
-      <div className="rt-panel">
-        <div className="rt-panel-header">
-          <h3>SQL 경과 시간 (Active Session)</h3>
-          <div className="rt-panel-controls">
-            <div className="status-tabs">
-              {SCATTER_WINDOWS.map((option) => (
-                <button
-                  key={option.ms}
-                  type="button"
-                  className={`status-tab${scatterWindowMs === option.ms ? ' status-tab-active' : ''}`}
-                  onClick={() => setScatterWindowMs(option.ms)}
-                >
-                  최근 {option.label}
-                </button>
+        <div className="rt-main">
+          <div className="rt-panel">
+            <h3>현재 Active Session 구성 (Wait Class)</h3>
+            {hasActiveSegments && (
+              <div className="aas-now">
+                {WAIT_CLASS_ORDER.filter((cls) => nowCounts[cls]).map((cls) => (
+                  <div
+                    key={cls}
+                    style={{ flex: `${nowCounts[cls]} 0 0`, backgroundColor: colorFor(cls) }}
+                    title={`${cls}: ${nowCounts[cls]}`}
+                  />
+                ))}
+              </div>
+            )}
+            {activeTotal === 0 && <p className="aas-now-empty">활성 세션이 없습니다.</p>}
+            <div className="aas-legend">
+              {WAIT_CLASS_ORDER.map((cls) => (
+                <span key={cls}>
+                  <span className="legend-swatch" style={{ backgroundColor: colorFor(cls) }} />
+                  {cls}
+                </span>
               ))}
             </div>
-            <label className="oc-check">
-              <input type="checkbox" checked={logScale} onChange={(e) => setLogScale(e.target.checked)} />
-              로그 스케일
-            </label>
           </div>
-        </div>
-        {ashUnavailable && (
-          <p className="pc-warning">
-            ASH를 조회하지 못해 이 그래프를 그릴 수 없습니다 ({ashUnavailable}). 접속 계정의 V$ACTIVE_SESSION_HISTORY 조회
-            권한과 Diagnostics Pack 사용 여부를 확인하세요. 위의 세션 목록/추이 그래프는 그대로 동작합니다.
-          </p>
-        )}
-        <div className="aas-chart rt-scatter">
-          <ElapsedScatter
-            points={elapsedPoints}
-            windowMs={scatterWindowMs}
-            logScale={logScale}
-            theme={theme}
-            onPick={(point) => openExecutionDetail(point.execution)}
-            onSelect={(points) => setSelection(points.map((point) => point.execution))}
-          />
-        </div>
-        <p className="rt-hint">
-          점 하나가 끝난 SQL 실행 하나입니다 (ASH 기준): 가로는 끝난 시각, 세로는 걸린 시간, 색은 그 실행의 주요 wait class.
-          점을 누르면 그 실행의 상세를, <strong>드래그로 영역을 고르면</strong> 그 안의 실행 목록을 보여줍니다. 1초보다 짧게 끝난
-          실행은 ASH 샘플에 안 잡힐 수 있습니다.
-        </p>
-      </div>
 
-      <div className="rt-panel">
-        <div className="rt-panel-header">
-          <h3>
-            세션 목록{' '}
-            <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(더블클릭하면 세션 상세 / SQL)</span>
-          </h3>
-          <div className="rt-panel-controls">
-            <div className="status-tabs" role="group" aria-label="세션 목록 표시 범위">
-              <button
-                type="button"
-                className={`status-tab${activeOnly ? '' : ' status-tab-active'}`}
-                onClick={() => toggleActiveOnly(false)}
-              >
-                전체 {sessions.length}
-              </button>
-              <button
-                type="button"
-                className={`status-tab${activeOnly ? ' status-tab-active' : ''}`}
-                onClick={() => toggleActiveOnly(true)}
-              >
-                ACTIVE만 {activeSessionCount}
-              </button>
+          <div className="rt-panel">
+            <h3>최근 추이 (2초 간격, 최근 {MAX_SAMPLES}개 샘플)</h3>
+            <div className="aas-chart">
+              <canvas ref={canvasRef} />
             </div>
           </div>
-        </div>
-        <table id="rt-session-table" className="table" style={{ width: '100%', maxWidth: 'none', margin: 0 }}>
-          <thead>
-            <tr>
-              <th>SID</th>
-              <th>SERIAL#</th>
-              <th>USERNAME</th>
-              <th>STATUS</th>
-              <th>WAIT CLASS</th>
-              <th>EVENT</th>
-              <th>SQL_ID</th>
-              <th>PROGRAM</th>
-              <th>MACHINE</th>
-              <th>LOGON_TIME</th>
-              <th>LAST_CALL_ET(초)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sortedSessions.map((s) => (
-              <tr
-                key={s.sid}
-                className="rt-session-row"
-                title="더블클릭하면 세션 상세 / SQL 전문을 봅니다"
-                onDoubleClick={() => setDetailTarget({ sid: s.sid, serial: s.serial, sqlId: null, range: null })}
-              >
-                <td>{s.sid}</td>
-                <td>{s.serial}</td>
-                <td>{s.username}</td>
-                <td>{s.status}</td>
-                <td>
-                  <span className="wait-badge" style={{ backgroundColor: colorFor(s.waitClass) }}>
-                    {s.waitClass}
-                  </span>
-                </td>
-                <td>{s.event ?? ''}</td>
-                <td>{s.sqlId ?? ''}</td>
-                <td>{s.program ?? ''}</td>
-                <td>{s.machine ?? ''}</td>
-                <td>{s.logonTime ?? ''}</td>
-                <td>{s.lastCallEt ?? ''}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {sessions.length === 0 && <p className="issues-empty">세션 정보가 없습니다.</p>}
-        {sessions.length > 0 && sortedSessions.length === 0 && <p className="issues-empty">지금 ACTIVE 세션이 없습니다.</p>}
-      </div>
 
-      <BlockingPanel
-        dbmsId={dbmsId}
-        dbname={dbmsRows.find((row) => String(row.ID) === dbmsId)?.DBNAME ?? ''}
-        blocking={blocking}
-        onOpenDetail={(sid, serial) => setDetailTarget({ sid, serial, sqlId: null, range: null })}
-      />
+          <div className="rt-panel">
+            <div className="rt-panel-header">
+              <h3>SQL 경과 시간 (Active Session)</h3>
+              <div className="rt-panel-controls">
+                <div className="status-tabs">
+                  {SCATTER_WINDOWS.map((option) => (
+                    <button
+                      key={option.ms}
+                      type="button"
+                      className={`status-tab${scatterWindowMs === option.ms ? ' status-tab-active' : ''}`}
+                      onClick={() => setScatterWindowMs(option.ms)}
+                    >
+                      최근 {option.label}
+                    </button>
+                  ))}
+                </div>
+                <label className="oc-check">
+                  <input type="checkbox" checked={logScale} onChange={(e) => setLogScale(e.target.checked)} />
+                  로그 스케일
+                </label>
+              </div>
+            </div>
+            {ashUnavailable && (
+              <p className="pc-warning">
+                ASH를 조회하지 못해 이 그래프를 그릴 수 없습니다 ({ashUnavailable}). 접속 계정의 V$ACTIVE_SESSION_HISTORY 조회
+                권한과 Diagnostics Pack 사용 여부를 확인하세요. 위의 세션 목록/추이 그래프는 그대로 동작합니다.
+              </p>
+            )}
+            <div className="aas-chart rt-scatter">
+              <ElapsedScatter
+                points={elapsedPoints}
+                windowMs={scatterWindowMs}
+                logScale={logScale}
+                theme={theme}
+                onPick={(point) => openExecutionDetail(point.execution)}
+                onSelect={(points) => setSelection(points.map((point) => point.execution))}
+              />
+            </div>
+            <p className="rt-hint">
+              점 하나가 끝난 SQL 실행 하나입니다 (ASH 기준): 가로는 끝난 시각, 세로는 걸린 시간, 색은 그 실행의 주요 wait class.
+              점을 누르면 그 실행의 상세를, <strong>드래그로 영역을 고르면</strong> 그 안의 실행 목록을 보여줍니다. 1초보다 짧게 끝난
+              실행은 ASH 샘플에 안 잡힐 수 있습니다.
+            </p>
+          </div>
+
+          <div className="rt-panel">
+            <div className="rt-panel-header">
+              <h3>
+                세션 목록{' '}
+                <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(더블클릭하면 세션 상세 / SQL)</span>
+              </h3>
+              <div className="rt-panel-controls">
+                <div className="status-tabs" role="group" aria-label="세션 목록 표시 범위">
+                  <button
+                    type="button"
+                    className={`status-tab${activeOnly ? '' : ' status-tab-active'}`}
+                    onClick={() => toggleActiveOnly(false)}
+                  >
+                    전체 {sessions.length}
+                  </button>
+                  <button
+                    type="button"
+                    className={`status-tab${activeOnly ? ' status-tab-active' : ''}`}
+                    onClick={() => toggleActiveOnly(true)}
+                  >
+                    ACTIVE만 {activeSessionCount}
+                  </button>
+                </div>
+              </div>
+            </div>
+            <table id="rt-session-table" className="table" style={{ width: '100%', maxWidth: 'none', margin: 0 }}>
+              <thead>
+                <tr>
+                  <th>SID</th>
+                  <th>SERIAL#</th>
+                  <th>USERNAME</th>
+                  <th>STATUS</th>
+                  <th>WAIT CLASS</th>
+                  <th>EVENT</th>
+                  <th>SQL_ID</th>
+                  <th>PROGRAM</th>
+                  <th>MACHINE</th>
+                  <th>LOGON_TIME</th>
+                  <th>LAST_CALL_ET(초)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedSessions.map((s) => (
+                  <tr
+                    key={s.sid}
+                    className="rt-session-row"
+                    title="더블클릭하면 세션 상세 / SQL 전문을 봅니다"
+                    onDoubleClick={() => setDetailTarget({ sid: s.sid, serial: s.serial, sqlId: null, range: null })}
+                  >
+                    <td>{s.sid}</td>
+                    <td>{s.serial}</td>
+                    <td>{s.username}</td>
+                    <td>{s.status}</td>
+                    <td>
+                      <span className="wait-badge" style={{ backgroundColor: colorFor(s.waitClass) }}>
+                        {s.waitClass}
+                      </span>
+                    </td>
+                    <td>{s.event ?? ''}</td>
+                    <td>{s.sqlId ?? ''}</td>
+                    <td>{s.program ?? ''}</td>
+                    <td>{s.machine ?? ''}</td>
+                    <td>{s.logonTime ?? ''}</td>
+                    <td>{s.lastCallEt ?? ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {sessions.length === 0 && <p className="issues-empty">세션 정보가 없습니다.</p>}
+            {sessions.length > 0 && sortedSessions.length === 0 && <p className="issues-empty">지금 ACTIVE 세션이 없습니다.</p>}
+          </div>
+
+          <BlockingPanel
+            dbmsId={dbmsId}
+            dbname={dbmsRows.find((row) => String(row.ID) === dbmsId)?.DBNAME ?? ''}
+            blocking={blocking}
+            onOpenDetail={(sid, serial) => setDetailTarget({ sid, serial, sqlId: null, range: null })}
+          />
+        </div>
+      </div>
 
       <AshSelectionModal
         executions={selection}

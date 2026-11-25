@@ -1,5 +1,6 @@
 import { Fragment, useMemo, useState, type ChangeEvent, type ReactElement } from 'react';
 import { AppHeader } from '../../shared/components/AppHeader';
+import { PageHeader } from '../../shared/components/PageHeader';
 import { ToastHost } from '../../shared/components/ToastHost';
 import { canSee, useCurrentUser } from '../../shared/hooks/useCurrentUser';
 import { analyzeLogReview, downloadLogReviewExcel, type AnalyzeLogReviewRequest } from '../../shared/lib/api';
@@ -145,7 +146,7 @@ export function App(): ReactElement {
     <>
       <AppHeader active="logReview" />
       <ToastHost />
-      <h2 className="page-title">로그 업로드 검토 (alert / 리스너 / CRS 로그 패턴 분석)</h2>
+      <PageHeader section="Maintenance" title="로그 패턴 분석" description="Alert · 리스너 · CRS 로그 파일을 올려 주의가 필요한 패턴을 찾아냅니다." />
       {!loading && !canUse && <p className="issues-empty">이 화면을 볼 권한이 없습니다.</p>}
       {canUse && (
         <div className="rt-panel">

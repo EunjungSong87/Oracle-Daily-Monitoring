@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactElement } from 'react';
 import { AppHeader } from '../../shared/components/AppHeader';
+import { PageHeader } from '../../shared/components/PageHeader';
 import { ToastHost } from '../../shared/components/ToastHost';
 import { isDbaOrAbove, useCurrentUser } from '../../shared/hooks/useCurrentUser';
 import { deleteScript, getScriptList } from '../../shared/lib/api';
@@ -59,14 +60,12 @@ export function App(): ReactElement {
       <AppHeader active="scripts" />
       <ToastHost />
 
-      <div className="page-header-row">
-        <h2 className="page-title">Scripts</h2>
-        {canManage && (
-          <button type="button" className="btn-secondary" onClick={openAdd}>
-            Add Script
-          </button>
-        )}
-      </div>
+      <PageHeader
+        section="Monitoring · Daily Monitoring"
+        title="점검 스크립트"
+        description="일일 점검에서 실행할 SQL 점검 항목을 관리합니다."
+        actions={canManage ? (<button type="button" className="btn-secondary" onClick={openAdd}>+ 스크립트 추가</button>) : undefined}
+      />
 
       <table id="script-list" className="table">
         <thead>

@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactElement } from 'react';
 import { AppHeader } from '../../shared/components/AppHeader';
+import { PageHeader } from '../../shared/components/PageHeader';
 import { ToastHost } from '../../shared/components/ToastHost';
 import { canSee, isDbaOrAbove, useCurrentUser } from '../../shared/hooks/useCurrentUser';
 import { getDataPumpMeta, getDbmsList } from '../../shared/lib/api';
@@ -65,7 +66,7 @@ export function App(): ReactElement {
       <AppHeader active="dataPump" />
       <ToastHost />
 
-      <h2 className="page-title">Data Pump (EXPDP / IMPDP)</h2>
+      <PageHeader section="Maintenance" title="Data Pump" description="EXPDP / IMPDP 작업을 구성·실행하고 진행 상황과 이력을 관리합니다." />
 
       {!userLoading && !canUse && <p className="issues-empty">이 화면을 사용할 권한이 없습니다. 최고관리자에게 화면 권한을 요청하세요.</p>}
 

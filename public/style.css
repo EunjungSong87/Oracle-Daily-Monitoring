@@ -70,6 +70,9 @@
     --danger: #ab4237;
     --danger-hover: #8b362d;
     --danger-soft: #f8e1de;
+    /* 임계치 CRITICAL — ERROR(--danger)보다 한 단계 강한 원색 빨강, 꽉 찬 배경+흰 글자로 쓴다 */
+    --critical: #d32f2f;
+    --critical-soft: #fde4e4;
     --success: #2e7d4f;
     --success-hover: #225f3c;
     --success-soft: #dff0e6;
@@ -111,6 +114,8 @@
     --danger: #e08276;
     --danger-hover: #eda89f;
     --danger-soft: rgba(224, 130, 118, 0.14);
+    --critical: #e53935;
+    --critical-soft: rgba(229, 57, 53, 0.2);
     --success: #4fbd82;
     --success-hover: #7cd1a3;
     --success-soft: rgba(79, 189, 130, 0.14);
@@ -216,6 +221,80 @@ h3 {
     font-weight: 700;
     color: var(--text);
     letter-spacing: -0.01em;
+}
+
+/* 화면 공통 제목 영역 (PageHeader): 메뉴 위치 표시 → 제목 → 한 줄 설명, 오른쪽에 대표 액션.
+   아래 구분선으로 본문과 나눈다. */
+.page-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px 24px;
+    margin: 0 28px 20px;
+    padding: 24px 0 16px;
+    border-bottom: 1px solid var(--border);
+}
+
+.page-header-text {
+    min-width: 0;
+}
+
+.page-header-eyebrow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--primary);
+}
+
+.page-header-eyebrow::before {
+    content: "";
+    width: 16px;
+    height: 2px;
+    border-radius: 2px;
+    background-color: var(--primary);
+}
+
+.page-header .page-title {
+    padding: 0;
+    font-size: 24px;
+    line-height: 1.25;
+    letter-spacing: -0.02em;
+}
+
+.page-header-desc {
+    margin: 6px 0 0;
+    max-width: 760px;
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: var(--text-muted);
+}
+
+.page-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.page-header-actions button {
+    margin: 0;
+}
+
+@media (max-width: 640px) {
+    .page-header {
+        margin: 0 16px 16px;
+        padding-top: 18px;
+    }
+
+    .page-header .page-title {
+        font-size: 20px;
+    }
 }
 
 /* 소제목 옆에 "추가" 버튼처럼 화면의 대표 액션이 나란히 붙는 경우,
@@ -741,6 +820,11 @@ button.btn-danger {
     background-color: var(--danger-soft);
 }
 
+.issue-card-critical {
+    border-left-color: var(--critical);
+    background-color: var(--critical-soft);
+}
+
 .issue-card-warn {
     border-left-color: var(--warning);
     background-color: var(--warning-soft);
@@ -767,6 +851,11 @@ button.btn-danger {
 .issue-badge-error {
     background-color: var(--danger-soft);
     color: var(--danger);
+}
+
+.issue-badge-critical {
+    background-color: var(--critical);
+    color: #ffffff;
 }
 
 .issue-badge-warn {
@@ -1158,6 +1247,12 @@ table.table {
     font-weight: 700;
 }
 
+.cell-critical {
+    background-color: var(--critical) !important;
+    color: #ffffff;
+    font-weight: 700;
+}
+
 .cell-info {
     background-color: var(--info-soft) !important;
     color: var(--info);
@@ -1324,6 +1419,218 @@ table.table {
     font-size: 14px;
     font-weight: 700;
     color: var(--text);
+}
+
+/* Real-Time 화면 레이아웃: 좁은 화면은 한 줄(요약 카드들이 툴바 아래 가로로 깔림),
+   넓은 화면(1600px~)은 오른쪽에 요약 사이드바를 붙여 양옆 빈 공간을 쓴다. */
+.rt-layout {
+    width: 92%;
+    max-width: 1400px;
+    margin: 0 auto 24px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+}
+
+.rt-layout .rt-toolbar {
+    margin: 10px 0 0;
+}
+
+.rt-layout .rt-panel {
+    width: 100%;
+    max-width: none;
+    margin: 0;
+}
+
+.rt-main {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+}
+
+.rt-side {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 16px;
+    align-items: start;
+}
+
+@media (min-width: 1600px) {
+    .rt-layout {
+        width: 96%;
+        max-width: 1880px;
+        grid-template-columns: minmax(0, 1fr) 340px;
+    }
+
+    .rt-layout .rt-toolbar {
+        grid-column: 1 / -1;
+    }
+
+    .rt-main {
+        grid-column: 1;
+        grid-row: 2;
+    }
+
+    .rt-side {
+        grid-column: 2;
+        grid-row: 2;
+        grid-template-columns: minmax(0, 1fr);
+        align-self: start;
+        position: sticky;
+        top: 12px;
+        max-height: calc(100vh - 24px);
+        overflow-y: auto;
+    }
+}
+
+.rt-side-card {
+    padding: 14px 16px;
+}
+
+.rt-side-empty {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 12.5px;
+}
+
+.rt-kpis {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.rt-kpi {
+    display: flex;
+    flex-direction: column;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background-color: var(--surface-alt);
+}
+
+.rt-kpi-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.rt-kpi-value {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.3;
+}
+
+.rt-kpi-value small {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.rt-kpi-warn {
+    color: var(--warning);
+}
+
+.rt-kpi-danger {
+    color: var(--danger);
+}
+
+.rt-rank,
+.rt-long {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.rt-rank li {
+    margin-bottom: 8px;
+}
+
+.rt-rank li:last-child {
+    margin-bottom: 0;
+}
+
+.rt-rank-top {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 12.5px;
+    margin-bottom: 3px;
+}
+
+.rt-rank-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.rt-rank-count {
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.rt-rank .rt-event-track {
+    height: 6px;
+}
+
+.rt-long button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 4px;
+    border: 0;
+    border-bottom: 1px solid var(--border);
+    border-radius: 0;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.rt-long li:last-child button {
+    border-bottom: 0;
+}
+
+.rt-long button:hover {
+    background-color: var(--surface-alt);
+}
+
+.wait-dot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.rt-long-main {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+}
+
+.rt-long-who {
+    font-size: 12.5px;
+    font-weight: 600;
+}
+
+.rt-long-sub {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.rt-long-time {
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-muted);
+    white-space: nowrap;
 }
 
 /* 현재 시점 AAS 구성 — 가로 누적 막대 */
@@ -2418,6 +2725,7 @@ textarea.dp-table-list {
 .dash-facts dt { color: var(--muted, #888); }
 .dash-facts dd { margin: 0; }
 .dash-pill { display: inline-block; padding: 0 6px; border-radius: 10px; font-size: 12px; margin-right: 4px; background: #eee; color: #333; }
+.dash-pill-CRITICAL { background: var(--critical); color: #ffffff; font-weight: 600; }
 .dash-pill-ERROR { background: #ffebee; color: #c62828; }
 .dash-pill-WARN { background: #fff8e1; color: #b26a00; }
 .dash-ok { color: #2e7d32; }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactElement } from 'react';
 import { AppHeader } from '../../shared/components/AppHeader';
+import { PageHeader } from '../../shared/components/PageHeader';
 import { ToastHost } from '../../shared/components/ToastHost';
 import { isDbaOrAbove, useCurrentUser } from '../../shared/hooks/useCurrentUser';
 import { deleteDbms, getDbmsList } from '../../shared/lib/api';
@@ -62,14 +63,12 @@ export function App(): ReactElement {
       <AppHeader active="databases" />
       <ToastHost />
 
-      <div className="page-header-row">
-        <h2 className="page-title">Databases</h2>
-        {canManage && (
-          <button type="button" className="btn-secondary" onClick={openAdd}>
-            Add DBMS
-          </button>
-        )}
-      </div>
+      <PageHeader
+        section="Databases"
+        title="대상 DB 관리"
+        description="모니터링할 DB의 접속 정보와 예약 점검 여부를 등록·관리합니다."
+        actions={canManage ? (<button type="button" className="btn-secondary" onClick={openAdd}>+ DB 등록</button>) : undefined}
+      />
 
       <table id="dbmses-list" className="table">
         <thead>

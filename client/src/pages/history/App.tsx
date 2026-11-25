@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactElement } from 'react';
 import { AppHeader } from '../../shared/components/AppHeader';
+import { PageHeader } from '../../shared/components/PageHeader';
 import { MonitoringResultTable } from '../../shared/components/MonitoringResultTable';
 import { ToastHost } from '../../shared/components/ToastHost';
 import { getDbmsList, getRunHistoryDetail, getRunHistoryList } from '../../shared/lib/api';
@@ -100,7 +101,7 @@ export function App(): ReactElement {
       <AppHeader active="history" />
       <ToastHost />
 
-      <h2 className="page-title">Run History</h2>
+      <PageHeader section="Monitoring · Daily Monitoring" title="점검 이력" description="수동·예약 점검의 실행 결과를 다시 열어 봅니다." />
 
       <div className="tab">
         <button type="button" className={`tab-link${activeTab === 'LIST' ? ' active' : ''}`} onClick={() => setActiveTab('LIST')}>
