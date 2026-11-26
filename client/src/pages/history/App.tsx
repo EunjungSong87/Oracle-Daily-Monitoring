@@ -101,7 +101,7 @@ export function App(): ReactElement {
       <AppHeader active="history" />
       <ToastHost />
 
-      <PageHeader section="Monitoring · Daily Monitoring" title="점검 이력" description="수동·예약 점검의 실행 결과를 다시 열어 봅니다." />
+      <PageHeader section="모니터링 · 일일 점검" title="점검 이력" description="수동·예약 점검의 실행 결과를 다시 열어 봅니다." />
 
       <div className="tab">
         <button type="button" className={`tab-link${activeTab === 'LIST' ? ' active' : ''}`} onClick={() => setActiveTab('LIST')}>

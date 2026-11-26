@@ -81,7 +81,7 @@ export function App(): ReactElement {
       <ToastHost />
 
       <PageHeader
-        section="Maintenance"
+        section="운영 관리"
         title="파티션 보관주기"
         description="파티션 테이블별 보관 기간(Retention) 정책을 관리합니다."
         actions={canManage ? (<button type="button" className="btn-secondary" onClick={openAdd}>+ 테이블 추가</button>) : undefined}

@@ -8,14 +8,17 @@ import { showToast } from '../../shared/lib/toastStore';
 import type { IssueRow } from '../../shared/lib/types';
 import { IssueCard } from './IssueCard';
 import { IssueDetailModal } from './IssueDetailModal';
+import { failureError, issueKind, KIND_LABELS, type IssueKind } from './issuesFormat';
 
 const AUTO_REFRESH_STORAGE_KEY = 'issuesAutoRefreshSeconds';
 const STATUS_TABS = [
-  { status: 'OPEN', label: 'Open' },
-  { status: 'ACKNOWLEDGED', label: 'Acknowledged' },
-  { status: 'RESOLVED', label: 'Resolved' },
-  { status: 'ALL', label: 'All' },
+  { status: 'OPEN', label: '미해결' },
+  { status: 'ACKNOWLEDGED', label: '확인됨' },
+  { status: 'RESOLVED', label: '해결됨' },
+  { status: 'ALL', label: '전체' },
 ];
+const LEVEL_FILTERS = ['CRITICAL', 'ERROR', 'WARN'];
+const KIND_FILTERS: IssueKind[] = ['THRESHOLD', 'EXEC', 'CONNECT'];
 
 function loadStoredAutoRefresh(): number {
   const saved = Number(localStorage.getItem(AUTO_REFRESH_STORAGE_KEY));
@@ -30,6 +33,11 @@ export function App(): ReactElement {
   const [issues, setIssues] = useState<IssueRow[] | null>(null);
   const [autoRefreshSeconds, setAutoRefreshSeconds] = useState(() => loadStoredAutoRefresh());
   const [openIssueId, setOpenIssueId] = useState<number | null>(null);
+  const [search, setSearch] = useState('');
+  // 비어 있으면 모든 레벨
+  const [levels, setLevels] = useState<Set<string>>(() => new Set());
+  // 비어 있으면 모든 종류 (임계치 위반 / 스크립트 실행 실패 / 대상 DB 접속 실패)
+  const [kinds, setKinds] = useState<Set<IssueKind>>(() => new Set());
   const statusFilterRef = useRef(statusFilter);
   statusFilterRef.current = statusFilter;
 
@@ -58,14 +66,40 @@ export function App(): ReactElement {
     localStorage.setItem(AUTO_REFRESH_STORAGE_KEY, String(seconds));
   }
 
-  const visibleIssues = (issues ?? []).filter((issue) => !dbmsFilter || String(issue.dbmsId) === dbmsFilter);
+  const dbIssues = (issues ?? []).filter((issue) => !dbmsFilter || String(issue.dbmsId) === dbmsFilter);
+  const levelCounts = (level: string): number => dbIssues.filter((issue) => issue.clevel === level).length;
+  const kindCounts = (kind: IssueKind): number => dbIssues.filter((issue) => issueKind(issue) === kind).length;
+  const q = search.trim().toLowerCase();
+  const visibleIssues = dbIssues.filter(
+    (issue) =>
+      (levels.size === 0 || levels.has(issue.clevel)) &&
+      (kinds.size === 0 || kinds.has(issueKind(issue))) &&
+      (!q ||
+        [issue.dbname, issue.taskName, issue.columnName, issue.message, issue.value, issue.assignee, issueKind(issue) === 'THRESHOLD' ? '' : failureError(issue)].some((text) =>
+          String(text ?? '').toLowerCase().includes(q)
+        ))
+  );
+  const filtering = levels.size > 0 || kinds.size > 0 || q !== '';
+
+  function toggleIn<T>(setter: (update: (prev: Set<T>) => Set<T>) => void, value: T): void {
+    setter((prev) => {
+      const next = new Set(prev);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return next;
+    });
+  }
+
+  function toggleLevel(level: string): void {
+    toggleIn(setLevels, level);
+  }
 
   return (
     <>
       <AppHeader active="issues" />
       <ToastHost />
 
-      <PageHeader section="Monitoring · Daily Monitoring" title="이슈 티켓" description="임계치 위반 항목을 티켓으로 추적합니다. 확인·해결 처리, 담당자 지정, 댓글을 남길 수 있습니다." />
+      <PageHeader section="모니터링 · 일일 점검" title="이슈 티켓" description="임계치 위반 항목을 티켓으로 추적합니다. 확인·해결 처리, 담당자 지정, 댓글을 남길 수 있습니다." />
 
       <div className="issues-toolbar">
         <div className="status-tabs">
@@ -99,6 +133,70 @@ export function App(): ReactElement {
         </div>
       </div>
 
+      <div className="list-toolbar issues-filter">
+        <input
+          type="search"
+          className="list-search"
+          placeholder="DB, 점검 스크립트, 컬럼, 에러 메시지, 담당자 검색"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          aria-label="이슈 검색"
+        />
+        <div className="issues-level-filter" role="group" aria-label="레벨 필터">
+          {LEVEL_FILTERS.map((level) => (
+            <button
+              key={level}
+              type="button"
+              className={`issue-level-chip issue-badge issue-badge-${level.toLowerCase()}${levels.has(level) ? ' issue-level-chip-on' : ''}`}
+              onClick={() => toggleLevel(level)}
+              aria-pressed={levels.has(level)}
+            >
+              {level} {levelCounts(level)}
+            </button>
+          ))}
+        </div>
+        <div className="issues-level-filter" role="group" aria-label="종류 필터">
+          {KIND_FILTERS.map((kind) => (
+            <button
+              key={kind}
+              type="button"
+              className={`issue-kind-chip issue-kind issue-kind-${kind.toLowerCase()}${kinds.has(kind) ? ' issue-kind-chip-on' : ''}`}
+              onClick={() => toggleIn(setKinds, kind)}
+              aria-pressed={kinds.has(kind)}
+              disabled={kindCounts(kind) === 0 && !kinds.has(kind)}
+            >
+              {KIND_LABELS[kind]} {kindCounts(kind)}
+            </button>
+          ))}
+        </div>
+        {filtering && (
+          <button
+            type="button"
+            className="oc-link"
+            onClick={() => {
+              setLevels(new Set());
+              setKinds(new Set());
+              setSearch('');
+            }}
+          >
+            필터 초기화
+          </button>
+        )}
+        {issues && (
+          <span className="list-count">
+            {filtering ? (
+              <>
+                <strong>{visibleIssues.length}</strong>건 / 전체 {dbIssues.length}건
+              </>
+            ) : (
+              <>
+                전체 <strong>{dbIssues.length}</strong>건
+              </>
+            )}
+          </span>
+        )}
+      </div>
+
       {dbmsFilter && (
         <p className="oc-hint">
           {issues?.find((issue) => String(issue.dbmsId) === dbmsFilter)?.dbname ?? `DB #${dbmsFilter}`}의 이슈만 보는 중{' '}
@@ -108,7 +206,7 @@ export function App(): ReactElement {
         </p>
       )}
       <div className="issues-grid">
-        {issues && visibleIssues.length === 0 && <p className="issues-empty">해당 상태의 이슈가 없습니다.</p>}
+        {issues && visibleIssues.length === 0 && <p className="issues-empty">{filtering && dbIssues.length > 0 ? '검색·필터 조건에 맞는 이슈가 없습니다.' : '해당 상태의 이슈가 없습니다.'}</p>}
         {visibleIssues.map((issue) => (
           <IssueCard key={issue.id} issue={issue} onOpenDetail={setOpenIssueId} />
         ))}

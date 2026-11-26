@@ -72,6 +72,15 @@ function Card({ card, user, showDataPump }: { card: DashboardCard; user: Current
           )}
           {card.issues.acknowledged > 0 && <span className="oc-subtle"> · 확인됨 {card.issues.acknowledged}</span>}
         </dd>
+        {(card.issues.connectFailed || card.issues.execFailed > 0) && (
+          <>
+            <dt>점검 실패</dt>
+            <dd>
+              {card.issues.connectFailed && <span className="dash-pill dash-pill-fail">대상 DB 접속 실패</span>}
+              {card.issues.execFailed > 0 && <span className="dash-pill dash-pill-fail">스크립트 실행 실패 {card.issues.execFailed}</span>}
+            </dd>
+          </>
+        )}
         <dt>예약 점검</dt>
         <dd>
           {!card.autoSchedule ? (
@@ -131,7 +140,7 @@ export function App(): ReactElement {
     <>
       <AppHeader active="dashboard" />
       <ToastHost />
-      <PageHeader section="Dashboard" title="전체 DB 현황" description="등록된 모든 DB의 최근 점검 결과, 미해결 이슈, 예약 점검 상태를 한눈에 확인합니다." />
+      <PageHeader section="대시보드" title="전체 DB 현황" description="등록된 모든 DB의 최근 점검 결과, 미해결 이슈, 예약 점검 상태를 한눈에 확인합니다." />
       {!loading && !canUse && <p className="issues-empty">이 화면을 볼 권한이 없습니다.</p>}
       {error && <p className="pc-warning">{error}</p>}
       {s && (

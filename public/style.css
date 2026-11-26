@@ -247,7 +247,7 @@ h3 {
     margin-bottom: 6px;
     font-size: 11px;
     font-weight: 700;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.02em;
     text-transform: uppercase;
     color: var(--primary);
 }
@@ -368,6 +368,9 @@ nav ul li {
     box-shadow: 0 16px 32px rgba(6, 10, 9, 0.5);
     display: flex;
     flex-direction: column;
+    /* 상단 nav ul의 align-items: center를 물려받으면 항목이 가운데로 몰린다 — 왼쪽 정렬로 */
+    align-items: stretch;
+    text-align: left;
     gap: 2px;
     opacity: 0;
     visibility: hidden;
@@ -789,9 +792,16 @@ button.btn-danger {
     margin: 4px 0 12px;
 }
 
+/* 빈 상태·권한 없음 안내: 맨 글자만 떠 있으면 화면이 깨진 것처럼 비어 보여서, 점선 상자 안에 가운데로 */
 .issues-empty {
-    color: var(--text-secondary);
-    padding: 24px 0;
+    margin: 12px 0;
+    padding: 36px 20px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 13.5px;
+    background-color: var(--surface);
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
 }
 
 .issues-grid {
@@ -2693,19 +2703,19 @@ textarea.dp-table-list {
 .dp-verify { margin-top: 4px; font-size: 12.5px; }
 .dp-verify-MATCH { color: var(--success, #2e7d32); }
 .dp-verify-MISMATCH { color: var(--danger, #c62828); font-weight: 600; }
-.dp-verify-NA { color: var(--muted, #888); }
+.dp-verify-NA { color: var(--text-muted); }
 .dp-verify-detail { margin-top: 4px; white-space: normal; word-break: break-all; }
 .dp-error-summary { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--danger, #c62828); }
 
 /* Dashboard (첫 화면) */
 .dash-summary { display: flex; flex-wrap: wrap; gap: 12px; align-items: stretch; margin: 0 0 16px; }
 .dash-summary > div:not(.dash-updated) { min-width: 140px; padding: 10px 16px; border: 1px solid var(--border, #ddd); border-radius: 8px; background: var(--surface, #fff); display: flex; flex-direction: column; }
-.dash-summary span { font-size: 12.5px; color: var(--muted, #888); }
+.dash-summary span { font-size: 12.5px; color: var(--text-muted); }
 .dash-summary strong { font-size: 24px; }
-.dash-summary em { font-size: 12px; font-style: normal; color: var(--muted, #888); }
+.dash-summary em { font-size: 12px; font-style: normal; color: var(--text-muted); }
 .dash-summary-bad strong { color: var(--danger, #c62828); }
 .dash-summary-warn strong { color: var(--warning, #b26a00); }
-.dash-updated { align-self: flex-end; margin-left: auto; font-size: 12px; color: var(--muted, #888); }
+.dash-updated { align-self: flex-end; margin-left: auto; font-size: 12px; color: var(--text-muted); }
 .dash-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
 .dash-card { border: 1px solid var(--border, #ddd); border-left-width: 5px; border-radius: 8px; padding: 12px 14px; background: var(--surface, #fff); }
 .dash-clickable { cursor: pointer; }
@@ -2720,16 +2730,18 @@ textarea.dp-table-list {
 .dash-light-YELLOW { background: #f9a825; box-shadow: 0 0 6px #f9a825; }
 .dash-light-GREEN { background: #43a047; }
 .dash-light-GRAY { background: #9e9e9e; }
-.dash-reason { font-size: 12.5px; color: var(--muted, #888); margin: 2px 0 8px 22px; }
+.dash-reason { font-size: 12.5px; color: var(--text-muted); margin: 2px 0 8px 22px; }
 .dash-facts { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; margin: 0; font-size: 13px; }
-.dash-facts dt { color: var(--muted, #888); }
+.dash-facts dt { color: var(--text-muted); }
 .dash-facts dd { margin: 0; }
-.dash-pill { display: inline-block; padding: 0 6px; border-radius: 10px; font-size: 12px; margin-right: 4px; background: #eee; color: #333; }
+/* 하드코딩 색 대신 토큰 — 다크 테마에서도 대비 유지 */
+.dash-pill { display: inline-block; padding: 0 6px; border-radius: 10px; font-size: 12px; margin-right: 4px; background: var(--surface-alt); color: var(--text); }
 .dash-pill-CRITICAL { background: var(--critical); color: #ffffff; font-weight: 600; }
-.dash-pill-ERROR { background: #ffebee; color: #c62828; }
-.dash-pill-WARN { background: #fff8e1; color: #b26a00; }
-.dash-ok { color: #2e7d32; }
-.dash-bad { color: #c62828; font-weight: 600; }
+.dash-pill-ERROR { background: var(--danger-soft); color: var(--danger); font-weight: 600; }
+.dash-pill-WARN { background: var(--warning-soft); color: var(--warning); font-weight: 600; }
+.dash-pill-fail { background: transparent; color: var(--danger); border: 1px solid currentColor; font-weight: 600; }
+.dash-ok { color: var(--success); }
+.dash-bad { color: var(--danger); font-weight: 600; }
 .dash-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; font-size: 12.5px; }
 
 /* Capacity */
@@ -2760,7 +2772,7 @@ button.rt-kill-btn { padding: 2px 10px; font-size: 12px; }
 .dp-imports { margin-top: 10px; }
 .dp-imports h4 { margin: 4px 0; font-size: 13px; }
 .dp-warn { color: #d97706; font-weight: 600; }
-.dp-sql { margin: 4px 0 0; padding: 4px 6px; background: var(--bg-subtle, rgba(127, 127, 127, 0.12)); border-radius: 4px; font-size: 12px; white-space: pre-wrap; user-select: all; }
+.dp-sql { margin: 4px 0 0; padding: 4px 6px; background: var(--surface-alt); border-radius: 4px; font-size: 12px; white-space: pre-wrap; user-select: all; }
 
 /* Run History: 결과 탭 (탭 이름 + 닫기) */
 .tab-link.history-tab { display: inline-flex; align-items: center; gap: 2px; padding: 0; }
@@ -2774,3 +2786,847 @@ button.rt-kill-btn { padding: 2px 10px; font-size: 12px; }
 .lr-badge-info { background-color: var(--info-soft); color: var(--info); }
 .lr-context { margin: 4px 0; padding: 8px; max-height: 360px; overflow: auto; font-size: 12px; white-space: pre-wrap; word-break: break-all; background: var(--surface-alt); border-radius: 6px; }
 .lr-context-hit { font-weight: 700; color: var(--danger); }
+
+/* ── 페이지 본문 정렬 ─────────────────────────────────────────────────────────
+   화면마다 본문 블록이 92% 가운데 배치 / 왼쪽 끝 붙음 / 640px 가운데 카드로 제각각이라
+   제목 영역(.page-header)과 왼쪽 선이 안 맞고 양옆이 비어 보였다. 제목 아래 본문은 모두
+   제목과 같은 좌우 28px 여백에 맞춰 화면 폭을 다 쓴다. (모달 오버레이·토스트는 고정 위치라 제외) */
+#root > .page-header ~ :not(.modal-overlay):not(.toast) {
+    margin-left: 28px;
+    margin-right: 28px;
+    max-width: none;
+}
+
+#root > .page-header ~ table.table {
+    width: calc(100% - 56px);
+}
+
+#root > .page-header ~ .rt-panel,
+#root > .page-header ~ .rt-layout {
+    width: auto;
+}
+
+/* 탭 바는 화면 끝까지 그어진 띠 대신, 본문 폭에 맞춘 카드 머리로 */
+#root > .page-header ~ .tab {
+    border: 1px solid var(--border);
+    border-radius: var(--radius) var(--radius) 0 0;
+    padding: 0 8px;
+}
+
+#root > .page-header ~ .tab-content {
+    padding: 20px 0;
+}
+
+/* 조회 조건 폼: 좁은 세로 카드 대신 본문 폭의 가로 배치 */
+#root > .page-header ~ form {
+    margin-top: 0;
+    margin-bottom: 20px;
+    padding: 20px 24px;
+}
+
+/* 대시보드 요약 칸이 내용 폭만큼만 차지해 오른쪽이 비던 것 — 한 줄을 고르게 나눠 채운다 */
+.dash-summary > div:not(.dash-updated) {
+    flex: 1 1 160px;
+}
+
+.dash-updated {
+    flex-basis: 100%;
+    text-align: right;
+    margin-top: -4px;
+}
+
+@media (max-width: 640px) {
+    #root > .page-header ~ :not(.modal-overlay):not(.toast) {
+        margin-left: 16px;
+        margin-right: 16px;
+    }
+
+    #root > .page-header ~ table.table {
+        width: calc(100% - 32px);
+    }
+}
+
+/* 탭 본문 안의 표는 탭 폭을 그대로 쓴다 (기본 table.table의 92% 가운데 배치 해제) */
+.tab-content table.table {
+    width: 100%;
+    max-width: none;
+    margin: 12px 0 0;
+}
+
+/* 표가 비었을 때 표 안에 넣는 안내 줄 */
+.table td.table-empty {
+    padding: 32px 16px;
+    text-align: center;
+    color: var(--text-muted);
+}
+
+/* ── 목록 공통 툴바 (ListView) ─────────────────────────────────────────────── */
+.list-toolbar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    margin-bottom: 12px;
+}
+
+.list-toolbar .list-search {
+    flex: 0 1 320px;
+    min-width: 200px;
+    margin: 0;
+}
+
+.list-count {
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.list-count strong {
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+}
+
+.list-toolbar .list-export {
+    margin: 0 0 0 auto;
+}
+
+/* 표가 툴바 바로 아래 붙도록 (table.table 기본 위 여백 제거) */
+.list-toolbar + table.table {
+    margin-top: 0;
+}
+
+.table th.th-sortable {
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+
+.table th.th-sortable:hover,
+.table th.th-sorted {
+    color: var(--primary);
+}
+
+.th-sort-arrow {
+    margin-left: 4px;
+    font-size: 9px;
+    opacity: 0.45;
+}
+
+.th-sorted .th-sort-arrow {
+    opacity: 1;
+}
+
+input[type="search"] {
+    padding: 9px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-family: var(--font);
+    font-size: 14px;
+    color: var(--text);
+    background-color: var(--surface);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+input[type="search"]:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(20, 107, 105, 0.18);
+}
+
+/* ── 점검 결과 (MonitoringResultTable) ───────────────────────────────────── */
+.mr-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+    margin: 0 0 14px;
+    padding: 12px 16px;
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+
+.mr-summary-stats,
+.mr-summary-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    font-size: 13.5px;
+}
+
+.mr-summary-actions button {
+    margin: 0;
+}
+
+.mr-stat-ok {
+    color: var(--success);
+    font-weight: 600;
+}
+
+.mr-stat-bad strong {
+    color: var(--danger);
+}
+
+.mr-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.mr-task {
+    margin: 0 0 10px;
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+.mr-task-problem {
+    border-left-color: var(--danger);
+}
+
+button.mr-task-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    margin: 0;
+    padding: 12px 16px;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    color: var(--text);
+    font-size: 14.5px;
+    font-weight: 600;
+    text-align: left;
+    box-shadow: none;
+    cursor: pointer;
+}
+
+button.mr-task-head:hover {
+    background-color: var(--surface-alt);
+    transform: none;
+}
+
+.mr-task-caret {
+    width: 12px;
+    color: var(--text-muted);
+}
+
+.mr-task-name {
+    flex: 1;
+    min-width: 0;
+}
+
+.mr-task-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 400;
+}
+
+.mr-task-rows {
+    font-size: 12.5px;
+    color: var(--text-muted);
+}
+
+.mr-task-none,
+.mr-task-error {
+    margin: 0;
+    padding: 4px 16px 14px 38px;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.mr-task-error {
+    color: var(--danger);
+}
+
+.mr-table-wrap {
+    overflow-x: auto;
+    border-top: 1px solid var(--border);
+}
+
+.mr-table-wrap table.table {
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+}
+
+.issue-badge-info {
+    background-color: var(--info-soft);
+    color: var(--info);
+}
+
+/* 이슈 티켓: 검색 + 레벨 필터 칩 */
+.issues-filter {
+    margin-top: 4px;
+}
+
+.issues-level-filter {
+    display: inline-flex;
+    gap: 6px;
+}
+
+button.issue-level-chip {
+    margin: 0;
+    border: 1px solid transparent;
+    box-shadow: none;
+    cursor: pointer;
+    opacity: 0.55;
+}
+
+button.issue-level-chip:hover {
+    opacity: 0.85;
+    transform: none;
+}
+
+button.issue-level-chip.issue-level-chip-on {
+    opacity: 1;
+    border-color: currentColor;
+}
+
+/* CRITICAL 칩은 배경이 원색이라 테두리 대신 흰 링으로 선택 표시 */
+button.issue-badge-critical.issue-level-chip-on {
+    border-color: transparent;
+    box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--critical);
+}
+
+/* 카드 그리드 안의 빈 상태 안내는 한 칸이 아니라 줄 전체를 쓴다 */
+.issues-grid > .issues-empty,
+.dash-grid > .issues-empty {
+    grid-column: 1 / -1;
+}
+
+/* ── 이슈 카드: 종류(임계치 위반 / 스크립트 실행 실패 / 접속 실패)와 "무엇이" 문제인지가 본문에서 바로 읽히게 ── */
+.issue-card {
+    display: flex;
+    flex-direction: column;
+    cursor: pointer;
+    min-width: 0;
+}
+
+.issue-card:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+.issue-card .issue-dbname {
+    margin-left: auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+/* 종류 태그: 레벨 배지와 겹치지 않게 테두리만 있는 작은 라벨 */
+.issue-kind {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    align-self: flex-start;
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid currentColor;
+    margin-bottom: 6px;
+    background-color: var(--surface);
+}
+
+.issue-kind-threshold {
+    color: var(--info);
+}
+
+.issue-kind-exec {
+    color: var(--danger);
+}
+
+.issue-kind-connect {
+    color: var(--critical);
+}
+
+.issue-kind-exec::before,
+.issue-kind-connect::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: currentColor;
+}
+
+.issue-card .issue-task {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 8px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.issue-detail {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+}
+
+code.issue-column {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+}
+
+.issue-count {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.issue-detail-value {
+    font-size: 13px;
+    margin-bottom: 6px;
+}
+
+.issue-objects {
+    list-style: none;
+    margin: 0 0 8px;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.issue-objects li {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 12.5px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    background-color: var(--surface);
+}
+
+.issue-object-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.issue-object-value {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+.issues-grid .issue-objects li.issue-objects-more {
+    background: none;
+    color: var(--text-muted);
+    padding-top: 0;
+}
+
+/* 실패 티켓: 실패 유형 + 에러 코드 + 에러 원문 */
+.issue-failure-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--danger);
+    margin-bottom: 6px;
+}
+
+code.issue-error-code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background-color: var(--danger);
+    color: #ffffff;
+}
+
+pre.issue-error {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.5;
+    margin: 0 0 8px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    white-space: pre-wrap;
+    word-break: break-word;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+pre.issue-error.issue-error-full {
+    display: block;
+    max-height: 260px;
+    overflow: auto;
+}
+
+.issue-card-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: auto;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.issue-assignee-none {
+    font-style: italic;
+}
+
+.issue-card-footer .issue-runat {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.issue-reopen {
+    color: var(--warning);
+    font-weight: 600;
+}
+
+/* 종류 필터 칩 */
+button.issue-kind-chip {
+    margin: 0;
+    cursor: pointer;
+    opacity: 0.55;
+    box-shadow: none;
+}
+
+button.issue-kind-chip:hover:not(:disabled) {
+    opacity: 0.85;
+    transform: none;
+}
+
+/* 켜지면 종류 색으로 채우고 글자는 표면색 (다크 테마에선 어두운 글자가 된다) */
+button.issue-kind-chip.issue-kind-chip-on {
+    opacity: 1;
+    color: var(--surface);
+}
+
+button.issue-kind-chip.issue-kind-threshold.issue-kind-chip-on {
+    background-color: var(--info);
+    border-color: var(--info);
+}
+
+button.issue-kind-chip.issue-kind-exec.issue-kind-chip-on {
+    background-color: var(--danger);
+    border-color: var(--danger);
+}
+
+button.issue-kind-chip.issue-kind-connect.issue-kind-chip-on {
+    background-color: var(--critical);
+    border-color: var(--critical);
+}
+
+button.issue-kind-chip:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+
+.issues-filter {
+    flex-wrap: wrap;
+}
+
+/* 이슈 상세 모달 */
+.issue-modal-badges {
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.issue-modal-badges .issue-kind {
+    margin-bottom: 0;
+}
+
+.issue-modal-failure {
+    margin: 4px 0 16px;
+    padding: 12px 14px;
+    border-radius: var(--radius);
+    background-color: var(--danger-soft);
+    border-left: 4px solid var(--danger);
+}
+
+.issue-modal-hint {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--text-secondary);
+}
+
+.issue-modal-info {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 2px 24px;
+}
+
+.issue-modal-info-row {
+    display: flex;
+    gap: 10px;
+}
+
+.issue-modal-info-label {
+    flex: 0 0 84px;
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+.issue-modal-links {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin: 14px 0 4px;
+}
+
+.issue-modal-links button {
+    margin: 0;
+}
+
+a.btn-link {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--primary);
+    text-decoration: none;
+}
+
+a.btn-link:hover {
+    color: var(--primary-hover);
+    text-decoration: underline;
+}
+
+a.btn-link::after {
+    content: " →";
+}
+
+.issue-modal-table-wrap {
+    overflow-x: auto;
+    margin-bottom: 8px;
+}
+
+.issue-modal-table th.issue-col-violated {
+    color: var(--danger);
+}
+
+.issue-modal-table td.issue-col-violated {
+    font-family: var(--font-mono);
+    font-weight: 700;
+}
+
+.issue-modal-table td.issue-col-warn {
+    background-color: var(--warning-soft);
+}
+
+.issue-modal-table td.issue-col-error {
+    background-color: var(--danger-soft);
+}
+
+.issue-modal-table td.issue-col-critical {
+    background-color: var(--critical-soft);
+}
+
+.issue-affected-tasks {
+    margin: 0 0 8px;
+    padding-left: 20px;
+    columns: 2;
+    font-size: 13px;
+}
+
+@media (max-width: 640px) {
+    .issue-affected-tasks {
+        columns: 1;
+    }
+
+    .issue-modal-info {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ── 일일 점검: 결과 탭 상태 점 + 닫기, 실행 중/실패 표시, 실행 실패 스크립트 목록 ── */
+.tab-link-wrap {
+    display: inline-flex;
+    align-items: center;
+}
+
+.tab .tab-link-wrap button.tab-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding-right: 6px;
+}
+
+.tab-status {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background-color: var(--success);
+}
+
+.tab-status-warn {
+    background-color: var(--warning);
+}
+
+.tab-status-fail {
+    background-color: var(--danger);
+}
+
+.tab-status-running {
+    background-color: var(--info);
+    animation: tab-status-blink 1s ease-in-out infinite;
+}
+
+@keyframes tab-status-blink {
+    50% {
+        opacity: 0.25;
+    }
+}
+
+.tab button.tab-close {
+    padding: 4px 8px;
+    font-size: 15px;
+    line-height: 1;
+    border-bottom: none;
+    opacity: 0.5;
+}
+
+.tab button.tab-close:hover {
+    opacity: 1;
+    color: var(--danger);
+}
+
+.tab button.tab-close-all {
+    font-size: 12.5px;
+    padding: 14px 10px;
+    float: right;
+    border-bottom: none;
+}
+
+.mr-tab-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+}
+
+.mr-tab-head h3 {
+    margin: 0 0 12px;
+}
+
+.spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--border);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    vertical-align: -2px;
+    animation: spinner-rotate 0.8s linear infinite;
+}
+
+@keyframes spinner-rotate {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.mr-running {
+    padding: 28px 20px;
+    text-align: center;
+    color: var(--text-muted);
+    background-color: var(--surface);
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+}
+
+.mr-run-failed {
+    padding: 14px 16px;
+    border-radius: var(--radius);
+    background-color: var(--danger-soft);
+    border-left: 4px solid var(--danger);
+}
+
+.mr-run-failed > strong {
+    display: block;
+    margin-bottom: 8px;
+    color: var(--danger);
+}
+
+.mr-failed-list {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    flex-basis: 100%;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--border);
+}
+
+.mr-failed-label {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--danger);
+    margin-right: 4px;
+}
+
+button.mr-failed-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    padding: 3px 10px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--danger);
+    background-color: var(--danger-soft);
+    border: 1px solid transparent;
+    border-radius: 999px;
+    box-shadow: none;
+}
+
+button.mr-failed-item:hover {
+    border-color: var(--danger);
+    background-color: var(--danger-soft);
+    transform: none;
+}
+
+button.mr-failed-item code {
+    font-family: var(--font-mono);
+    font-size: 11px;
+}
+
+.mr-task-error {
+    padding: 4px 16px 8px 38px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .spinner,
+    .tab-status-running {
+        animation: none;
+    }
+}

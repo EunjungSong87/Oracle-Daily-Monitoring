@@ -168,7 +168,7 @@ export function App(): ReactElement {
       <AppHeader active="tableSpec" />
       <ToastHost />
 
-      <PageHeader section="Maintenance" title="테이블 명세서" description="스키마의 테이블·컬럼·제약조건·인덱스 정보를 조회하고 Excel로 내려받습니다." />
+      <PageHeader section="운영 관리" title="테이블 명세서" description="스키마의 테이블·컬럼·제약조건·인덱스 정보를 조회하고 Excel로 내려받습니다." />
 
       {!userLoading && !canUse && <p className="issues-empty">이 화면을 사용할 권한이 없습니다. 최고관리자에게 화면 권한을 요청하세요.</p>}
 

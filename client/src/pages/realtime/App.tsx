@@ -345,7 +345,7 @@ export function App(): ReactElement {
       <AppHeader active="realtime" />
       <ToastHost />
 
-      <PageHeader section="Monitoring" title="실시간 모니터링" description="선택한 DB의 Active Session, 대기 이벤트, 블로킹 상황을 자동 갱신으로 지켜봅니다." />
+      <PageHeader section="모니터링" title="실시간 모니터링" description="선택한 DB의 Active Session, 대기 이벤트, 블로킹 상황을 자동 갱신으로 지켜봅니다." />
 
       <div className="rt-layout">
         <div className="rt-toolbar">

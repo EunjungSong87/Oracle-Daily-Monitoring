@@ -117,7 +117,7 @@ export function App(): ReactElement {
     <>
       <AppHeader active="notify" />
       <ToastHost />
-      <PageHeader section="Account" title="알림 설정" description="이슈 티켓이 새로 생기거나 다시 열릴 때 알림을 보낼 Telegram · Slack · 메일 채널을 설정합니다." />
+      <PageHeader section="계정" title="알림 설정" description="이슈 티켓이 새로 생기거나 다시 열릴 때 알림을 보낼 Telegram · Slack · 메일 채널을 설정합니다." />
 
       {!loading && !isSuperAdmin && <p className="issues-empty">최고관리자만 볼 수 있는 화면입니다.</p>}
 
@@ -125,7 +125,7 @@ export function App(): ReactElement {
         <>
           <div className="rt-panel">
             <p className="oc-hint" style={{ marginTop: 0 }}>
-              Daily Monitoring 점검에서 Issues 티켓이 새로 생기거나 다시 열리면 켜 둔 채널로 알림을 보냅니다.{' '}
+              일일 점검에서 이슈 티켓이 새로 생기거나 다시 열리면 켜 둔 채널로 알림을 보냅니다.{' '}
               {view.source === 'db'
                 ? `현재 이 화면에서 저장한 값으로 동작합니다 (마지막 저장: ${formatDate(view.updatetime)}${view.updatedBy ? `, ${view.updatedBy}` : ''}).`
                 : '아직 저장한 적이 없어 .env 값(TELEGRAM_* / SLACK_WEBHOOK_URL / SMTP_* / MAIL_*)으로 동작합니다. 저장하면 이후로는 이 화면 값이 우선합니다.'}

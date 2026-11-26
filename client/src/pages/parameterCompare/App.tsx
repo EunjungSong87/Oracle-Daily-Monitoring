@@ -125,7 +125,7 @@ export function App(): ReactElement {
       <AppHeader active="parameterCompare" />
       <ToastHost />
 
-      <PageHeader section="Compare" title="파라미터 비교" description="두 DB의 초기화 파라미터 값 차이를 비교합니다." />
+      <PageHeader section="DB 비교" title="파라미터 비교" description="두 DB의 초기화 파라미터 값 차이를 비교합니다." />
 
       {!userLoading && !canUse && <p className="issues-empty">이 화면을 사용할 권한이 없습니다. 최고관리자에게 화면 권한을 요청하세요.</p>}
 

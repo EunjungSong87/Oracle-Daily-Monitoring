@@ -17,6 +17,7 @@ import * as issuesModel from '../models/issuesModel';
 import * as notifyService from './notifyService';
 import { logger } from '../utils/logger';
 import { isMoreSevere } from '../utils/alertLevel';
+import { CONNECT_TASK_ID, type TaskFailureKind } from '../utils/issueKinds';
 
 function errMsg(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -137,6 +138,23 @@ function applyThresholds(
   });
 }
 
+// 실패한 태스크 결과. failureKind는 이슈 티켓(스크립트 실행 실패 / 대상 DB 접속 실패)을 만들 때 쓴다.
+function failed(id: unknown, checkName: unknown, error: string, failureKind: TaskFailureKind) {
+  return { task_id: id, task_name: checkName, columns: [], rows: [], success: false, error, failureKind };
+}
+
+// 최초 접속 실패 → 접속 실패 티켓 동기화 + (새로 열렸으면) 알림. 부가 기능이라 실패는 로그만 남긴다.
+async function recordConnectFailure(dbmsid: DbmsIdParam, dbname: string, error: string): Promise<void> {
+  try {
+    const notifications = await issuesModel.syncIssues(dbmsid.dbmsid, dbname, null, [failed(CONNECT_TASK_ID, '대상 DB 접속', error, 'CONNECT')]);
+    if (notifications && notifications.length > 0) {
+      await notifyService.sendAlert(notifyService.formatIssueAlerts(dbname, notifications));
+    }
+  } catch (syncError) {
+    logger.warn('Monitor', `[${dbname}] 접속 실패 이슈 기록 실패`, syncError);
+  }
+}
+
 async function getMonResult(
   dbmsid: DbmsIdParam,
   triggerType: 'MANUAL' | 'SCHEDULED' = 'MANUAL'
@@ -172,19 +190,13 @@ async function getMonResult(
   try {
     targetConnection = await dbmsList.connectToTarget(dbconfig, connectOptions);
   } catch (error) {
+    // 접속 자체가 안 되면 점검은 실패로 끝나지만 "접속 실패" 이슈 티켓은 남긴다 (기록 실패는 흡수하고 원래 에러를 던짐).
+    await recordConnectFailure(dbmsid, dbconfig[6], errMsg(error));
     throw new Error('대상 DB 접속 실패', { cause: error });
   }
 
   // 타임아웃 뒤 재접속까지 실패하면 남은 태스크는 이 사유로 실패 처리합니다.
   let reconnectError: string | null = null;
-  const failed = (id: unknown, checkName: unknown, error: string) => ({
-    task_id: id,
-    task_name: checkName,
-    columns: [],
-    rows: [],
-    success: false,
-    error,
-  });
 
   try {
     for (const row of tasks.rows) {
@@ -198,7 +210,7 @@ async function getMonResult(
       }
 
       if (!targetConnection) {
-        results.push(failed(id, checkName, `대상 DB 접속 실패: ${reconnectError}`));
+        results.push(failed(id, checkName, `대상 DB 접속 실패: ${reconnectError}`, 'CONNECT'));
         continue;
       }
 
@@ -225,7 +237,8 @@ async function getMonResult(
               ? `실행 시간 초과 (${Math.round(elapsedMs / 1000)}초)`
               : kind === 'DISCONNECTED'
                 ? `대상 DB 연결 끊김 (${errMsg(error).split('\n')[0]})`
-                : errMsg(error)
+                : errMsg(error),
+            kind
           )
         );
 

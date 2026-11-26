@@ -130,7 +130,7 @@ export function App(): ReactElement {
       <AppHeader active="statsJob" />
       <ToastHost />
 
-      <PageHeader section="Maintenance" title="통계 수집 현황" description="옵티마이저 통계 수집 잡의 실행 이력과 결과를 확인합니다." />
+      <PageHeader section="운영 관리" title="통계 수집 현황" description="옵티마이저 통계 수집 잡의 실행 이력과 결과를 확인합니다." />
 
       {!userLoading && !canUse && <p className="issues-empty">이 화면을 사용할 권한이 없습니다. 최고관리자에게 화면 권한을 요청하세요.</p>}
 

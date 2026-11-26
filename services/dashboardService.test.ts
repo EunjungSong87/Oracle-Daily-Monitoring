@@ -60,8 +60,24 @@ describe('buildDashboard', () => {
       ['B', 'GREEN'],
     ]);
     expect(dash.summary).toMatchObject({ total: 3, problem: 1, openIssues: 3, scheduledToday: { ok: 1, expected: 2, runTime: '07:00', enabled: true } });
-    expect(dash.cards[0].issues).toEqual({ CRITICAL: 1, ERROR: 2, WARN: 0, other: 0, acknowledged: 1 });
+    expect(dash.cards[0].issues).toEqual({ CRITICAL: 1, ERROR: 2, WARN: 0, other: 0, acknowledged: 1, execFailed: 0, connectFailed: false });
     expect(dash.cards.find((card) => card.dbname === 'B')?.dataPump.running).toEqual([{ jobName: 'J1', operation: 'EXPORT', startedAt: '2026-10-22 11:00:00' }]);
+  });
+
+  it('열린 접속 실패 티켓이 있으면 마지막 점검이 정상이어도 빨강, 실행 실패 티켓 수는 따로 집계', () => {
+    const dash = buildDashboard(
+      {
+        ...raw,
+        issues: [
+          { DBMS_ID: 2, CLEVEL: 'CRITICAL', STATUS: 'OPEN', KIND: 'CONNECT', N: 1 },
+          { DBMS_ID: 2, CLEVEL: 'ERROR', STATUS: 'ACKNOWLEDGED', KIND: 'EXEC', N: 2 },
+        ],
+      },
+      NOW
+    );
+    const b = dash.cards.find((card) => card.dbname === 'B')!;
+    expect([b.signal, b.signalReason]).toEqual(['RED', '대상 DB 접속 실패']);
+    expect(b.issues).toMatchObject({ CRITICAL: 1, execFailed: 2, connectFailed: true });
   });
 
   it('Data Pump 이력 테이블이 없으면 표시만 생략', () => {

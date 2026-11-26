@@ -115,7 +115,7 @@ export function App(): ReactElement {
     <>
       <AppHeader active="capacity" />
       <ToastHost />
-      <PageHeader section="Monitoring" title="용량 추이" description="테이블스페이스와 ASM 디스크그룹 사용량의 변화를 추적합니다." />
+      <PageHeader section="모니터링" title="용량 추이" description="테이블스페이스와 ASM 디스크그룹 사용량의 변화를 추적합니다." />
       {!loading && !canUse && <p className="issues-empty">이 화면을 볼 권한이 없습니다.</p>}
       {canUse && (
         <div className="rt-panel">

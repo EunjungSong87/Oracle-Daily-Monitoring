@@ -67,9 +67,12 @@ export type MonitoringResultRow = Record<string, unknown> & {
 };
 
 export interface MonitoringTaskResult {
+  task_id?: string | number;
   task_name: string;
   success: boolean;
   error?: string;
+  // 실패 유형 (서버 utils/issueKinds.ts) — 예전 이력에는 없을 수 있음
+  failureKind?: 'TIMEOUT' | 'DISCONNECTED' | 'ERROR' | 'CONNECT';
   columns: string[];
   rows: MonitoringResultRow[];
 }
@@ -949,7 +952,7 @@ export interface DashboardCard {
   signal: DashboardSignal;
   signalReason: string;
   lastRun: { id: number; at: string; trigger: string; criticals: number; errors: number; warns: number; failedTasks: number } | null;
-  issues: { CRITICAL: number; ERROR: number; WARN: number; other: number; acknowledged: number };
+  issues: { CRITICAL: number; ERROR: number; WARN: number; other: number; acknowledged: number; execFailed: number; connectFailed: boolean };
   dataPump: {
     running: { jobName: string; operation: string; startedAt: string | null }[];
     latest: { jobName: string; operation: string; status: string; finishedAt: string | null } | null;

@@ -143,7 +143,7 @@ export function App(): ReactElement {
     <>
       <AppHeader active="migrationVerify" />
       <ToastHost />
-      <PageHeader section="Maintenance" title="이관 검증" description="이관 후 원본과 대상 DB의 오브젝트, 행 수, 테이블스페이스 배치를 대조합니다." />
+      <PageHeader section="운영 관리" title="이관 검증" description="이관 후 원본과 대상 DB의 오브젝트, 행 수, 테이블스페이스 배치를 대조합니다." />
       {!loading && !canUse && <p className="issues-empty">이 화면을 볼 권한이 없습니다.</p>}
       {canUse && (
         <div className="rt-panel">

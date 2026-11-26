@@ -1,4 +1,5 @@
 import oracledb from 'oracledb';
+import { CONNECT_COLUMN, EXEC_ERROR_COLUMN } from '../utils/issueKinds';
 import * as db from '../db';
 
 // 첫 화면(전체 DB 현황) — 메타데이터 DB만 읽는다 (대상 DB 접속 없음).
@@ -27,7 +28,7 @@ export interface DashboardRaw {
   dbmses: Record<string, any>[]; // ID, DBNAME, MEMO, AUTO_SCHEDULE
   latestRuns: Record<string, any>[]; // DB별 최근 점검 1건 (결과 JSON 포함)
   latestScheduled: Record<string, any>[]; // DB별 최근 예약 점검 1건
-  issues: Record<string, any>[]; // DBMS_ID, CLEVEL, STATUS, N (해결 안 된 것)
+  issues: Record<string, any>[]; // DBMS_ID, CLEVEL, STATUS, KIND(THRESHOLD|EXEC|CONNECT), N (해결 안 된 것)
   dataPump: Record<string, any>[] | null; // DB별 진행 중 + 최근 작업 (이력 테이블 없으면 null)
   schedule: Record<string, any> | null; // 예약 실행 설정
 }
@@ -54,7 +55,14 @@ async function loadDashboard(): Promise<DashboardRaw> {
     );
     const issues = await rows(
       connection,
-      `SELECT dbms_id, clevel, status, COUNT(*) AS n FROM system.monitoring_issues WHERE status <> 'RESOLVED' GROUP BY dbms_id, clevel, status`
+      // KIND: 실패 티켓은 예약된 column_name으로 구분 (utils/issueKinds.ts)
+      `SELECT dbms_id, clevel, status,
+              CASE column_name WHEN '${CONNECT_COLUMN}' THEN 'CONNECT' WHEN '${EXEC_ERROR_COLUMN}' THEN 'EXEC' ELSE 'THRESHOLD' END AS kind,
+              COUNT(*) AS n
+         FROM system.monitoring_issues
+        WHERE status <> 'RESOLVED'
+        GROUP BY dbms_id, clevel, status,
+                 CASE column_name WHEN '${CONNECT_COLUMN}' THEN 'CONNECT' WHEN '${EXEC_ERROR_COLUMN}' THEN 'EXEC' ELSE 'THRESHOLD' END`
     );
     let dataPump: Record<string, any>[] | null = null;
     try {

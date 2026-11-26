@@ -146,7 +146,7 @@ export function App(): ReactElement {
     <>
       <AppHeader active="logReview" />
       <ToastHost />
-      <PageHeader section="Maintenance" title="로그 패턴 분석" description="Alert · 리스너 · CRS 로그 파일을 올려 주의가 필요한 패턴을 찾아냅니다." />
+      <PageHeader section="운영 관리" title="로그 패턴 분석" description="Alert · 리스너 · CRS 로그 파일을 올려 주의가 필요한 패턴을 찾아냅니다." />
       {!loading && !canUse && <p className="issues-empty">이 화면을 볼 권한이 없습니다.</p>}
       {canUse && (
         <div className="rt-panel">

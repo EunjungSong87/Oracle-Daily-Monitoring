@@ -1,6 +1,7 @@
 import oracledb from 'oracledb';
 import * as db from '../db';
 import { isMoreSevere } from '../utils/alertLevel';
+import { CONNECT_COLUMN, CONNECT_TASK_ID, EXEC_ERROR_COLUMN, errorCode, failureKindLabel, type TaskFailureKind } from '../utils/issueKinds';
 
 export type IssueStatus = 'OPEN' | 'ACKNOWLEDGED' | 'RESOLVED';
 
@@ -130,6 +131,72 @@ interface AlertGroup {
   level: string;
   message: string;
   rows: Record<string, any>[];
+  // 카드에 보일 대표 값. 없으면 첫 위반 행의 그 컬럼 값을 쓴다 (실패 티켓은 에러 코드를 직접 넣는다).
+  value?: string | null;
+}
+
+// message/value 컬럼은 VARCHAR2(255) (BYTE 기준) — 한글은 3바이트라 글자 수가 아니라 바이트로 자른다.
+function truncateBytes(text: string, maxBytes = 250): string {
+  const encoder = new TextEncoder();
+  if (encoder.encode(text).length <= maxBytes) return text;
+  let out = '';
+  let bytes = 0;
+  for (const ch of text) {
+    const size = encoder.encode(ch).length;
+    if (bytes + size > maxBytes - 3) break;
+    out += ch;
+    bytes += size;
+  }
+  return `${out}...`;
+}
+
+function firstLine(text: string): string {
+  return text.split('\n')[0].trim();
+}
+
+// 이번 실행에서 실패한 태스크 → 실패 티켓 그룹.
+// - 스크립트 실행 실패(SQL 오류·시간 초과·실행 중 연결 끊김): 태스크마다 한 장, ERROR. 다음 실행에서 그 태스크가 성공하면 자동 해제.
+// - 대상 DB 접속 실패(최초 접속/재접속 실패): DB당 한 장으로 모으고 CRITICAL. 다음 실행에서 접속되면 자동 해제.
+//   (접속이 안 돼서 못 돈 태스크들을 각각 "스크립트 실패"로 만들면 원인이 흐려지고 티켓만 쏟아지므로)
+function collectFailureGroups(results: Record<string, any>[]): Map<string, AlertGroup> {
+  const groups = new Map<string, AlertGroup>();
+  for (const task of results) {
+    if (task.success) continue;
+    const error = String(task.error ?? '알 수 없는 오류');
+    const kind = (task.failureKind ?? 'ERROR') as TaskFailureKind;
+    const label = failureKindLabel(kind);
+
+    if (kind === 'CONNECT') {
+      const key = `${CONNECT_TASK_ID}:${CONNECT_COLUMN}`;
+      let group = groups.get(key);
+      if (!group) {
+        const reason = firstLine(error.replace(/^대상 DB 접속 실패:\s*/, ''));
+        group = {
+          taskId: CONNECT_TASK_ID,
+          taskName: '대상 DB 접속',
+          column: CONNECT_COLUMN,
+          level: 'CRITICAL',
+          message: truncateBytes(`${label}: ${reason}`),
+          value: errorCode(error) ?? label,
+          rows: [],
+        };
+        groups.set(key, group);
+      }
+      group.rows.push({ TASK_ID: task.task_id, TASK_NAME: task.task_id === CONNECT_TASK_ID ? '(접속 단계)' : task.task_name, FAILURE: label, ERROR: error });
+      continue;
+    }
+
+    groups.set(`${task.task_id}:${EXEC_ERROR_COLUMN}`, {
+      taskId: task.task_id,
+      taskName: task.task_name,
+      column: EXEC_ERROR_COLUMN,
+      level: 'ERROR',
+      message: truncateBytes(`${label}: ${firstLine(error)}`),
+      value: errorCode(error) ?? label,
+      rows: [{ TASK_ID: task.task_id, TASK_NAME: task.task_name, FAILURE: label, ERROR: error }],
+    });
+  }
+  return groups;
 }
 
 // 이번 실행 결과(_alerts가 붙은 rows)에서 (task_id, column) 단위로 위반 행을 묶습니다.
@@ -172,6 +239,8 @@ function autoResolveTargets(
   results: Record<string, any>[]
 ): number[] {
   const ran = new Set(results.filter((task) => task.success).map((task) => String(task.task_id)));
+  // 접속 실패 티켓은 "이번에 대상 DB에 접속이 됐다"(접속 실패가 아닌 결과가 하나라도 있음)면 해제 대상
+  if (results.some((task) => task.failureKind !== 'CONNECT')) ran.add(String(CONNECT_TASK_ID));
   return [...existingByKey]
     .filter(([key, existing]) => existing.status !== 'RESOLVED' && !detected.has(key) && ran.has(key.slice(0, key.indexOf(':'))))
     .map(([, existing]) => existing.id);
@@ -195,7 +264,7 @@ async function syncIssues(
     const pool = await db.initializeDB();
     connection = await pool.getConnection();
 
-    const groups = collectAlertGroups(results);
+    const groups = new Map([...collectAlertGroups(results), ...collectFailureGroups(results)]);
 
     const existingRes = await connection.execute<Record<string, any>>(
       `select id, task_id, column_name, status
@@ -211,8 +280,8 @@ async function syncIssues(
 
     for (const [key, group] of groups) {
       const existing = existingByKey.get(key);
-      const rawValue = group.rows[0]?.[group.column];
-      const value = rawValue === undefined || rawValue === null ? null : String(rawValue);
+      const rawValue = group.value !== undefined ? group.value : group.rows[0]?.[group.column];
+      const value = rawValue === undefined || rawValue === null ? null : truncateBytes(String(rawValue));
       const details = JSON.stringify(group.rows);
 
       if (!existing) {
@@ -500,4 +569,4 @@ async function addComment(issueId: number | string, author: string | undefined, 
   }
 }
 
-export { syncIssues, listIssues, getIssueDetail, acknowledgeIssue, resolveIssue, reopenIssue, assignIssue, addComment, autoResolveTargets };
+export { syncIssues, listIssues, getIssueDetail, acknowledgeIssue, resolveIssue, reopenIssue, assignIssue, addComment, autoResolveTargets, collectFailureGroups };

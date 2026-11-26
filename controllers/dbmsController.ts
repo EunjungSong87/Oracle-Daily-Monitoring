@@ -46,6 +46,11 @@ async function getMonResult(req: Request, res: Response): Promise<Response | voi
     res.json(queryResults);
   } catch (error) {
     logger.error('Monitor', `점검 실행 오류 (dbmsid=${req.body?.dbmsid})`, error);
+    // 대상 DB 접속 실패는 사용자가 원인(ORA-12541 등)을 바로 봐야 하므로 첫 줄을 그대로 돌려준다 (testConnection과 같은 취지)
+    if (error instanceof Error && error.message === '대상 DB 접속 실패') {
+      const cause = error.cause instanceof Error ? error.cause.message.split('\n')[0] : '';
+      return res.status(502).json({ message: cause ? `대상 DB 접속 실패: ${cause}` : '대상 DB 접속 실패' });
+    }
     res.status(500).json({ message: '서버 오류 발생' });
   }
 }

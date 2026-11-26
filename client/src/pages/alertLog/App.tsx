@@ -151,7 +151,7 @@ export function App(): ReactElement {
     <>
       <AppHeader active="alertLog" />
       <ToastHost />
-      <PageHeader section="Monitoring" title="Alert Log 오류" description="Alert Log에 기록된 ORA- 오류와 FAIL 메시지를 기간별로 조회합니다." />
+      <PageHeader section="모니터링" title="Alert Log 오류" description="Alert Log에 기록된 ORA- 오류와 FAIL 메시지를 기간별로 조회합니다." />
       {!loading && !canUse && <p className="issues-empty">이 화면을 볼 권한이 없습니다.</p>}
       {canUse && (
         <div className="rt-panel">

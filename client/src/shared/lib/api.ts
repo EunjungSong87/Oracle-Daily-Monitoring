@@ -141,7 +141,9 @@ export async function runMonResult(dbmsid: string | number): Promise<MonitoringT
     body: JSON.stringify({ dbmsid }),
   });
   if (!response.ok) {
-    throw new Error(`monResult failed: ${response.status}`);
+    // 서버가 사유를 주면(예: 대상 DB 접속 실패: ORA-12541 ...) 그대로 보여 준다
+    const body = (await response.json().catch(() => null)) as { message?: string } | null;
+    throw new Error(body?.message || `점검 실행 실패 (HTTP ${response.status})`);
   }
   return (await response.json()) as MonitoringTaskResult[];
 }

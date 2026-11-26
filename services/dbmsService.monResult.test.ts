@@ -12,6 +12,7 @@ vi.mock('../models/issuesModel', () => ({ syncIssues: vi.fn().mockResolvedValue(
 vi.mock('../utils/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 import * as dbmsModel from '../models/dbmsModel';
+import * as issuesModel from '../models/issuesModel';
 import { getMonResult } from './dbmsService';
 
 const DBCONFIG = ['scott', 'pw', '10.0.0.1', '1521', 'ORCL', '', 'TESTDB'];
@@ -94,6 +95,7 @@ describe('getMonResult — 쿼리 타임아웃/연결 끊김 처리', () => {
 
     expect(results.map((r) => [r.task_id, r.success])).toEqual([[1, true], [2, false], [3, false]]);
     expect(results[2].error).toBe('대상 DB 접속 실패: ORA-12170: TNS:Connect timeout occurred');
+    expect(results.map((r) => r.failureKind)).toEqual([undefined, 'TIMEOUT', 'CONNECT']);
     expect(dbmsModel.executeQuery).toHaveBeenCalledTimes(2);
   });
 
@@ -104,9 +106,20 @@ describe('getMonResult — 쿼리 타임아웃/연결 끊김 처리', () => {
 
     const results = await getMonResult({ dbmsid: 1 });
 
-    expect(results[1]).toMatchObject({ success: false, error: 'ORA-00942: table or view does not exist' });
+    expect(results[1]).toMatchObject({ success: false, error: 'ORA-00942: table or view does not exist', failureKind: 'ERROR' });
     expect(results[2].success).toBe(true);
     expect(dbmsModel.connectToTarget).toHaveBeenCalledTimes(1);
     expect(only.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('최초 접속이 실패하면 접속 실패 이슈를 남기고 원래대로 에러를 던진다', async () => {
+    vi.mocked(dbmsModel.connectToTarget).mockRejectedValueOnce(new Error('ORA-12541: TNS:no listener'));
+    vi.mocked(issuesModel.syncIssues).mockClear();
+
+    await expect(getMonResult({ dbmsid: 1 })).rejects.toThrow('대상 DB 접속 실패');
+
+    expect(issuesModel.syncIssues).toHaveBeenCalledWith(1, 'TESTDB', null, [
+      expect.objectContaining({ task_id: 0, success: false, failureKind: 'CONNECT', error: 'ORA-12541: TNS:no listener' }),
+    ]);
   });
 });

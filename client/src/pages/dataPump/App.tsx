@@ -66,7 +66,7 @@ export function App(): ReactElement {
       <AppHeader active="dataPump" />
       <ToastHost />
 
-      <PageHeader section="Maintenance" title="Data Pump" description="EXPDP / IMPDP 작업을 구성·실행하고 진행 상황과 이력을 관리합니다." />
+      <PageHeader section="운영 관리" title="Data Pump" description="EXPDP / IMPDP 작업을 구성·실행하고 진행 상황과 이력을 관리합니다." />
 
       {!userLoading && !canUse && <p className="issues-empty">이 화면을 사용할 권한이 없습니다. 최고관리자에게 화면 권한을 요청하세요.</p>}
 

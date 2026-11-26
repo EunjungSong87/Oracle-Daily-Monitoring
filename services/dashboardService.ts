@@ -13,7 +13,8 @@ export interface DbCard {
   signal: Signal;
   signalReason: string;
   lastRun: { id: number; at: string; trigger: string; criticals: number; errors: number; warns: number; failedTasks: number } | null;
-  issues: { CRITICAL: number; ERROR: number; WARN: number; other: number; acknowledged: number };
+  // execFailed: 열린 "스크립트 실행 실패" 티켓 수, connectFailed: 열린 "대상 DB 접속 실패" 티켓이 있음 (둘 다 레벨별 수에도 포함)
+  issues: { CRITICAL: number; ERROR: number; WARN: number; other: number; acknowledged: number; execFailed: number; connectFailed: boolean };
   dataPump: { running: { jobName: string; operation: string; startedAt: string | null }[]; latest: { jobName: string; operation: string; status: string; finishedAt: string | null } | null };
   lastScheduled: { at: string; ok: boolean } | null;
 }
@@ -82,9 +83,11 @@ function buildDashboard(raw: DashboardRaw, now: Date = new Date()): Dashboard {
     const id = Number(dbms.ID);
     const run = raw.latestRuns.find((row) => Number(row.DBMS_ID) === id) ?? null;
     const summary = run ? summarizeResults(run.RESULTS) : null;
-    const { signal, reason } = signalOf(run ? parseRunAt(run.RUN_AT) : null, summary, now);
     const issueRows = raw.issues.filter((row) => Number(row.DBMS_ID) === id);
     const count = (pick: (row: Record<string, any>) => boolean) => issueRows.filter(pick).reduce((sum, row) => sum + Number(row.N), 0);
+    // 접속 실패는 점검 이력이 안 남아 마지막 "성공한" 점검으로는 안 보이므로, 열린 접속 실패 티켓이 있으면 그걸로 빨강
+    const connectFailed = count((row) => row.KIND === 'CONNECT') > 0;
+    const { signal, reason } = connectFailed ? { signal: 'RED' as Signal, reason: '대상 DB 접속 실패' } : signalOf(run ? parseRunAt(run.RUN_AT) : null, summary, now);
     const jobs = (raw.dataPump ?? []).filter((row) => Number(row.DBMS_ID) === id);
     const latestJob = jobs.filter((row) => row.STATUS !== 'RUNNING').sort((a, b) => String(b.STARTED_AT).localeCompare(String(a.STARTED_AT)))[0];
     const scheduled = raw.latestScheduled.find((row) => Number(row.DBMS_ID) === id);
@@ -102,6 +105,8 @@ function buildDashboard(raw: DashboardRaw, now: Date = new Date()): Dashboard {
         WARN: count((row) => row.STATUS === 'OPEN' && row.CLEVEL === 'WARN'),
         other: count((row) => row.STATUS === 'OPEN' && !['CRITICAL', 'ERROR', 'WARN'].includes(row.CLEVEL)),
         acknowledged: count((row) => row.STATUS === 'ACKNOWLEDGED'),
+        execFailed: count((row) => row.KIND === 'EXEC'),
+        connectFailed,
       },
       dataPump: {
         running: jobs.filter((row) => row.STATUS === 'RUNNING').map((row) => ({ jobName: row.JOB_NAME, operation: row.OPERATION, startedAt: row.STARTED_AT ?? null })),

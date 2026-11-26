@@ -45,24 +45,24 @@ interface NavItem {
 }
 
 const DAILY_MONITORING_ITEMS: NavItem[] = [
-  { key: 'scripts', href: 'monitoringScript.html', label: 'Scripts', icon: '#ic-code', accent: 'nav-accent-3' },
-  { key: 'thresholds', href: 'monitoringThresholds.html', label: 'Thresholds', icon: '#ic-gauge', accent: 'nav-accent-4' },
-  { key: 'history', href: 'history.html', label: 'Run History', icon: '#ic-history', accent: 'nav-accent-5' },
-  { key: 'issues', href: 'issues.html', label: 'Issues', icon: '#ic-issue', accent: 'nav-accent-6' },
+  { key: 'scripts', href: 'monitoringScript.html', label: '점검 스크립트', icon: '#ic-code', accent: 'nav-accent-3' },
+  { key: 'thresholds', href: 'monitoringThresholds.html', label: '임계치 규칙', icon: '#ic-gauge', accent: 'nav-accent-4' },
+  { key: 'history', href: 'history.html', label: '점검 이력', icon: '#ic-history', accent: 'nav-accent-5' },
+  { key: 'issues', href: 'issues.html', label: '이슈 티켓', icon: '#ic-issue', accent: 'nav-accent-6' },
 ];
 
 const MAINTENANCE_ITEMS: NavItem[] = [
-  { key: 'tableSpec', href: 'tableSpec.html', label: 'Table Spec', icon: '#ic-table', accent: 'nav-accent-7' },
-  { key: 'statsJob', href: 'statsJob.html', label: 'Stats Job Status', icon: '#ic-stats', accent: 'nav-accent-7' },
-  { key: 'ilmJob', href: 'ilmJob.html', label: 'ILM Partition Retention', icon: '#ic-archive', accent: 'nav-accent-7' },
+  { key: 'tableSpec', href: 'tableSpec.html', label: '테이블 명세서', icon: '#ic-table', accent: 'nav-accent-7' },
+  { key: 'statsJob', href: 'statsJob.html', label: '통계 수집 현황', icon: '#ic-stats', accent: 'nav-accent-7' },
+  { key: 'ilmJob', href: 'ilmJob.html', label: '파티션 보관주기', icon: '#ic-archive', accent: 'nav-accent-7' },
   { key: 'dataPump', href: 'dataPump.html', label: 'Data Pump', icon: '#ic-transfer', accent: 'nav-accent-7' },
   { key: 'migrationVerify', href: 'migrationVerify.html', label: '이관 검증', icon: '#ic-stats', accent: 'nav-accent-7' },
-  { key: 'logReview', href: 'logReview.html', label: '로그 업로드 검토', icon: '#ic-issue', accent: 'nav-accent-7' },
+  { key: 'logReview', href: 'logReview.html', label: '로그 패턴 분석', icon: '#ic-issue', accent: 'nav-accent-7' },
 ];
 
 const COMPARE_ITEMS: NavItem[] = [
-  { key: 'objectCompare', href: 'objectCompare.html', label: 'Object Compare', icon: '#ic-table', accent: 'nav-accent-10' },
-  { key: 'parameterCompare', href: 'parameterCompare.html', label: 'Parameter Compare', icon: '#ic-sliders', accent: 'nav-accent-10' },
+  { key: 'objectCompare', href: 'objectCompare.html', label: '오브젝트 비교', icon: '#ic-table', accent: 'nav-accent-10' },
+  { key: 'parameterCompare', href: 'parameterCompare.html', label: '파라미터 비교', icon: '#ic-sliders', accent: 'nav-accent-10' },
 ];
 
 interface Props {
@@ -132,7 +132,7 @@ export function AppHeader({ active }: Props): ReactElement {
                   <svg className="nav-icon" viewBox="0 0 16 16">
                     <use href="#ic-pulse" />
                   </svg>
-                  Dashboard
+                  대시보드
                 </a>
               </li>
             )}
@@ -142,7 +142,7 @@ export function AppHeader({ active }: Props): ReactElement {
                   <svg className="nav-icon" viewBox="0 0 16 16">
                     <use href="#ic-db" />
                   </svg>
-                  Databases
+                  대상 DB
                 </a>
               </li>
             )}
@@ -153,7 +153,7 @@ export function AppHeader({ active }: Props): ReactElement {
                   <svg className="nav-icon" viewBox="0 0 16 16">
                     <use href="#ic-pulse" />
                   </svg>
-                  Monitoring <span className="nav-caret">&#9662;</span>
+                  모니터링 <span className="nav-caret">&#9662;</span>
                 </a>
                 <ul className="nav-dropdown-menu">
                   {dailyHref && (
@@ -166,7 +166,7 @@ export function AppHeader({ active }: Props): ReactElement {
                           <svg className="nav-icon" viewBox="0 0 16 16">
                             <use href="#ic-play" />
                           </svg>
-                          Daily Monitoring
+                          일일 점검
                         </span>{' '}
                         {dailyChildren.length > 0 && <span className="nav-caret-sub">&#9656;</span>}
                       </a>
@@ -192,7 +192,7 @@ export function AppHeader({ active }: Props): ReactElement {
                         <svg className="nav-icon" viewBox="0 0 16 16">
                           <use href="#ic-db" />
                         </svg>
-                        Capacity
+                        용량 추이
                       </a>
                     </li>
                   )}
@@ -202,7 +202,7 @@ export function AppHeader({ active }: Props): ReactElement {
                         <svg className="nav-icon" viewBox="0 0 16 16">
                           <use href="#ic-issue" />
                         </svg>
-                        Alert Log
+                        Alert Log 오류
                       </a>
                     </li>
                   )}
@@ -212,7 +212,7 @@ export function AppHeader({ active }: Props): ReactElement {
                         <svg className="nav-icon" viewBox="0 0 16 16">
                           <use href="#ic-realtime" />
                         </svg>
-                        Real-Time
+                        실시간 모니터링
                       </a>
                     </li>
                   )}
@@ -229,7 +229,7 @@ export function AppHeader({ active }: Props): ReactElement {
                   <svg className="nav-icon" viewBox="0 0 16 16">
                     <use href="#ic-wrench" />
                   </svg>
-                  Maintenance <span className="nav-caret">&#9662;</span>
+                  운영 관리 <span className="nav-caret">&#9662;</span>
                 </a>
                 <ul className="nav-dropdown-menu">
                   {maintenanceItems.map((item) => (
@@ -256,7 +256,7 @@ export function AppHeader({ active }: Props): ReactElement {
                   <svg className="nav-icon" viewBox="0 0 16 16">
                     <use href="#ic-compare" />
                   </svg>
-                  Compare <span className="nav-caret">&#9662;</span>
+                  DB 비교 <span className="nav-caret">&#9662;</span>
                 </a>
                 <ul className="nav-dropdown-menu">
                   {compareItems.map((item) => (
@@ -288,7 +288,7 @@ export function AppHeader({ active }: Props): ReactElement {
                         <svg className="nav-icon" viewBox="0 0 16 16">
                           <use href="#ic-user" />
                         </svg>
-                        Users
+                        사용자 관리
                       </a>
                     </li>
                   )}
